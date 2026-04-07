@@ -2,7 +2,7 @@
        createsuperuser test-email
 
 changepassword:
-	docker compose exec appserver uv run src/manage.py changepassword $(REMOTE_BPP_USERNAME)
+	docker compose exec appserver uv run src/manage.py changepassword $(DJANGO_BPP_ADMIN_USERNAME)
 
 invalidate:
 	docker compose exec appserver uv run src/manage.py invalidate all
