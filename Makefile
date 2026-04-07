@@ -84,6 +84,7 @@ help:
 	@echo "    up-quick             - Quick start without recreation"
 	@echo "    stop                 - Stop all services"
 	@echo "    pull                 - Pull latest Docker images"
+	@echo "    repull               - Remove local iplweb/* images and pull fresh"
 	@echo "    refresh              - Full refresh (prune, pull, recreate)"
 	@echo "    restart-appserver    - Restart application server only"
 	@echo ""

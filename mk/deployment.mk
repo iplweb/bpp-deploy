@@ -1,4 +1,4 @@
-.PHONY: all run refresh up up-quick up-appserver up-webserver up-rclone stop rmrf restart-appserver health
+.PHONY: all run refresh up up-quick up-appserver up-webserver up-rclone stop rmrf restart-appserver health repull
 
 all: run
 
@@ -62,5 +62,11 @@ health:
 	@echo ""
 	@echo "=== Recent Errors (last 5 min) ==="
 	@docker compose logs --since 5m 2>&1 | grep -i -E "(error|exception|critical|failed)" | tail -20 || echo "No recent errors found"
+
+repull:
+	@echo "Removing local iplweb/* images..."
+	@docker images --format '{{.Repository}}:{{.Tag}}' | grep '^iplweb/' | xargs -r docker rmi -f || true
+	@echo "Pulling fresh images..."
+	$(MAKE) pull
 
 run: pull build update-configs up test-email
