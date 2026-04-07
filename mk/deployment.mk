@@ -2,6 +2,10 @@
 
 all: run
 
+restart: update-configs
+	docker compose down
+	docker compose up -d
+
 refresh: prune-orphan-volumes update-configs
 	docker system prune -f
 	docker compose pull

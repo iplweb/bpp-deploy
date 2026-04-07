@@ -171,8 +171,15 @@ if [ ! -f "$ENV_FILE" ]; then
     read -r BACKUP_DIR || true
     BACKUP_DIR="${BACKUP_DIR:-$DEFAULT_BACKUP_DIR}"
 
+    printf "Google Analytics Property ID (opcjonalny, Enter = pomin): "
+    read -r GA_PROPERTY_ID || true
+
+    printf "Google Verification Code (opcjonalny, Enter = pomin): "
+    read -r GA_VERIFICATION_CODE || true
+
     DB_PASS="$(openssl rand -base64 24 | tr -d '/+=' | head -c 32)"
     RMQ_PASS="$(openssl rand -base64 24 | tr -d '/+=' | head -c 32)"
+    RMQ_COOKIE="$(openssl rand -base64 24 | tr -d '/+=' | head -c 32)"
     SECRET_KEY="$(openssl rand -base64 48 | head -c 50)"
 
     cat > "$ENV_FILE" <<EOF
@@ -196,11 +203,18 @@ DJANGO_BPP_RABBITMQ_HOST=rabbitmq
 DJANGO_BPP_RABBITMQ_USER=bpp
 DJANGO_BPP_RABBITMQ_PASS=$RMQ_PASS
 DJANGO_BPP_RABBITMQ_PORT=5672
+RABBITMQ_ERLANG_COOKIE=$RMQ_COOKIE
 
 # === Aplikacja ===
 DJANGO_BPP_HOSTNAME=$BPP_HOSTNAME
 DOCKER_VERSION=latest
 DJANGO_BPP_CSRF_EXTRA_ORIGINS=https://$BPP_HOSTNAME
+STATIC_ROOT=/staticroot/
+DJANGO_SETTINGS_MODULE=django_bpp.settings.production
+
+# === Google (opcjonalne) ===
+DJANGO_BPP_GOOGLE_ANALYTICS_PROPERTY_ID=$GA_PROPERTY_ID
+DJANGO_BPP_GOOGLE_VERIFICATION_CODE=$GA_VERIFICATION_CODE
 
 # === Bezpieczenstwo ===
 DJANGO_BPP_SECRET_KEY=$SECRET_KEY
@@ -241,11 +255,22 @@ else
     ensure_env_var "DJANGO_BPP_RABBITMQ_PASS" \
         "$(openssl rand -base64 24 | tr -d '/+=' | head -c 32)" "" "RabbitMQ"
     ensure_env_var "DJANGO_BPP_RABBITMQ_PORT" "5672" "" "RabbitMQ"
+    ensure_env_var "RABBITMQ_ERLANG_COOKIE" \
+        "$(openssl rand -base64 24 | tr -d '/+=' | head -c 32)" "" "RabbitMQ"
 
     ensure_env_var "DJANGO_BPP_HOSTNAME" "$DEFAULT_HOSTNAME" \
         "Podaj nazwe hosta dla aplikacji" "Aplikacja"
     ensure_env_var "DOCKER_VERSION" "latest" "" "Aplikacja"
     ensure_env_var "DJANGO_BPP_CSRF_EXTRA_ORIGINS" "https://$DEFAULT_HOSTNAME" "" "Aplikacja"
+    ensure_env_var "STATIC_ROOT" "/staticroot/" "" "Pliki statyczne"
+    ensure_env_var "DJANGO_SETTINGS_MODULE" \
+        "django_bpp.settings.production" "" "Django settings"
+    ensure_env_var "DJANGO_BPP_GOOGLE_ANALYTICS_PROPERTY_ID" "" \
+        "Google Analytics Property ID (opcjonalny, Enter = pomin)" \
+        "Google Analytics (opcjonalne)"
+    ensure_env_var "DJANGO_BPP_GOOGLE_VERIFICATION_CODE" "" \
+        "Google Verification Code (opcjonalny, Enter = pomin)" \
+        "Google Verification (opcjonalne)"
 
     ensure_env_var "DJANGO_BPP_SECRET_KEY" \
         "$(openssl rand -base64 48 | head -c 50)" "" "Bezpieczenstwo"

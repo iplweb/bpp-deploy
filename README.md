@@ -117,6 +117,31 @@ make generate-snakeoil-certs
 make run
 ```
 
+### 5. Otwórz aplikację w przeglądarce
+
+Po uruchomieniu `make run` główny serwis jest dostępny przez `webserver` (Nginx), który wystawia standardowe porty HTTP i HTTPS:
+
+- `80:80`
+- `443:443`
+
+Na Docker Desktop pod macOS oznacza to, że porty są mapowane na hosta macOS. Aplikację otwierasz więc w przeglądarce przez adres hosta, a nie przez wewnętrzne porty kontenerów.
+
+Zalecane warianty konfiguracji lokalnej:
+
+- ustaw `DJANGO_BPP_HOSTNAME=localhost` i otwórz `https://localhost/`
+- albo ustaw własną nazwę, np. `bpp.local`, dodaj ją do `/etc/hosts`, a następnie otwórz `https://bpp.local/`
+
+Uwaga: Nginx akceptuje tylko hostname zgodny z `DJANGO_BPP_HOSTNAME`. Jeśli w konfiguracji ustawisz inną nazwę hosta, wejście przez `localhost` może nie działać poprawnie mimo poprawnego mapowania portów.
+
+Przy pierwszym uruchomieniu, jeśli baza danych jest pusta, aplikacja automatycznie przekieruje do `/setup/`. Jest to oczekiwane zachowanie kreatora konfiguracji początkowej, w którym tworzysz pierwsze konto administratora.
+
+Dodatkowe narzędzia administracyjne i monitoring nie są wystawiane jako osobne porty hosta. Są dostępne przez Nginx pod ścieżkami:
+
+- `https://<hostname>/grafana/`
+- `https://<hostname>/flower/`
+- `https://<hostname>/dozzle/`
+- `https://<hostname>/rabbitmq/`
+
 ## Struktura katalogów
 
 ```
