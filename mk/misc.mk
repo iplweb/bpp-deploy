@@ -1,7 +1,5 @@
 .PHONY: clean wait debug-show-current-settings
 
-REMOTE_BPP_USERNAME?=admin
-
 clean:
 	-find . -name '*~' -o -name '\#*' -o -name '.*~' | xargs rm -f
 
