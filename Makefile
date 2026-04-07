@@ -87,6 +87,7 @@ help:
 	@echo "    repull               - Remove local iplweb/* images and pull fresh"
 	@echo "    refresh              - Full refresh (prune, pull, recreate)"
 	@echo "    restart-appserver    - Restart application server only"
+	@echo "    wait                 - Wait for Docker build, then repull and restart"
 	@echo ""
 	@echo "  Database:"
 	@echo "    migrate              - Run Django migrations (stops workers safely)"
