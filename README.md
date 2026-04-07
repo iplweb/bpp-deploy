@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/iplweb/bpp-deploy/actions/workflows/ci.yml/badge.svg)](https://github.com/iplweb/bpp-deploy/actions/workflows/ci.yml)
 
-Konfiguracja wdrożeniowa systemu **BPP (Bibliografia Publikacji Pracowników)** — orkiestracja Docker Compose z monitoringiem, backupami i automatyczną konfiguracją.
+Konfiguracja wdrożeniowa systemu **[BPP (Bibliografia Publikacji Pracowników)](https://github.com/iplweb/bpp)** — orkiestracja Docker Compose z monitoringiem, backupami i automatyczną konfiguracją.
 
 ## Wymagania
 
