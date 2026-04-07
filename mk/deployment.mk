@@ -64,8 +64,8 @@ health:
 	@docker compose logs --since 5m 2>&1 | grep -i -E "(error|exception|critical|failed)" | tail -20 || echo "No recent errors found"
 
 repull:
-	@echo "Removing local iplweb/* images..."
-	@docker images --format '{{.Repository}}:{{.Tag}}' | grep '^iplweb/' | xargs -r docker rmi -f || true
+	@echo "Removing iplweb/bpp_* images..."
+	@docker compose config --images | grep '^iplweb/bpp_' | xargs -r docker rmi -f || true
 	@echo "Pulling fresh images..."
 	$(MAKE) pull
 
