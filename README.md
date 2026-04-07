@@ -6,10 +6,42 @@ Konfiguracja wdrożeniowa systemu **BPP (Bibliografia Publikacji Pracowników)**
 
 ## Wymagania
 
-- Docker Engine 24+ z Docker Compose v2.20+
-- GNU Make
-- `openssl` (do generowania haseł)
+- [Git](https://git-scm.com/downloads) — system kontroli wersji
+- [Docker Engine](https://docs.docker.com/engine/install/) 24+ z [Docker Compose](https://docs.docker.com/compose/install/) v2.20+
+- [GNU Make](https://www.gnu.org/software/make/) — automatyzacja zadań
+- `openssl` (do generowania haseł, zazwyczaj preinstalowany)
 - `envsubst` (zazwyczaj w pakiecie `gettext`)
+
+### Instalacja na Linux (Debian/Ubuntu)
+
+```bash
+sudo apt update && sudo apt install -y git make openssl gettext
+# Docker — patrz https://docs.docker.com/engine/install/debian/
+# lub po sklonowaniu repo: make install-docker
+```
+
+### Instalacja na macOS
+
+```bash
+# Xcode Command Line Tools (zawiera git i make):
+xcode-select --install
+# Docker Desktop: https://docs.docker.com/desktop/install/mac-install/
+brew install gettext  # envsubst
+```
+
+### Instalacja na Windows
+
+1. Zainstaluj [Git for Windows](https://gitforwindows.org/) — dostarcza Git Bash z narzędziami Unix (bash, grep, sed, openssl)
+2. Zainstaluj [Docker Desktop for Windows](https://docs.docker.com/desktop/install/windows-install/) — zawiera Docker Engine i Docker Compose
+3. Zainstaluj GNU Make — najprościej przez [Chocolatey](https://chocolatey.org/install):
+   ```
+   choco install make
+   ```
+   lub przez [Scoop](https://scoop.sh/):
+   ```
+   scoop install make
+   ```
+4. Wszystkie komendy `make` uruchamiaj w **Git Bash** (nie w CMD ani PowerShell)
 
 ## Szybki start
 
@@ -138,12 +170,12 @@ make init-configs       # Uzupełnij brakujące pliki w katalogu konfiguracyjnym
 make generate-snakeoil-certs  # Wygeneruj samopodpisane certyfikaty SSL
 ```
 
-### Serwer zdalny
+### Zarządzanie hostem
 
 ```bash
-make ssh                    # SSH do hosta
-make apt-update-apt-upgrade # Aktualizacja systemu
-make install-docker         # Instalacja Dockera na hoście
+make base-host-update-upgrade  # Aktualizacja systemu (apt update + full-upgrade)
+make base-host-reboot          # Restart hosta
+make install-docker            # Instalacja Dockera na hoście
 ```
 
 ## Usługi

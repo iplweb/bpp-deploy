@@ -30,6 +30,20 @@ jobs:
 
       - uses: pre-commit/action@v3.0.1
 
+  test-windows:
+    name: Testy Makefile (Windows)
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Instalacja GNU Make
+        run: choco install make -y
+
+      - name: Uruchom testy w Git Bash
+        shell: bash
+        run: ./tests/test_makefile.sh
+
   yaml-lint:
     name: Walidacja docker-compose
     runs-on: ubuntu-latest
