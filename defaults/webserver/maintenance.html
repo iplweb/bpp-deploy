@@ -820,17 +820,32 @@
         handleSuccess(status) {
             this.statusDot.className = 'status-dot success';
             this.statusText.textContent = 'System dostępny!';
-            this.statusDetails.textContent = `Status ${status} - przekierowanie za 3 sekundy...`;
 
             // Clear the interval
             if (this.checkInterval) {
                 clearInterval(this.checkInterval);
             }
 
-            // Redirect after 3 seconds
+            // Play radio time signal (sygnał czasu)
+            sfx.timeSignal();
+
+            // Visual countdown 5... 4... 3... 2... 1...
+            let remaining = 5;
+            this.statusDetails.textContent = `Przekierowanie za ${remaining}...`;
+            const countdownInterval = setInterval(() => {
+                remaining--;
+                if (remaining > 0) {
+                    this.statusDetails.textContent = `Przekierowanie za ${remaining}...`;
+                } else {
+                    this.statusDetails.textContent = 'Przekierowanie...';
+                    clearInterval(countdownInterval);
+                }
+            }, 1000);
+
+            // Redirect after signal finishes (~5 seconds)
             setTimeout(() => {
                 window.location.reload();
-            }, 3000);
+            }, 5000);
         }
 
         probableSuccess() {
@@ -937,6 +952,41 @@
         tttWin:   () => playSequence([[523, 0.12], [659, 0.12], [784, 0.2]]),
         tttLose:  () => playSequence([[400, 0.12, 'triangle'], [300, 0.2, 'triangle']]),
         tttDraw:  () => playSequence([[440, 0.1], [440, 0.15]]),
+        timeSignal: () => {
+            // Polish Radio time signal (sygnał czasu):
+            // 5 short beeps at 1-second intervals, then 1 long beep
+            try {
+                const ctx = getAudioCtx();
+                const now = ctx.currentTime;
+                const freq = 1000;
+                // 4 short beeps (pik pik pik pik)
+                for (let i = 0; i < 4; i++) {
+                    const osc = ctx.createOscillator();
+                    const gain = ctx.createGain();
+                    osc.type = 'sine';
+                    osc.frequency.value = freq;
+                    gain.gain.setValueAtTime(0.2, now + i);
+                    gain.gain.setValueAtTime(0.001, now + i + 0.1);
+                    osc.connect(gain);
+                    gain.connect(ctx.destination);
+                    osc.start(now + i);
+                    osc.stop(now + i + 0.1);
+                }
+                // 1 long beep (piiiiiiik) at 5th second
+                const osc = ctx.createOscillator();
+                const gain = ctx.createGain();
+                osc.type = 'sine';
+                osc.frequency.value = freq;
+                gain.gain.setValueAtTime(0.25, now + 4);
+                gain.gain.setValueAtTime(0.001, now + 4 + 0.8);
+                osc.connect(gain);
+                gain.connect(ctx.destination);
+                osc.start(now + 4);
+                osc.stop(now + 4 + 0.8);
+            } catch (e) {
+                // Audio not available
+            }
+        },
     };
 
     // Game switching
