@@ -65,7 +65,8 @@ health:
 
 repull:
 	@echo "Removing iplweb/bpp_* images..."
-	@docker compose config --images | grep '^iplweb/bpp_' | xargs -r docker rmi -f || true
+	@docker compose config --images | grep '^iplweb/bpp_' | sort -u | xargs -r docker rmi -f || true
+	@docker image prune -f > /dev/null
 	@echo "Pulling fresh images..."
 	$(MAKE) pull
 
