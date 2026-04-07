@@ -7,7 +7,7 @@
 Konfiguracja wdrożeniowa systemu **[BPP (Bibliografia Publikacji Pracowników)](https://github.com/iplweb/bpp)** — orkiestracja Docker Compose z monitoringiem, backupami i automatyczną konfiguracją.
 
 <p align="center">
-  <i>Wsparcie komercyjne zapewnia</i><br><br>
+  <b>Wsparcie komercyjne zapewnia</b><br><br>
   <a href="https://bpp.iplweb.pl"><img src="https://www.iplweb.pl/images/ipl-logo-large.png" width="150" alt="IPL Web"></a>
 </p>
 
