@@ -306,12 +306,6 @@
             font-size: 16px;
         }
 
-        .snake-cell.paragraph-obstacle {
-            background: #ffcccc;
-            color: #ff0000;
-            font-weight: bold;
-        }
-
         .snake-controls {
             display: grid;
             grid-template-columns: 50px 50px 50px;
@@ -401,63 +395,76 @@
             text-align: center;
         }
 
-        /* Catcher game styles */
-        .catcher-board {
-            width: 400px;
-            height: 400px;
-            background: linear-gradient(to bottom, #87CEEB 0%, #98D8E8 100%);
+        /* Diamonds game styles */
+        .diamonds-board {
+            display: grid;
+            grid-template-columns: repeat(8, 42px);
+            grid-template-rows: repeat(8, 42px);
+            gap: 2px;
+            justify-content: center;
+            margin: 1rem auto;
+            background: #2d1b4e;
             border: 2px solid #e87e1e;
             border-radius: 8px;
-            position: relative;
-            overflow: hidden;
-            margin: 1rem auto;
+            padding: 4px;
         }
 
-        .catcher-player {
-            position: absolute;
-            bottom: 10px;
-            font-size: 3rem;
-            transition: left 0.1s ease;
+        .diamond-cell {
+            width: 42px;
+            height: 42px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 28px;
+            cursor: pointer;
+            border-radius: 4px;
+            transition: all 0.2s ease;
+            background: #3d2b5e;
             user-select: none;
         }
 
-        .falling-item {
-            position: absolute;
-            font-size: 2rem;
-            animation: fall linear;
-            user-select: none;
+        .diamond-cell:hover {
+            transform: scale(1.1);
+            z-index: 1;
         }
 
-        @keyframes fall {
-            from {
-                transform: translateY(-50px);
-            }
-            to {
-                transform: translateY(450px);
-            }
+        .diamond-cell.selected {
+            background: #6b4e9e;
+            box-shadow: 0 0 8px #e87e1e;
+            transform: scale(1.15);
         }
 
-        .catcher-controls {
+        .diamond-cell.removing {
+            animation: diamondPop 0.3s ease forwards;
+        }
+
+        @keyframes diamondPop {
+            0% { transform: scale(1); opacity: 1; }
+            50% { transform: scale(1.3); opacity: 0.5; }
+            100% { transform: scale(0); opacity: 0; }
+        }
+
+        .diamond-cell.dropping {
+            transition: transform 0.3s ease;
+        }
+
+        .diamond-cell.hint {
+            animation: hintPulse 0.6s ease-in-out 3;
+            box-shadow: 0 0 12px #fff, 0 0 4px #e87e1e;
+        }
+
+        @keyframes hintPulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.2); }
+        }
+
+        .diamonds-buttons {
             display: flex;
             gap: 10px;
             justify-content: center;
-            margin-top: 1rem;
+            margin-top: 0.5rem;
         }
 
-        .move-btn {
-            background: #e87e1e;
-            color: white;
-            border: none;
-            padding: 0.8rem 1.5rem;
-            border-radius: 6px;
-            cursor: pointer;
-            font-size: 1.2rem;
-            transition: background 0.2s ease;
-        }
-
-        .move-btn:hover {
-            background: #d66e0e;
-        }
 
         .reset-button {
             background: #e87e1e;
@@ -511,6 +518,21 @@
                 height: 15px;
                 font-size: 12px;
             }
+
+            .diamonds-board {
+                grid-template-columns: repeat(8, 35px);
+                grid-template-rows: repeat(8, 35px);
+            }
+
+            .diamond-cell {
+                width: 35px;
+                height: 35px;
+                font-size: 22px;
+            }
+
+            .game-controls {
+                flex-wrap: wrap;
+            }
         }
 
         @media (max-width: 600px) {
@@ -548,18 +570,17 @@
                 font-size: 2rem;
             }
 
-            .catcher-board {
-                width: 300px;
-                height: 300px;
+            .diamonds-board {
+                grid-template-columns: repeat(8, 30px);
+                grid-template-rows: repeat(8, 30px);
             }
 
-            .catcher-player {
-                font-size: 2rem;
+            .diamond-cell {
+                width: 30px;
+                height: 30px;
+                font-size: 18px;
             }
 
-            .falling-item {
-                font-size: 1.5rem;
-            }
         }
     </style>
 </head>
@@ -600,7 +621,7 @@
                 <button class="game-switch-btn" onclick="switchGame('tictactoe')">Kółko i Krzyżyk</button>
                 <button class="game-switch-btn" onclick="switchGame('snake')">Snake 🐍</button>
                 <button class="game-switch-btn" onclick="switchGame('memory')">Memory 🎴</button>
-                <button class="game-switch-btn" onclick="switchGame('catcher')">Łapacz 💰</button>
+                <button class="game-switch-btn" onclick="switchGame('diamonds')">Diamenty 💎</button>
             </div>
 
             <!-- Tic Tac Toe Game -->
@@ -631,15 +652,15 @@
             <!-- Snake Game -->
             <div id="snake-game" class="game-container">
                 <div class="game-title">🐍 Snake</div>
-                <div class="game-status" id="snake-status">Naciśnij Start aby rozpocząć</div>
-                <div class="snake-board" id="snake-board"></div>
+                <div class="game-status" id="snake-status">Kliknij planszę lub naciśnij Start</div>
+                <div class="snake-board" id="snake-board" onclick="snakeBoardClick()"></div>
+                <button class="reset-button" onclick="startSnake()" style="margin-bottom: 0.5rem;">Start</button>
                 <div class="snake-controls">
                     <button class="arrow-btn" onclick="snakeChangeDirection('up')">↑</button>
                     <button class="arrow-btn" onclick="snakeChangeDirection('left')">←</button>
                     <button class="arrow-btn" onclick="snakeChangeDirection('down')">↓</button>
                     <button class="arrow-btn" onclick="snakeChangeDirection('right')">→</button>
                 </div>
-                <button class="reset-button" onclick="startSnake()">Start</button>
             </div>
 
             <!-- Memory Game -->
@@ -650,19 +671,17 @@
                 <button class="reset-button" onclick="resetMemory()">Nowa gra</button>
             </div>
 
-            <!-- Catcher Game -->
-            <div id="catcher-game" class="game-container">
-                <div class="game-title">💰 Łapacz Monet</div>
-                <div class="game-status" id="catcher-status">Punkty: 0 | Życia: 3</div>
-                <div class="catcher-board" id="catcher-board">
-                    <div class="catcher-player" id="catcher-player">🤠</div>
-                </div>
-                <div class="catcher-controls">
-                    <button class="move-btn" onmousedown="startMoving('left')" onmouseup="stopMoving()" ontouchstart="startMoving('left')" ontouchend="stopMoving()">⬅️</button>
-                    <button class="reset-button" onclick="startCatcher()">Start</button>
-                    <button class="move-btn" onmousedown="startMoving('right')" onmouseup="stopMoving()" ontouchstart="startMoving('right')" ontouchend="stopMoving()">➡️</button>
+            <!-- Diamonds Game -->
+            <div id="diamonds-game" class="game-container">
+                <div class="game-title">💎 Diamenty</div>
+                <div class="game-status" id="diamonds-status">Punkty: 0</div>
+                <div class="diamonds-board" id="diamonds-board"></div>
+                <div class="diamonds-buttons">
+                    <button class="reset-button" onclick="showDiamondsHint()">Podpowiedź</button>
+                    <button class="reset-button" onclick="resetDiamonds()">Nowa gra</button>
                 </div>
             </div>
+
         </div>
     </div>
 </div>
@@ -851,6 +870,75 @@
         }
     }
 
+    // ==================== SOUND EFFECTS (Web Audio API) ====================
+    let audioCtx = null;
+
+    function getAudioCtx() {
+        if (!audioCtx) {
+            audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        }
+        return audioCtx;
+    }
+
+    function playTone(freq, duration, type, volume) {
+        try {
+            const ctx = getAudioCtx();
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            osc.type = type || 'sine';
+            osc.frequency.value = freq;
+            gain.gain.value = volume || 0.15;
+            gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + duration);
+            osc.connect(gain);
+            gain.connect(ctx.destination);
+            osc.start(ctx.currentTime);
+            osc.stop(ctx.currentTime + duration);
+        } catch (e) {
+            // Audio not available - silently skip
+        }
+    }
+
+    function playSequence(notes) {
+        let offset = 0;
+        try {
+            const ctx = getAudioCtx();
+            for (const [freq, dur, type] of notes) {
+                const osc = ctx.createOscillator();
+                const gain = ctx.createGain();
+                osc.type = type || 'sine';
+                osc.frequency.value = freq;
+                gain.gain.value = 0.12;
+                gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + offset + dur);
+                osc.connect(gain);
+                gain.connect(ctx.destination);
+                osc.start(ctx.currentTime + offset);
+                osc.stop(ctx.currentTime + offset + dur);
+                offset += dur * 0.8;
+            }
+        } catch (e) {
+            // Audio not available
+        }
+    }
+
+    const sfx = {
+        click:    () => playTone(800, 0.05, 'square', 0.08),
+        move:     () => playTone(400, 0.04, 'sine', 0.06),
+        eat:      () => playTone(600, 0.1, 'sine', 0.12),
+        match:    () => playSequence([[523, 0.08], [659, 0.08], [784, 0.12]]),
+        cascade:  () => playSequence([[784, 0.08], [880, 0.08], [1047, 0.15]]),
+        swap:     () => playTone(440, 0.06, 'triangle', 0.1),
+        badSwap:  () => playTone(200, 0.15, 'sawtooth', 0.08),
+        flip:     () => playTone(660, 0.06, 'sine', 0.1),
+        matchPair:() => playSequence([[523, 0.1], [784, 0.15]]),
+        win:      () => playSequence([[523, 0.1], [659, 0.1], [784, 0.1], [1047, 0.2]]),
+        lose:     () => playSequence([[400, 0.15, 'sawtooth'], [300, 0.15, 'sawtooth'], [200, 0.3, 'sawtooth']]),
+        levelUp:  () => playSequence([[523, 0.08], [659, 0.08], [784, 0.08], [1047, 0.15]]),
+        tttPlace: () => playTone(500, 0.06, 'square', 0.08),
+        tttWin:   () => playSequence([[523, 0.12], [659, 0.12], [784, 0.2]]),
+        tttLose:  () => playSequence([[400, 0.12, 'triangle'], [300, 0.2, 'triangle']]),
+        tttDraw:  () => playSequence([[440, 0.1], [440, 0.15]]),
+    };
+
     // Game switching
     let currentGame = null;
 
@@ -878,36 +966,26 @@
             initSnake();
         } else if (game === 'memory' && !window.memoryInitialized) {
             initMemory();
-        } else if (game === 'catcher' && !window.catcherInitialized) {
-            initCatcher();
+        } else if (game === 'diamonds' && !window.diamondsInitialized) {
+            initDiamonds();
         }
     }
 
-    // Randomly select a game on page load
-    function selectRandomGame() {
-        const games = ['tictactoe', 'snake', 'memory', 'catcher'];
-        const randomGame = games[Math.floor(Math.random() * games.length)];
+    // Set default game on page load
+    function selectDefaultGame() {
+        const games = ['tictactoe', 'snake', 'memory', 'diamonds'];
+        const defaultGame = 'diamonds';
 
-        // Set the random game as active
-        document.getElementById(`${randomGame}-game`).classList.add('active');
+        document.getElementById(`${defaultGame}-game`).classList.add('active');
 
-        // Set active button
         document.querySelectorAll('.game-switch-btn').forEach((btn, index) => {
-            if (games[index] === randomGame) {
+            if (games[index] === defaultGame) {
                 btn.classList.add('active');
             }
         });
 
-        currentGame = randomGame;
-
-        // Initialize if needed
-        if (randomGame === 'snake') {
-            setTimeout(() => initSnake(), 100);
-        } else if (randomGame === 'memory') {
-            setTimeout(() => initMemory(), 100);
-        } else if (randomGame === 'catcher') {
-            setTimeout(() => initCatcher(), 100);
-        }
+        currentGame = defaultGame;
+        setTimeout(() => initDiamonds(), 100);
     }
 
     // ==================== TIC TAC TOE GAME ====================
@@ -965,6 +1043,7 @@
         cell.textContent = player;
         cell.classList.add(player.toLowerCase());
         cell.disabled = true;
+        sfx.tttPlace();
 
         checkTTTResult();
     }
@@ -984,8 +1063,10 @@
 
                 if (winner === 'X') {
                     updateTTTStatus('🎉 Wygrałeś! Brawo!');
+                    sfx.tttWin();
                 } else {
                     updateTTTStatus('🤖 Komputer wygrał!');
+                    sfx.tttLose();
                 }
                 return winner;
             }
@@ -994,6 +1075,7 @@
         if (!tttBoard.includes('')) {
             tttGameActive = false;
             updateTTTStatus('🤝 Remis! Dobra gra!');
+            sfx.tttDraw();
             return 'tie';
         }
 
@@ -1147,83 +1229,24 @@
     let snakeGameInterval = null;
     let snakeScore = 0;
     let snakeLevel = 1;
-    let currentSnakeTheme = null;
     const BOARD_SIZE = 20;
 
-    const snakeThemes = {
-        mexican: {
-            name: '🤠 Meksykańska Fiesta',
-            head: '🤠',
-            body: '🇲🇽',
-            food: '💵',
-            obstacle: '§'
-        },
-        christmas: {
-            name: '🎅 Świąteczna Podróż',
-            head: '🎅',
-            body: '🛷',
-            food: '🎁',
-            obstacle: '❄️'
-        },
-        sports: {
-            name: '⚽ Piłkarska Gorączka',
-            head: '🏃',
-            body: '👟',
-            food: '⚽',
-            obstacle: '🥅'
-        },
-        space: {
-            name: '🚀 Kosmiczna Eksploracja',
-            head: '🚀',
-            body: '⭐',
-            food: '🪐',
-            obstacle: '☄️'
-        },
-        racing: {
-            name: '🏎️ Szybki Wyścig',
-            head: '🏎️',
-            body: '💨',
-            food: '🏁',
-            obstacle: '🚧'
-        },
-        dragon: {
-            name: '🐉 Smocza Wyprawa',
-            head: '🐉',
-            body: '🔥',
-            food: '💎',
-            obstacle: '⚔️'
-        },
-        ocean: {
-            name: '🌊 Morska Przygoda',
-            head: '🦈',
-            body: '🌊',
-            food: '🐟',
-            obstacle: '🪨'
-        },
-        culinary: {
-            name: '🍕 Kulinarna Uczta',
-            head: '👨‍🍳',
-            body: '🍴',
-            food: '🍕',
-            obstacle: '🌶️'
-        },
-        classic: {
-            name: '😊 Klasyczny Wąż',
-            head: '😊',
-            body: '🟩',
-            food: '🍎',
-            obstacle: '❄️'
-        }
+    const snakeTheme = {
+        head: '🟩',
+        body: '🟩',
+        food: '🍎',
+        obstacle: '🟪'
     };
+
+    function snakeBoardClick() {
+        if (!snakeGameInterval) {
+            startSnake();
+        }
+    }
 
     function initSnake() {
         window.snakeInitialized = true;
         createSnakeBoard();
-
-        // Initialize with random theme for display
-        const themeKeys = Object.keys(snakeThemes);
-        const randomThemeKey = themeKeys[Math.floor(Math.random() * themeKeys.length)];
-        currentSnakeTheme = snakeThemes[randomThemeKey];
 
         // Add keyboard controls
         document.addEventListener('keydown', handleSnakeKeyPress);
@@ -1231,7 +1254,7 @@
 
     function createSnakeBoard() {
         const board = document.getElementById('snake-board');
-        board.innerHTML = '';
+        clearBoardChildren(board);
 
         for (let i = 0; i < BOARD_SIZE * BOARD_SIZE; i++) {
             const cell = document.createElement('div');
@@ -1248,11 +1271,6 @@
         snakeScore = 0;
         snakeLevel = 1;
         obstacles = [];
-
-        // Randomly select a theme
-        const themeKeys = Object.keys(snakeThemes);
-        const randomThemeKey = themeKeys[Math.floor(Math.random() * themeKeys.length)];
-        currentSnakeTheme = snakeThemes[randomThemeKey];
 
         // Clear board
         document.querySelectorAll('.snake-cell').forEach(cell => {
@@ -1276,7 +1294,7 @@
         // Start game loop
         snakeGameInterval = setInterval(moveSnake, 150);
 
-        updateSnakeStatus(`${currentSnakeTheme.name} | Punkty: ${snakeScore} | Poziom: ${snakeLevel}`);
+        updateSnakeStatus(`Punkty: ${snakeScore} | Poziom: ${snakeLevel}`);
     }
 
     function moveSnake() {
@@ -1321,10 +1339,12 @@
         // Check if food eaten
         if (newHead === food) {
             snakeScore++;
+            sfx.eat();
 
             // Level up every 5 points
             if (snakeScore % 5 === 0) {
                 snakeLevel++;
+                sfx.levelUp();
                 placeObstacles(); // Add more obstacles
 
                 // Speed up the game slightly
@@ -1333,7 +1353,7 @@
                 snakeGameInterval = setInterval(moveSnake, newSpeed);
             }
 
-            updateSnakeStatus(`${currentSnakeTheme.name} | Punkty: ${snakeScore} | Poziom: ${snakeLevel}`);
+            updateSnakeStatus(`Punkty: ${snakeScore} | Poziom: ${snakeLevel}`);
             placeFood();
         } else {
             // Remove tail if no food eaten
@@ -1347,7 +1367,7 @@
         // Clear all cells (preserve food and obstacles)
         document.querySelectorAll('.snake-cell').forEach(cell => {
             const content = cell.textContent;
-            if (content !== currentSnakeTheme.food && content !== currentSnakeTheme.obstacle) {
+            if (content !== snakeTheme.food && content !== snakeTheme.obstacle) {
                 cell.textContent = '';
             }
         });
@@ -1356,9 +1376,7 @@
         snake.forEach((segment, index) => {
             const cell = document.querySelector(`.snake-cell[data-index="${segment}"]`);
             if (cell) {
-                cell.textContent = index === 0 ? currentSnakeTheme.head : currentSnakeTheme.body;
-                // Remove obstacle styling if snake is on that cell
-                cell.classList.remove('paragraph-obstacle');
+                cell.textContent = index === 0 ? snakeTheme.head : snakeTheme.body;
             }
         });
 
@@ -1366,11 +1384,7 @@
         obstacles.forEach(obstacle => {
             const cell = document.querySelector(`.snake-cell[data-index="${obstacle}"]`);
             if (cell) {
-                cell.textContent = currentSnakeTheme.obstacle;
-                // Add special styling for paragraph symbol in Mexican theme
-                if (currentSnakeTheme.obstacle === '§') {
-                    cell.classList.add('paragraph-obstacle');
-                }
+                cell.textContent = snakeTheme.obstacle;
             }
         });
     }
@@ -1384,7 +1398,7 @@
         food = newFood;
         const foodCell = document.querySelector(`.snake-cell[data-index="${food}"]`);
         if (foodCell) {
-            foodCell.textContent = currentSnakeTheme.food;
+            foodCell.textContent = snakeTheme.food;
         }
     }
 
@@ -1392,9 +1406,8 @@
         // Clear old obstacles from display
         obstacles.forEach(obstacle => {
             const cell = document.querySelector(`.snake-cell[data-index="${obstacle}"]`);
-            if (cell && cell.textContent === currentSnakeTheme.obstacle) {
+            if (cell && cell.textContent === snakeTheme.obstacle) {
                 cell.textContent = '';
-                cell.classList.remove('paragraph-obstacle');
             }
         });
 
@@ -1417,11 +1430,7 @@
             obstacles.push(newObstacle);
             const cell = document.querySelector(`.snake-cell[data-index="${newObstacle}"]`);
             if (cell) {
-                cell.textContent = currentSnakeTheme.obstacle;
-                // Add special styling for paragraph symbol in Mexican theme
-                if (currentSnakeTheme.obstacle === '§') {
-                    cell.classList.add('paragraph-obstacle');
-                }
+                cell.textContent = snakeTheme.obstacle;
             }
         }
     }
@@ -1466,7 +1475,8 @@
     function endSnakeGame() {
         clearInterval(snakeGameInterval);
         snakeGameInterval = null;
-        updateSnakeStatus(`Koniec gry! ${currentSnakeTheme.name} | Wynik: ${snakeScore} | Poziom: ${snakeLevel}`);
+        sfx.lose();
+        updateSnakeStatus(`Koniec gry! Wynik: ${snakeScore} | Poziom: ${snakeLevel}`);
     }
 
     function updateSnakeStatus(message) {
@@ -1535,7 +1545,7 @@
 
         // Create board
         const board = document.getElementById('memory-board');
-        board.innerHTML = '';
+        clearBoardChildren(board);
 
         memoryCards.forEach((emoji, index) => {
             const card = document.createElement('button');
@@ -1564,6 +1574,7 @@
         card.classList.add('flipped');
         card.textContent = card.dataset.emoji;
         flippedCards.push(index);
+        sfx.flip();
 
         // Check if two cards are flipped
         if (flippedCards.length === 2) {
@@ -1583,9 +1594,11 @@
                     card1.classList.add('matched');
                     card2.classList.add('matched');
                     matchedPairs++;
+                    sfx.matchPair();
 
                     if (matchedPairs === currentEmojiSet.length) {
                         updateMemoryStatus(`🎉 Wygrałeś! Ruchy: ${memoryMoves}`);
+                        sfx.win();
                     }
 
                     flippedCards = [];
@@ -1593,6 +1606,7 @@
                 }, 500);
             } else {
                 // No match - flip back
+                sfx.badSwap();
                 setTimeout(() => {
                     card1.classList.remove('flipped');
                     card2.classList.remove('flipped');
@@ -1612,249 +1626,275 @@
         }
     }
 
-    // ==================== CATCHER GAME ====================
-    let catcherPlayer = null;
-    let catcherPlayerPos = 175;
-    let catcherScore = 0;
-    let catcherLives = 3;
-    let catcherGameInterval = null;
-    let catcherMoveInterval = null;
-    let catcherMovingDirection = null;
-    let catcherGameActive = false;
-    let catcherSpeed = 2000;
-    let catcherLevel = 1;
+    // ==================== DIAMONDS (MATCH-3) GAME ====================
+    const DIAMONDS_SIZE = 8;
+    const GEM_TYPES = ['💎', '🔴', '🟡', '🟢', '🔵'];
+    let diamondsGrid = [];
+    let diamondsScore = 0;
+    let diamondsSelected = null;
+    let diamondsAnimating = false;
 
-    const catcherThemes = {
-        mexican: {
-            name: '🤠 Meksykańska Fiesta',
-            player: '🤠',
-            goodItem: '💵',
-            badItem: '§',
-            bonusItem: '💰'
-        },
-        pirate: {
-            name: '🏴‍☠️ Łowca Skarbów',
-            player: '🏴‍☠️',
-            goodItem: '💰',
-            badItem: '💣',
-            bonusItem: '💎'
-        },
-        farmer: {
-            name: '👨‍🌾 Zbieracz Plonów',
-            player: '🧺',
-            goodItem: '🍎',
-            badItem: '🦇',
-            bonusItem: '🍓'
-        },
-        space: {
-            name: '👩‍🚀 Kosmiczny Łowca',
-            player: '👩‍🚀',
-            goodItem: '⭐',
-            badItem: '☄️',
-            bonusItem: '🌌'
-        },
-        wizard: {
-            name: '🧙 Magiczny Zbieracz',
-            player: '🧙',
-            goodItem: '🔮',
-            badItem: '💀',
-            bonusItem: '✨'
+    function initDiamonds() {
+        window.diamondsInitialized = true;
+        resetDiamonds();
+    }
+
+    function resetDiamonds() {
+        diamondsScore = 0;
+        diamondsSelected = null;
+        diamondsAnimating = false;
+        diamondsGrid = [];
+
+        // Fill grid ensuring no initial matches
+        for (let row = 0; row < DIAMONDS_SIZE; row++) {
+            diamondsGrid[row] = [];
+            for (let col = 0; col < DIAMONDS_SIZE; col++) {
+                let gem;
+                do {
+                    gem = GEM_TYPES[Math.floor(Math.random() * GEM_TYPES.length)];
+                } while (
+                    (col >= 2 && diamondsGrid[row][col-1] === gem && diamondsGrid[row][col-2] === gem) ||
+                    (row >= 2 && diamondsGrid[row-1][col] === gem && diamondsGrid[row-2][col] === gem)
+                );
+                diamondsGrid[row][col] = gem;
+            }
         }
-    };
 
-    let currentCatcherTheme = null;
-
-    function initCatcher() {
-        window.catcherInitialized = true;
-        catcherPlayer = document.getElementById('catcher-player');
-
-        // Select random theme
-        const themeKeys = Object.keys(catcherThemes);
-        const randomThemeKey = themeKeys[Math.floor(Math.random() * themeKeys.length)];
-        currentCatcherTheme = catcherThemes[randomThemeKey];
-
-        // Set player emoji
-        catcherPlayer.textContent = currentCatcherTheme.player;
-
-        // Add keyboard controls
-        document.addEventListener('keydown', handleCatcherKeyPress);
-        document.addEventListener('keyup', handleCatcherKeyUp);
+        renderDiamonds();
+        updateDiamondsStatus(`Punkty: ${diamondsScore}`);
     }
 
-    function startCatcher() {
-        // Reset game
-        catcherScore = 0;
-        catcherLives = 3;
-        catcherLevel = 1;
-        catcherSpeed = 2000;
-        catcherGameActive = true;
-        catcherPlayerPos = 175;
-
-        // Select random theme
-        const themeKeys = Object.keys(catcherThemes);
-        const randomThemeKey = themeKeys[Math.floor(Math.random() * themeKeys.length)];
-        currentCatcherTheme = catcherThemes[randomThemeKey];
-
-        // Update player
-        catcherPlayer.textContent = currentCatcherTheme.player;
-        catcherPlayer.style.left = catcherPlayerPos + 'px';
-
-        // Clear board
-        const existingItems = document.querySelectorAll('.falling-item');
-        existingItems.forEach(item => item.remove());
-
-        // Clear intervals
-        if (catcherGameInterval) clearInterval(catcherGameInterval);
-
-        // Start spawning items
-        spawnFallingItem();
-        catcherGameInterval = setInterval(spawnFallingItem, catcherSpeed);
-
-        updateCatcherStatus();
+    function clearBoardChildren(board) {
+        while (board.firstChild) {
+            board.removeChild(board.firstChild);
+        }
     }
 
-    function spawnFallingItem() {
-        if (!catcherGameActive) return;
+    function renderDiamonds() {
+        const board = document.getElementById('diamonds-board');
+        clearBoardChildren(board);
 
-        const board = document.getElementById('catcher-board');
-        const item = document.createElement('div');
-        item.className = 'falling-item';
+        for (let row = 0; row < DIAMONDS_SIZE; row++) {
+            for (let col = 0; col < DIAMONDS_SIZE; col++) {
+                const cell = document.createElement('div');
+                cell.className = 'diamond-cell';
+                cell.dataset.row = row;
+                cell.dataset.col = col;
+                cell.textContent = diamondsGrid[row][col] || '';
 
-        // Random item type (70% good, 20% bad, 10% bonus)
-        const rand = Math.random();
-        if (rand < 0.7) {
-            item.textContent = currentCatcherTheme.goodItem;
-            item.dataset.type = 'good';
-        } else if (rand < 0.9) {
-            item.textContent = currentCatcherTheme.badItem;
-            item.dataset.type = 'bad';
+                if (diamondsSelected && diamondsSelected.row === row && diamondsSelected.col === col) {
+                    cell.classList.add('selected');
+                }
+
+                cell.onclick = () => handleDiamondClick(row, col);
+                board.appendChild(cell);
+            }
+        }
+    }
+
+    function handleDiamondClick(row, col) {
+        if (diamondsAnimating) return;
+
+        if (!diamondsSelected) {
+            diamondsSelected = { row, col };
+            sfx.click();
+            renderDiamonds();
+            return;
+        }
+
+        const sr = diamondsSelected.row;
+        const sc = diamondsSelected.col;
+
+        // Check adjacency
+        const isAdjacent = (Math.abs(sr - row) + Math.abs(sc - col)) === 1;
+
+        if (!isAdjacent) {
+            diamondsSelected = { row, col };
+            sfx.click();
+            renderDiamonds();
+            return;
+        }
+
+        // Swap
+        diamondsAnimating = true;
+        sfx.swap();
+        [diamondsGrid[sr][sc], diamondsGrid[row][col]] = [diamondsGrid[row][col], diamondsGrid[sr][sc]];
+
+        const matches = findDiamondsMatches();
+        if (matches.length === 0) {
+            // Swap back
+            [diamondsGrid[sr][sc], diamondsGrid[row][col]] = [diamondsGrid[row][col], diamondsGrid[sr][sc]];
+            diamondsSelected = null;
+            diamondsAnimating = false;
+            sfx.badSwap();
+            renderDiamonds();
+            return;
+        }
+
+        diamondsSelected = null;
+        processDiamondsMatches(matches);
+    }
+
+    function findDiamondsMatches() {
+        const matches = new Set();
+
+        // Check horizontal
+        for (let row = 0; row < DIAMONDS_SIZE; row++) {
+            for (let col = 0; col < DIAMONDS_SIZE - 2; col++) {
+                const gem = diamondsGrid[row][col];
+                if (gem && gem === diamondsGrid[row][col+1] && gem === diamondsGrid[row][col+2]) {
+                    let end = col + 2;
+                    while (end + 1 < DIAMONDS_SIZE && diamondsGrid[row][end+1] === gem) end++;
+                    for (let c = col; c <= end; c++) matches.add(`${row},${c}`);
+                }
+            }
+        }
+
+        // Check vertical
+        for (let col = 0; col < DIAMONDS_SIZE; col++) {
+            for (let row = 0; row < DIAMONDS_SIZE - 2; row++) {
+                const gem = diamondsGrid[row][col];
+                if (gem && gem === diamondsGrid[row+1][col] && gem === diamondsGrid[row+2][col]) {
+                    let end = row + 2;
+                    while (end + 1 < DIAMONDS_SIZE && diamondsGrid[end+1][col] === gem) end++;
+                    for (let r = row; r <= end; r++) matches.add(`${r},${col}`);
+                }
+            }
+        }
+
+        return Array.from(matches).map(s => {
+            const [r, c] = s.split(',').map(Number);
+            return { row: r, col: c };
+        });
+    }
+
+    function processDiamondsMatches(matches, isCascade) {
+        // Score
+        diamondsScore += matches.length * 10;
+        updateDiamondsStatus(`Punkty: ${diamondsScore}`);
+        if (isCascade) {
+            sfx.cascade();
         } else {
-            item.textContent = currentCatcherTheme.bonusItem;
-            item.dataset.type = 'bonus';
+            sfx.match();
         }
 
-        // Random horizontal position
-        const xPos = Math.random() * 350;
-        item.style.left = xPos + 'px';
+        // Mark cells for removal animation
+        renderDiamonds();
+        matches.forEach(m => {
+            const cell = document.querySelector(`.diamond-cell[data-row="${m.row}"][data-col="${m.col}"]`);
+            if (cell) cell.classList.add('removing');
+        });
 
-        // Set fall duration based on level
-        const fallDuration = Math.max(2, 4 - catcherLevel * 0.2);
-        item.style.animationDuration = fallDuration + 's';
+        setTimeout(() => {
+            // Remove matched gems
+            matches.forEach(m => {
+                diamondsGrid[m.row][m.col] = null;
+            });
 
-        board.appendChild(item);
-
-        // Check collision during fall
-        const checkInterval = setInterval(() => {
-            const itemRect = item.getBoundingClientRect();
-            const playerRect = catcherPlayer.getBoundingClientRect();
-
-            // Check if item reached player level
-            if (itemRect.bottom >= playerRect.top && itemRect.bottom <= playerRect.bottom) {
-                // Check horizontal collision
-                if (itemRect.left < playerRect.right && itemRect.right > playerRect.left) {
-                    // Collision detected
-                    clearInterval(checkInterval);
-                    item.remove();
-
-                    if (item.dataset.type === 'good') {
-                        catcherScore += 10;
-                    } else if (item.dataset.type === 'bonus') {
-                        catcherScore += 50;
-                    } else if (item.dataset.type === 'bad') {
-                        catcherLives--;
-                        if (catcherLives <= 0) {
-                            endCatcherGame();
-                        }
+            // Drop gems down
+            for (let col = 0; col < DIAMONDS_SIZE; col++) {
+                let emptyRow = DIAMONDS_SIZE - 1;
+                for (let row = DIAMONDS_SIZE - 1; row >= 0; row--) {
+                    if (diamondsGrid[row][col] !== null) {
+                        diamondsGrid[emptyRow][col] = diamondsGrid[row][col];
+                        if (emptyRow !== row) diamondsGrid[row][col] = null;
+                        emptyRow--;
                     }
-
-                    // Level up every 100 points
-                    if (catcherScore > 0 && catcherScore % 100 === 0) {
-                        catcherLevel++;
-                        catcherSpeed = Math.max(1000, catcherSpeed - 200);
-                        clearInterval(catcherGameInterval);
-                        catcherGameInterval = setInterval(spawnFallingItem, catcherSpeed);
-                    }
-
-                    updateCatcherStatus();
+                }
+                // Fill empty top cells
+                for (let row = emptyRow; row >= 0; row--) {
+                    diamondsGrid[row][col] = GEM_TYPES[Math.floor(Math.random() * GEM_TYPES.length)];
                 }
             }
 
-            // Remove if fell off screen
-            if (itemRect.top > board.getBoundingClientRect().bottom) {
-                clearInterval(checkInterval);
-                item.remove();
+            renderDiamonds();
 
-                // Lose life if missed good item
-                if (item.dataset.type === 'good') {
-                    catcherLives--;
-                    if (catcherLives <= 0) {
-                        endCatcherGame();
-                    }
-                    updateCatcherStatus();
+            // Check for cascading matches
+            const newMatches = findDiamondsMatches();
+            if (newMatches.length > 0) {
+                setTimeout(() => processDiamondsMatches(newMatches, true), 300);
+            } else {
+                diamondsAnimating = false;
+
+                // Check if any moves possible
+                if (!findDiamondsHint()) {
+                    updateDiamondsStatus(`Brak ruchów! Punkty: ${diamondsScore} - Tasowanie...`);
+                    setTimeout(() => reshuffleDiamonds(), 1500);
                 }
             }
-        }, 50);
+        }, 350);
     }
 
-    function startMoving(direction) {
-        if (!catcherGameActive) return;
-
-        catcherMovingDirection = direction;
-
-        if (catcherMoveInterval) clearInterval(catcherMoveInterval);
-
-        catcherMoveInterval = setInterval(() => {
-            if (direction === 'left' && catcherPlayerPos > 0) {
-                catcherPlayerPos = Math.max(0, catcherPlayerPos - 5);
-            } else if (direction === 'right' && catcherPlayerPos < 350) {
-                catcherPlayerPos = Math.min(350, catcherPlayerPos + 5);
+    function findDiamondsHint() {
+        for (let row = 0; row < DIAMONDS_SIZE; row++) {
+            for (let col = 0; col < DIAMONDS_SIZE; col++) {
+                // Try swap right
+                if (col < DIAMONDS_SIZE - 1) {
+                    [diamondsGrid[row][col], diamondsGrid[row][col+1]] = [diamondsGrid[row][col+1], diamondsGrid[row][col]];
+                    if (findDiamondsMatches().length > 0) {
+                        [diamondsGrid[row][col], diamondsGrid[row][col+1]] = [diamondsGrid[row][col+1], diamondsGrid[row][col]];
+                        return { r1: row, c1: col, r2: row, c2: col + 1 };
+                    }
+                    [diamondsGrid[row][col], diamondsGrid[row][col+1]] = [diamondsGrid[row][col+1], diamondsGrid[row][col]];
+                }
+                // Try swap down
+                if (row < DIAMONDS_SIZE - 1) {
+                    [diamondsGrid[row][col], diamondsGrid[row+1][col]] = [diamondsGrid[row+1][col], diamondsGrid[row][col]];
+                    if (findDiamondsMatches().length > 0) {
+                        [diamondsGrid[row][col], diamondsGrid[row+1][col]] = [diamondsGrid[row+1][col], diamondsGrid[row][col]];
+                        return { r1: row, c1: col, r2: row + 1, c2: col };
+                    }
+                    [diamondsGrid[row][col], diamondsGrid[row+1][col]] = [diamondsGrid[row+1][col], diamondsGrid[row][col]];
+                }
             }
-            catcherPlayer.style.left = catcherPlayerPos + 'px';
-        }, 20);
-    }
-
-    function stopMoving() {
-        if (catcherMoveInterval) {
-            clearInterval(catcherMoveInterval);
-            catcherMoveInterval = null;
         }
-        catcherMovingDirection = null;
+        return null;
     }
 
-    function handleCatcherKeyPress(e) {
-        if (currentGame !== 'catcher' || !catcherGameActive) return;
+    function showDiamondsHint() {
+        if (diamondsAnimating) return;
 
-        if (e.key === 'ArrowLeft') {
-            e.preventDefault();
-            startMoving('left');
-        } else if (e.key === 'ArrowRight') {
-            e.preventDefault();
-            startMoving('right');
+        const hint = findDiamondsHint();
+        if (!hint) {
+            updateDiamondsStatus(`Brak ruchów! Punkty: ${diamondsScore} - Tasowanie...`);
+            setTimeout(() => reshuffleDiamonds(), 1500);
+            return;
         }
+
+        // Clear previous hints
+        document.querySelectorAll('.diamond-cell.hint').forEach(c => c.classList.remove('hint'));
+
+        const cell1 = document.querySelector(`.diamond-cell[data-row="${hint.r1}"][data-col="${hint.c1}"]`);
+        const cell2 = document.querySelector(`.diamond-cell[data-row="${hint.r2}"][data-col="${hint.c2}"]`);
+        if (cell1) cell1.classList.add('hint');
+        if (cell2) cell2.classList.add('hint');
+
+        sfx.click();
     }
 
-    function handleCatcherKeyUp(e) {
-        if (currentGame !== 'catcher') return;
-
-        if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
-            stopMoving();
+    function reshuffleDiamonds() {
+        // Regenerate board keeping score
+        for (let row = 0; row < DIAMONDS_SIZE; row++) {
+            for (let col = 0; col < DIAMONDS_SIZE; col++) {
+                let gem;
+                do {
+                    gem = GEM_TYPES[Math.floor(Math.random() * GEM_TYPES.length)];
+                } while (
+                    (col >= 2 && diamondsGrid[row][col-1] === gem && diamondsGrid[row][col-2] === gem) ||
+                    (row >= 2 && diamondsGrid[row-1][col] === gem && diamondsGrid[row-2][col] === gem)
+                );
+                diamondsGrid[row][col] = gem;
+            }
         }
+        diamondsSelected = null;
+        diamondsAnimating = false;
+        renderDiamonds();
+        updateDiamondsStatus(`Punkty: ${diamondsScore}`);
     }
 
-    function endCatcherGame() {
-        catcherGameActive = false;
-        clearInterval(catcherGameInterval);
-        stopMoving();
-
-        updateCatcherStatus();
-        const status = document.getElementById('catcher-status');
-        status.textContent = `Koniec gry! ${currentCatcherTheme.name} | Wynik: ${catcherScore} | Poziom: ${catcherLevel}`;
-    }
-
-    function updateCatcherStatus() {
-        const status = document.getElementById('catcher-status');
-        const hearts = '❤️'.repeat(Math.max(0, catcherLives));
-        status.textContent = `${currentCatcherTheme.name} | Punkty: ${catcherScore} | ${hearts} | Poziom: ${catcherLevel}`;
+    function updateDiamondsStatus(message) {
+        const status = document.getElementById('diamonds-status');
+        if (status) status.textContent = message;
     }
 
     // Initialize when DOM is ready
@@ -1864,8 +1904,8 @@
         // Initialize tic tac toe (always available)
         initTicTacToe();
 
-        // Select random game
-        selectRandomGame();
+        // Set default game
+        selectDefaultGame();
     });
 </script>
 </body>
