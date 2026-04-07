@@ -14,20 +14,24 @@ Konfiguracja wdrożeniowa systemu **[BPP (Bibliografia Publikacji Pracowników)]
 
 ### Instalacja na Linux (Debian/Ubuntu)
 
-```bash
-sudo apt update && sudo apt install -y git make openssl gettext
-# Docker — patrz https://docs.docker.com/engine/install/debian/
-# lub po sklonowaniu repo: make install-docker
-```
+1. Zainstaluj narzędzia systemowe:
+   ```bash
+   sudo apt update && sudo apt install -y git make openssl gettext
+   ```
+2. Zainstaluj [Docker Engine dla Debian](https://docs.docker.com/engine/install/debian/) lub [Docker Engine dla Ubuntu](https://docs.docker.com/engine/install/ubuntu/) (zawiera Docker Compose)
+   — lub po sklonowaniu repo: `make install-docker`
 
 ### Instalacja na macOS
 
-```bash
-# Xcode Command Line Tools (zawiera git i make):
-xcode-select --install
-# Docker Desktop: https://docs.docker.com/desktop/install/mac-install/
-brew install gettext  # envsubst
-```
+1. Zainstaluj Xcode Command Line Tools (zawiera git i make):
+   ```bash
+   xcode-select --install
+   ```
+2. Zainstaluj [Docker Desktop dla macOS](https://docs.docker.com/desktop/install/mac-install/) — zawiera Docker Engine i Docker Compose
+3. Zainstaluj `envsubst`:
+   ```bash
+   brew install gettext
+   ```
 
 ### Instalacja na Windows
 
@@ -79,9 +83,11 @@ Sciezka: /home/deploy/moja-instancja
 
 ### 3. Sprawdź i dostosuj konfigurację
 
-```bash
-# Edytuj zmienne aplikacyjne:
-nano /home/deploy/moja-instancja/.env
+Otwórz plik `.env` z katalogu konfiguracyjnego w dowolnym edytorze tekstu (np. Notepad, VS Code, nano, vim):
+
+```
+# Ścieżka wyświetli się po pierwszym uruchomieniu make, np.:
+# /home/deploy/moja-instancja/.env
 ```
 
 Co trzeba zmienić w `.env`:
@@ -91,11 +97,10 @@ Co trzeba zmienić w `.env`:
 
 Dodaj certyfikaty SSL (lub wygeneruj samopodpisane):
 ```bash
-# Opcja A: wlasne certyfikaty
-cp /sciezka/do/cert.pem /home/deploy/moja-instancja/ssl/cert.pem
-cp /sciezka/do/key.pem /home/deploy/moja-instancja/ssl/key.pem
+# Opcja A: własne certyfikaty — skopiuj cert.pem i key.pem
+#          do podkatalogu ssl/ w katalogu konfiguracyjnym
 
-# Opcja B: samopodpisane certyfikaty (snakeoil) do testow
+# Opcja B: samopodpisane certyfikaty (snakeoil) do testów
 make generate-snakeoil-certs
 ```
 
