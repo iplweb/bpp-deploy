@@ -1,0 +1,102 @@
+services:
+
+  # Logging and monitoring stack
+  dozzle:
+    image: amir20/dozzle:v10.2.1
+    restart: always
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    environment:
+      DOZZLE_BASE: /dozzle
+      DOZZLE_AUTH_PROVIDER: forward-proxy
+      DOZZLE_AUTH_HEADER_USER: X-WEBAUTH-USER
+      DOZZLE_AUTH_HEADER_EMAIL: X-WEBAUTH-EMAIL
+      DOZZLE_AUTH_HEADER_NAME: X-WEBAUTH-NAME
+      # DOZZLE_ENABLE_SHELL: true
+
+  loki:
+    image: grafana/loki:3.7.1
+    restart: always
+    command: -config.file=/etc/loki/local-config.yaml -log.level=warn
+    volumes:
+      - loki_data:/loki
+
+  grafana:
+    image: grafana/grafana:12.4.2
+    restart: always
+    environment:
+      - GF_SERVER_ROOT_URL=%(protocol)s://%(domain)s/grafana/
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SERVER_SERVE_FROM_SUB_PATH=true
+      - GF_AUTH_PROXY_ENABLED=true
+      - GF_AUTH_PROXY_HEADER_NAME=X-WEBAUTH-USER
+      - GF_AUTH_PROXY_HEADER_PROPERTY=username
+      - GF_AUTH_PROXY_AUTO_SIGN_UP=true
+      - GF_AUTH_PROXY_HEADERS=Email:X-WEBAUTH-EMAIL Name:X-WEBAUTH-NAME
+      - GF_USERS_AUTO_ASSIGN_ORG_ROLE=Admin
+      - GF_LOG_LEVEL=error # śmieci logami okrutnie
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ${BPP_CONFIGS_DIR}/grafana/provisioning:/etc/grafana/provisioning:ro
+    depends_on:
+      - loki
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  alloy:
+    image: grafana/alloy:v1.15.0
+    restart: always
+    command: >
+      run /etc/alloy/config.alloy
+      --server.http.listen-addr=0.0.0.0:12345
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ${BPP_CONFIGS_DIR}/alloy:/etc/alloy:ro
+    depends_on:
+      - loki
+
+  prometheus:
+    image: prom/prometheus:v3.11.0
+    restart: always
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=30d'
+      - '--storage.tsdb.retention.size=4GB'
+      - '--web.enable-lifecycle'
+      - '--log.level=warn'
+    volumes:
+      - prometheus_data:/prometheus
+      - ${BPP_CONFIGS_DIR}/prometheus:/etc/prometheus:ro
+    depends_on:
+      - appserver
+
+  postgres-exporter:
+    image: quay.io/prometheuscommunity/postgres-exporter:v0.19.1
+    restart: always
+    environment:
+      DATA_SOURCE_URI: "${DJANGO_BPP_DB_HOST}:${DJANGO_BPP_DB_PORT}/${DJANGO_BPP_DB_NAME}?sslmode=disable"
+      DATA_SOURCE_USER: "${DJANGO_BPP_DB_USER}"
+      DATA_SOURCE_PASS: "${DJANGO_BPP_DB_PASSWORD}"
+    depends_on:
+      dbserver:
+        condition: service_healthy
+
+  node-exporter:
+    image: quay.io/prometheus/node-exporter:v1.11.0
+    restart: always
+    command:
+      - '--path.rootfs=/host'
+      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
+    pid: host
+    volumes:
+      - '/:/host:ro,rslave'
+
+volumes:
+  grafana_data:
+  prometheus_data:
+  loki_data:

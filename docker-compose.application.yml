@@ -1,0 +1,76 @@
+services:
+
+  # Ofelia to taki cron...
+  ofelia:
+    image: mcuadros/ofelia:0.3.21
+    restart: always
+    env_file: ${BPP_CONFIGS_DIR}/.env
+    depends_on:
+      - appserver
+    command: daemon --docker
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    labels:
+      ofelia.email-to: "${DJANGO_BPP_ADMIN_EMAIL}"
+      ofelia.email-from: "Ofelia @ ${DJANGO_BPP_HOSTNAME} <${DJANGO_BPP_ADMIN_EMAIL}>"
+      ofelia.slack-webhook: "${DJANGO_BPP_SLACK_WEBHOOK}"
+
+  authserver:
+    # Lightweight auth server for nginx authentication
+    # Starts quickly (seconds) - no migrations, no collectstatic
+    # Used by nginx auth_request for Grafana, Dozzle, etc.
+    image: iplweb/bpp_authserver:${DOCKER_VERSION:-latest}
+    restart: always
+    environment:
+      - DJANGO_SETTINGS_MODULE=django_bpp.settings.auth_server
+    env_file: ${BPP_CONFIGS_DIR}/.env
+    depends_on:
+      dbserver:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:8001/health/"]
+      interval: 5s
+      timeout: 3s
+      start_period: 10s
+      retries: 3
+
+  appserver:
+    image: iplweb/bpp_appserver:${DOCKER_VERSION:-latest}
+    restart: always
+    env_file: ${BPP_CONFIGS_DIR}/.env
+    environment:
+      DJANGO_BPP_ENABLE_PROMETHEUS: true
+    volumes:
+      - staticfiles:/staticroot
+      - media:/mediaroot
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    depends_on:
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      dbserver:
+        condition: service_healthy
+    labels:
+      ofelia.enabled: "true"
+
+      ofelia.job-exec.denorm_rebuild.schedule: "0 0 22 * * *"
+      ofelia.job-exec.denorm_rebuild.command: "uv run src/manage.py denorm_rebuild --no-flush"
+
+      ofelia.job-exec.refresh_sitemap.schedule: "0 30 1 * * *"
+      ofelia.job-exec.refresh_sitemap.command: "uv run src/manage.py refresh_sitemap -v0"
+
+      ofelia.job-exec.rebuild_kolejnosc.schedule: "0 30 3 * * *"
+      ofelia.job-exec.rebuild_kolejnosc.command: "uv run src/manage.py rebuild_kolejnosc"
+
+      ofelia.job-exec.rebuild_autor_jednostka.schedule: "0 30 4 * * *"
+      ofelia.job-exec.rebuild_autor_jednostka.command: "uv run src/manage.py rebuild_autor_jednostka"
+
+      ofelia.job-exec.pbn_integrator.schedule: "0 30 21 * * 6"
+      ofelia.job-exec.pbn_integrator.command: "uv run src/manage.py tee pbn_integrator --enable-all --disable-multiprocessing"
+
+volumes:
+  staticfiles:
+  media:

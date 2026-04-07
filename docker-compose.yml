@@ -1,0 +1,38 @@
+# BPP Docker Deployment - Main Orchestration File
+# Uses include directive to merge modular component files
+# Docker Compose v2.20+ required (current: v5.0.0)
+#
+# Named volumes (data only) distributed across included files:
+# - database.yml: postgresql_data
+# - infrastructure.yml: redis, rabbitmq_data
+# - application.yml: staticfiles, media (shared with workers)
+# - monitoring.yml: grafana_data, prometheus_data, loki_data
+# - backup.yml: backup
+# Config files are bind-mounted from $BPP_CONFIGS_DIR (see .env)
+#
+# Include-level env_file loads variables from the config directory's .env
+# for YAML interpolation in included files. BPP_CONFIGS_DIR itself is
+# resolved from the repo-local .env (read automatically by Docker Compose).
+
+include:
+  - path: docker-compose.monitoring.yml
+    env_file:
+      - ${BPP_CONFIGS_DIR}/.env
+  - path: docker-compose.database.yml
+    env_file:
+      - ${BPP_CONFIGS_DIR}/.env
+  - path: docker-compose.infrastructure.yml
+    env_file:
+      - ${BPP_CONFIGS_DIR}/.env
+  - path: docker-compose.application.yml
+    env_file:
+      - ${BPP_CONFIGS_DIR}/.env
+  - path: docker-compose.workers.yml
+    env_file:
+      - ${BPP_CONFIGS_DIR}/.env
+  - path: docker-compose.backup.yml
+    env_file:
+      - ${BPP_CONFIGS_DIR}/.env
+  - path: docker-compose.local_overrides.yml
+    env_file:
+      - ${BPP_CONFIGS_DIR}/.env

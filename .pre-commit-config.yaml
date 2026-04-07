@@ -1,0 +1,27 @@
+repos:
+  # --- Standardowe hooki ---
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+        args: ['--allow-multiple-documents']
+      - id: check-merge-conflict
+      - id: check-added-large-files
+        args: ['--maxkb=500']
+      - id: detect-private-key
+
+  # --- ShellCheck — linter dla bash/sh ---
+  - repo: https://github.com/shellcheck-py/shellcheck-py
+    rev: v0.10.0.1
+    hooks:
+      - id: shellcheck
+        args: ['-e', 'SC1091,SC2086']  # SC1091: can't follow sourced file, SC2086: double quote to prevent globbing
+
+  # --- Wykrywanie sekretów (TruffleHog) ---
+  - repo: https://github.com/trufflesecurity/trufflehog
+    rev: v3.88.26
+    hooks:
+      - id: trufflehog
+        entry: trufflehog git file://. --since-commit HEAD --only-verified --fail

@@ -1,0 +1,111 @@
+logging {
+  level  = "warn"
+  format = "logfmt"
+}
+
+discovery.docker "local" {
+  host = "unix:///var/run/docker.sock"
+}
+
+discovery.relabel "docker_labels" {
+  targets = []
+
+  rule {
+    source_labels = ["__meta_docker_container_name"]
+    regex         = "/(.*)"
+    target_label  = "container"
+  }
+
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_service"]
+    target_label  = "service"
+  }
+
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_project"]
+    target_label  = "project"
+  }
+}
+
+loki.write "local" {
+  endpoint {
+    url = "http://loki:3100/loki/api/v1/push"
+  }
+}
+
+// Log processing pipeline for level extraction
+loki.process "log_levels" {
+  // Try JSON structured logs first (e.g., Dozzle)
+  stage.json {
+    expressions = { extracted_level = "level" }
+  }
+
+  // Try key-value format: level=INFO, level=ERROR
+  stage.regex {
+    expression = "level=(?P<extracted_level>(?i:TRACE|DEBUG|INFO|WARN(?:ING)?|ERROR|FATAL|CRITICAL))\\b"
+  }
+
+  // Try Python logging format: INFO:module:message
+  stage.regex {
+    expression = "^(?P<extracted_level>(?i:DEBUG|INFO|WARNING|ERROR|CRITICAL)):"
+  }
+
+  // Try bracketed format: [info], [ERROR]
+  stage.regex {
+    expression = "\\[(?P<extracted_level>(?i:trace|debug|info|warn(?:ing)?|error|fatal|critical))\\]"
+  }
+
+  // Catch Python warnings: UserWarning, SecurityWarning, etc.
+  stage.regex {
+    expression = "(?P<extracted_level>(?i:UserWarning|SecurityWarning|DeprecationWarning|RuntimeWarning))"
+  }
+
+  // Last resort: standalone level words anywhere in log
+  stage.regex {
+    expression = "\\b(?P<extracted_level>(?i:TRACE|DEBUG|INFO|WARN(?:ING)?|ERROR|FATAL|CRITICAL))\\b"
+  }
+
+  // Normalize WARN → warning
+  stage.replace {
+    expression = "(?i)^warn$"
+    replace    = "warning"
+    source     = "extracted_level"
+  }
+
+  // Normalize FATAL → error
+  stage.replace {
+    expression = "(?i)^fatal$"
+    replace    = "error"
+    source     = "extracted_level"
+  }
+
+  // Normalize Python warnings → warning
+  stage.replace {
+    expression = "(?i)^.*Warning$"
+    replace    = "warning"
+    source     = "extracted_level"
+  }
+
+  // Convert to lowercase for consistency
+  stage.template {
+    source   = "extracted_level"
+    template = "{{ .Value | ToLower }}"
+  }
+
+  // Add as label if extracted
+  stage.labels {
+    values = {
+      detected_level = "extracted_level",
+    }
+  }
+
+  forward_to = [loki.write.local.receiver]
+}
+
+loki.source.docker "containers" {
+  host          = "unix:///var/run/docker.sock"
+  targets       = discovery.docker.local.targets
+  labels        = { job = "docker" }
+  relabel_rules = discovery.relabel.docker_labels.rules
+  forward_to    = [loki.process.log_levels.receiver]
+}

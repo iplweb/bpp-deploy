@@ -1,0 +1,23 @@
+services:
+
+  rclone:
+    image: rclone/rclone:1.73.3
+    restart: always
+    entrypoint: sleep infinity
+    volumes:
+      - backup:/backup
+      - media:/mediaroot
+      - ${BPP_CONFIGS_DIR}/rclone:/config/rclone:ro
+
+    # To jest serwer testowy. Nie robimy backupów, dlatego labels: są wykomentowane
+    # labels:
+      #ofelia.enabled: "true"
+      # Zrób kopię katalogu /mediaroot o 5tej rano w dni robocze:
+      #ofelia.job-exec.tar_media.schedule: "0 0 5 * * 1,2,3,4,5"
+      #ofelia.job-exec.tar_media.command: "tar czf /backup/mediaroot.tgz /mediaroot"
+      # Wyślij pliki na Dropbox o 6tej rano w dni robocze:
+      #ofelia.job-exec.rclone.schedule: "0 0 6 * * 1,2,3,4,5"
+      #ofelia.job-exec.rclone.command: "rclone sync /backup/ backup_enc:`date +%Y-%m`/`date +%d`/"
+
+volumes:
+  backup:

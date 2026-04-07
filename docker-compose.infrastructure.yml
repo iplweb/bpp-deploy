@@ -1,0 +1,62 @@
+services:
+
+  webserver:
+    image: nginx:1.29.7
+    restart: always
+    env_file: ${BPP_CONFIGS_DIR}/.env
+    environment:
+      NGINX_ENVSUBST_FILTER: "DJANGO_BPP_"
+    ports:
+      - 80:80
+      - 443:443
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f -s -o /dev/null http://127.0.0.1:80/healthz || exit 1"]
+      start_period: 10s
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    volumes:
+      - staticfiles:/var/www/html/staticroot
+      - media:/mediaroot
+      - ${BPP_CONFIGS_DIR}/ssl:/etc/ssl/private:ro
+      - ./defaults/webserver/default.conf.template:/etc/nginx/templates/default.conf.template:ro
+      - ./defaults/webserver/maintenance.html:/usr/share/nginx/html/maintenance.html:ro
+
+  redis:
+    image: redis:8.6.2
+    restart: always
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      start_period: 5s
+      interval: 5s
+      timeout: 5s
+      retries: 3
+    volumes:
+      - redis:/data
+
+  rabbitmq:
+    image: rabbitmq:4.2.5-management-alpine
+    restart: always
+    env_file: ${BPP_CONFIGS_DIR}/.env
+    #ports:
+    #  - 5672:5672   # AMQP protocol port
+    #  - 15672:15672 # Management UI port
+    environment:
+      RABBITMQ_DEFAULT_USER: ${DJANGO_BPP_RABBITMQ_USER:-bpp}
+      RABBITMQ_DEFAULT_PASS: ${DJANGO_BPP_RABBITMQ_PASS:-bpp}
+      RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS: >-
+        -rabbit log_levels [{connection,error},{channel,error},{mirroring,error},{federation,error},{upgrade,error}]
+        log [{console,[{level,error}]}]
+    healthcheck:
+      test: ["CMD-SHELL", "rabbitmqctl await_startup && rabbitmqctl authenticate_user \"$$RABBITMQ_DEFAULT_USER\" \"$$RABBITMQ_DEFAULT_PASS\""]
+      start_period: 60s
+      interval: 10s
+      timeout: 30s
+      retries: 5
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq/mnesia
+      - ${BPP_CONFIGS_DIR}/rabbitmq:/etc/rabbitmq:ro
+
+volumes:
+  redis:
+  rabbitmq_data:

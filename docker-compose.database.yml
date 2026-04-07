@@ -1,0 +1,14 @@
+services:
+
+  dbserver:
+    image: iplweb/bpp_dbserver:${DOCKER_VERSION:-latest}
+    restart: always
+    environment:
+      POSTGRES_DB: ${DJANGO_BPP_DB_NAME}
+      POSTGRES_USER: ${DJANGO_BPP_DB_USER}
+      POSTGRES_PASSWORD: ${DJANGO_BPP_DB_PASSWORD}
+    volumes:
+      - postgresql_data:/var/lib/postgresql/data
+
+volumes:
+  postgresql_data:

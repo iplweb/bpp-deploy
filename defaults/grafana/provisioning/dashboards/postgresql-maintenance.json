@@ -1,0 +1,598 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": { "type": "grafana", "uid": "-- Grafana --" },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "panels": [
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+      "id": 100,
+      "panels": [],
+      "title": "Index Analysis",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "postgresql" },
+      "description": "Large indexes that are rarely or never used - prime candidates for removal",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "custom": {
+            "align": "auto",
+            "cellOptions": { "type": "auto" },
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 10485760 },
+              { "color": "orange", "value": 104857600 },
+              { "color": "red", "value": 524288000 }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "index_name" },
+            "properties": [{ "id": "custom.width", "value": 400 }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "index_size" },
+            "properties": [{ "id": "unit", "value": "bytes" }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "scans" },
+            "properties": [
+              { "id": "thresholds", "value": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "yellow", "value": 10 }, { "color": "green", "value": 100 }] } },
+              { "id": "custom.cellOptions", "value": { "type": "color-background" } }
+            ]
+          }
+        ]
+      },
+      "gridPos": { "h": 12, "w": 24, "x": 0, "y": 1 },
+      "id": 1,
+      "options": {
+        "cellHeight": "sm",
+        "footer": { "countRows": false, "fields": "", "reducer": ["sum"], "show": false },
+        "showHeader": true,
+        "sortBy": [{ "desc": true, "displayName": "index_size" }]
+      },
+      "targets": [
+        {
+          "datasource": { "type": "grafana-postgresql-datasource", "uid": "postgresql" },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT \n  schemaname || '.' || indexrelname AS index_name,\n  schemaname || '.' || relname AS table_name,\n  pg_relation_size((quote_ident(schemaname) || '.' || quote_ident(indexrelname))::regclass) AS index_size,\n  idx_scan AS scans,\n  idx_tup_read AS tuples_read,\n  idx_tup_fetch AS tuples_fetched,\n  CASE WHEN idx_scan > 0 THEN 'Used' ELSE 'UNUSED' END AS status\nFROM pg_stat_user_indexes\nWHERE pg_relation_size((quote_ident(schemaname) || '.' || quote_ident(indexrelname))::regclass) > 65536\nORDER BY \n  CASE WHEN idx_scan = 0 THEN 0 ELSE 1 END,\n  pg_relation_size((quote_ident(schemaname) || '.' || quote_ident(indexrelname))::regclass) DESC\nLIMIT 30",
+          "refId": "A"
+        }
+      ],
+      "title": "Biggest Indexes (Prioritized by Low Usage)",
+      "type": "table"
+    },
+    {
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "postgresql" },
+      "description": "Indexes sorted by size-to-usage ratio - larger ratio means less efficient",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "custom": {
+            "align": "auto",
+            "cellOptions": { "type": "auto" },
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "blue", "value": null }]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "index_name" },
+            "properties": [{ "id": "custom.width", "value": 350 }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "index_size" },
+            "properties": [{ "id": "unit", "value": "bytes" }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "bytes_per_scan" },
+            "properties": [
+              { "id": "unit", "value": "bytes" },
+              { "id": "thresholds", "value": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 1048576 }, { "color": "red", "value": 104857600 }] } },
+              { "id": "custom.cellOptions", "value": { "type": "color-background" } }
+            ]
+          }
+        ]
+      },
+      "gridPos": { "h": 10, "w": 12, "x": 0, "y": 13 },
+      "id": 2,
+      "options": {
+        "cellHeight": "sm",
+        "footer": { "countRows": false, "fields": "", "reducer": ["sum"], "show": false },
+        "showHeader": true,
+        "sortBy": [{ "desc": true, "displayName": "bytes_per_scan" }]
+      },
+      "targets": [
+        {
+          "datasource": { "type": "grafana-postgresql-datasource", "uid": "postgresql" },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT \n  schemaname || '.' || indexrelname AS index_name,\n  pg_relation_size((quote_ident(schemaname) || '.' || quote_ident(indexrelname))::regclass) AS index_size,\n  idx_scan AS scans,\n  CASE WHEN idx_scan > 0 \n    THEN pg_relation_size((quote_ident(schemaname) || '.' || quote_ident(indexrelname))::regclass) / idx_scan \n    ELSE pg_relation_size((quote_ident(schemaname) || '.' || quote_ident(indexrelname))::regclass)\n  END AS bytes_per_scan\nFROM pg_stat_user_indexes\nWHERE pg_relation_size((quote_ident(schemaname) || '.' || quote_ident(indexrelname))::regclass) > 65536\nORDER BY bytes_per_scan DESC\nLIMIT 20",
+          "refId": "A"
+        }
+      ],
+      "title": "Least Efficient Indexes (Bytes per Scan)",
+      "type": "table"
+    },
+    {
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "postgresql" },
+      "description": "Duplicate or redundant indexes on the same columns",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "custom": {
+            "align": "auto",
+            "cellOptions": { "type": "auto" },
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "orange", "value": null }]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "index_size" },
+            "properties": [{ "id": "unit", "value": "bytes" }]
+          }
+        ]
+      },
+      "gridPos": { "h": 10, "w": 12, "x": 12, "y": 13 },
+      "id": 3,
+      "options": {
+        "cellHeight": "sm",
+        "footer": { "countRows": false, "fields": "", "reducer": ["sum"], "show": false },
+        "showHeader": true
+      },
+      "targets": [
+        {
+          "datasource": { "type": "grafana-postgresql-datasource", "uid": "postgresql" },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT \n  pg_size_pretty(sum(pg_relation_size(idx))::bigint) AS total_size,\n  (array_agg(idx))[1] AS index_name,\n  count(*) AS index_count,\n  max(indexdef) AS definition\nFROM (\n  SELECT \n    indexrelid::regclass AS idx, \n    (indrelid::text || E'\\n' || indclass::text || E'\\n' || indkey::text || E'\\n' || coalesce(indexprs::text,'') || E'\\n' || coalesce(indpred::text,'')) AS key,\n    pg_get_indexdef(indexrelid) AS indexdef\n  FROM pg_index\n  WHERE indrelid::regclass::text NOT LIKE 'pg_%'\n) sub\nGROUP BY key\nHAVING count(*) > 1\nORDER BY sum(pg_relation_size(idx)) DESC\nLIMIT 10",
+          "refId": "A"
+        }
+      ],
+      "title": "Potentially Duplicate Indexes",
+      "type": "table"
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 23 },
+      "id": 101,
+      "panels": [],
+      "title": "Table Maintenance",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "postgresql" },
+      "description": "Tables with high dead tuple ratio need VACUUM",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "custom": {
+            "align": "auto",
+            "cellOptions": { "type": "auto" },
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "green", "value": null }]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "table_name" },
+            "properties": [{ "id": "custom.width", "value": 300 }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "dead_ratio_pct" },
+            "properties": [
+              { "id": "unit", "value": "percent" },
+              { "id": "thresholds", "value": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 5 }, { "color": "orange", "value": 10 }, { "color": "red", "value": 20 }] } },
+              { "id": "custom.cellOptions", "value": { "type": "color-background" } }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "table_size" },
+            "properties": [{ "id": "unit", "value": "bytes" }]
+          }
+        ]
+      },
+      "gridPos": { "h": 10, "w": 12, "x": 0, "y": 24 },
+      "id": 4,
+      "options": {
+        "cellHeight": "sm",
+        "footer": { "countRows": false, "fields": "", "reducer": ["sum"], "show": false },
+        "showHeader": true,
+        "sortBy": [{ "desc": true, "displayName": "dead_ratio_pct" }]
+      },
+      "targets": [
+        {
+          "datasource": { "type": "grafana-postgresql-datasource", "uid": "postgresql" },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT \n  schemaname || '.' || relname AS table_name,\n  pg_relation_size((quote_ident(schemaname) || '.' || quote_ident(relname))::regclass) AS table_size,\n  n_live_tup AS live_tuples,\n  n_dead_tup AS dead_tuples,\n  CASE WHEN n_live_tup > 0 \n    THEN round(100.0 * n_dead_tup / n_live_tup, 2) \n    ELSE 0 \n  END AS dead_ratio_pct,\n  last_vacuum,\n  last_autovacuum,\n  last_analyze\nFROM pg_stat_user_tables\nWHERE n_dead_tup > 0 OR n_live_tup > 1000\nORDER BY \n  CASE WHEN n_live_tup > 0 THEN n_dead_tup::float / n_live_tup ELSE 0 END DESC\nLIMIT 20",
+          "refId": "A"
+        }
+      ],
+      "title": "Tables Needing VACUUM (by Dead Tuple Ratio)",
+      "type": "table"
+    },
+    {
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "postgresql" },
+      "description": "Tables that haven't been analyzed recently",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "custom": {
+            "align": "auto",
+            "cellOptions": { "type": "auto" },
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "blue", "value": null }]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "table_name" },
+            "properties": [{ "id": "custom.width", "value": 300 }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "table_size" },
+            "properties": [{ "id": "unit", "value": "bytes" }]
+          }
+        ]
+      },
+      "gridPos": { "h": 10, "w": 12, "x": 12, "y": 24 },
+      "id": 5,
+      "options": {
+        "cellHeight": "sm",
+        "footer": { "countRows": false, "fields": "", "reducer": ["sum"], "show": false },
+        "showHeader": true
+      },
+      "targets": [
+        {
+          "datasource": { "type": "grafana-postgresql-datasource", "uid": "postgresql" },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT \n  schemaname || '.' || relname AS table_name,\n  pg_relation_size((quote_ident(schemaname) || '.' || quote_ident(relname))::regclass) AS table_size,\n  n_live_tup AS rows,\n  last_analyze,\n  last_autoanalyze,\n  COALESCE(last_analyze, last_autoanalyze, '1970-01-01'::timestamp) AS last_stats_update\nFROM pg_stat_user_tables\nWHERE n_live_tup > 100\nORDER BY COALESCE(last_analyze, last_autoanalyze, '1970-01-01'::timestamp) ASC\nLIMIT 20",
+          "refId": "A"
+        }
+      ],
+      "title": "Tables with Stale Statistics",
+      "type": "table"
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 34 },
+      "id": 102,
+      "panels": [],
+      "title": "Query Performance",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "postgresql" },
+      "description": "Tables with low index usage - consider adding indexes",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "custom": {
+            "align": "auto",
+            "cellOptions": { "type": "auto" },
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "blue", "value": null }]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "table_name" },
+            "properties": [{ "id": "custom.width", "value": 300 }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "table_size" },
+            "properties": [{ "id": "unit", "value": "bytes" }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "index_usage_pct" },
+            "properties": [
+              { "id": "unit", "value": "percent" },
+              { "id": "thresholds", "value": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "yellow", "value": 50 }, { "color": "green", "value": 90 }] } },
+              { "id": "custom.cellOptions", "value": { "type": "color-background" } }
+            ]
+          }
+        ]
+      },
+      "gridPos": { "h": 10, "w": 12, "x": 0, "y": 35 },
+      "id": 6,
+      "options": {
+        "cellHeight": "sm",
+        "footer": { "countRows": false, "fields": "", "reducer": ["sum"], "show": false },
+        "showHeader": true,
+        "sortBy": [{ "desc": false, "displayName": "index_usage_pct" }]
+      },
+      "targets": [
+        {
+          "datasource": { "type": "grafana-postgresql-datasource", "uid": "postgresql" },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT \n  schemaname || '.' || relname AS table_name,\n  pg_relation_size((quote_ident(schemaname) || '.' || quote_ident(relname))::regclass) AS table_size,\n  seq_scan,\n  idx_scan,\n  CASE WHEN (seq_scan + idx_scan) > 0 \n    THEN round(100.0 * idx_scan / (seq_scan + idx_scan), 2) \n    ELSE 0 \n  END AS index_usage_pct,\n  n_live_tup AS rows\nFROM pg_stat_user_tables\nWHERE (seq_scan + idx_scan) > 100\n  AND n_live_tup > 1000\nORDER BY \n  CASE WHEN (seq_scan + idx_scan) > 0 \n    THEN idx_scan::float / (seq_scan + idx_scan) \n    ELSE 1 \n  END ASC\nLIMIT 20",
+          "refId": "A"
+        }
+      ],
+      "title": "Tables with Low Index Usage (Need Indexes?)",
+      "type": "table"
+    },
+    {
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "postgresql" },
+      "description": "Most frequently scanned tables - hot tables",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "custom": {
+            "align": "auto",
+            "cellOptions": { "type": "auto" },
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "green", "value": null }]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "table_name" },
+            "properties": [{ "id": "custom.width", "value": 300 }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "table_size" },
+            "properties": [{ "id": "unit", "value": "bytes" }]
+          }
+        ]
+      },
+      "gridPos": { "h": 10, "w": 12, "x": 12, "y": 35 },
+      "id": 7,
+      "options": {
+        "cellHeight": "sm",
+        "footer": { "countRows": false, "fields": "", "reducer": ["sum"], "show": false },
+        "showHeader": true,
+        "sortBy": [{ "desc": true, "displayName": "total_scans" }]
+      },
+      "targets": [
+        {
+          "datasource": { "type": "grafana-postgresql-datasource", "uid": "postgresql" },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT \n  schemaname || '.' || relname AS table_name,\n  pg_relation_size((quote_ident(schemaname) || '.' || quote_ident(relname))::regclass) AS table_size,\n  seq_scan + idx_scan AS total_scans,\n  seq_scan,\n  idx_scan,\n  n_tup_ins AS inserts,\n  n_tup_upd AS updates,\n  n_tup_del AS deletes\nFROM pg_stat_user_tables\nORDER BY (seq_scan + idx_scan) DESC\nLIMIT 20",
+          "refId": "A"
+        }
+      ],
+      "title": "Most Active Tables (Hot Tables)",
+      "type": "table"
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 45 },
+      "id": 103,
+      "panels": [],
+      "title": "Summary Stats",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "postgresql" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "blue", "value": null }]
+          },
+          "unit": "bytes"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 46 },
+      "id": 8,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "datasource": { "type": "grafana-postgresql-datasource", "uid": "postgresql" },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT sum(pg_relation_size((quote_ident(schemaname) || '.' || quote_ident(indexrelname))::regclass)) AS total FROM pg_stat_user_indexes WHERE idx_scan = 0",
+          "refId": "A"
+        }
+      ],
+      "title": "Total Unused Index Size",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "postgresql" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "blue", "value": null }]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 46 },
+      "id": 9,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "datasource": { "type": "grafana-postgresql-datasource", "uid": "postgresql" },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT count(*) AS count FROM pg_stat_user_indexes WHERE idx_scan = 0 AND pg_relation_size((quote_ident(schemaname) || '.' || quote_ident(indexrelname))::regclass) > 8192",
+          "refId": "A"
+        }
+      ],
+      "title": "Unused Index Count",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "postgresql" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 1000000 },
+              { "color": "red", "value": 10000000 }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 46 },
+      "id": 10,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "datasource": { "type": "grafana-postgresql-datasource", "uid": "postgresql" },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT sum(n_dead_tup) AS total FROM pg_stat_user_tables",
+          "refId": "A"
+        }
+      ],
+      "title": "Total Dead Tuples",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "postgresql" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "blue", "value": null }]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 46 },
+      "id": 11,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "datasource": { "type": "grafana-postgresql-datasource", "uid": "postgresql" },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT count(*) AS count FROM pg_stat_user_tables",
+          "refId": "A"
+        }
+      ],
+      "title": "Total User Tables",
+      "type": "stat"
+    }
+  ],
+  "refresh": "5m",
+  "schemaVersion": 39,
+  "tags": ["postgresql", "maintenance", "indexes"],
+  "templating": { "list": [] },
+  "time": { "from": "now-24h", "to": "now" },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "PostgreSQL Maintenance",
+  "uid": "postgresql-maintenance",
+  "version": 1,
+  "weekStart": ""
+}
