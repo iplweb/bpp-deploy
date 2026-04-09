@@ -69,6 +69,7 @@ include mk/django.mk
 include mk/rclone.mk
 include mk/ssl.mk
 include mk/misc.mk
+include mk/version.mk
 
 help:
 	@echo ""
@@ -138,6 +139,10 @@ help:
 	@echo "  Django utilities:"
 	@echo "    invalidate           - Invalidate Django cache"
 	@echo "    test-email           - Test email configuration"
+	@echo ""
+	@echo "  Versioning:"
+	@echo "    version              - Show current version (from git tags)"
+	@echo "    release              - Tag current commit with CalVer date"
 	@echo ""
 
 endif

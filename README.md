@@ -3,6 +3,7 @@
 # BPP Deploy
 
 [![CI](https://github.com/iplweb/bpp-deploy/actions/workflows/ci.yml/badge.svg)](https://github.com/iplweb/bpp-deploy/actions/workflows/ci.yml)
+![Version](https://img.shields.io/badge/version-0.0.0-blue)
 
 Konfiguracja wdrożeniowa systemu **[BPP (Bibliografia Publikacji Pracowników)](https://github.com/iplweb/bpp)** — orkiestracja Docker Compose z monitoringiem, backupami i automatyczną konfiguracją.
 
@@ -11,59 +12,85 @@ Konfiguracja wdrożeniowa systemu **[BPP (Bibliografia Publikacji Pracowników)]
   <a href="https://bpp.iplweb.pl"><img src="https://www.iplweb.pl/images/ipl-logo-large.png" width="150" alt="IPL Web"></a>
 </p>
 
-## Wymagania
+## Instalacja
 
-- [Git](https://git-scm.com/downloads) — system kontroli wersji
-- [Docker Engine](https://docs.docker.com/engine/install/) 24+ z [Docker Compose](https://docs.docker.com/compose/install/) v2.20+
-- [GNU Make](https://www.gnu.org/software/make/) — automatyzacja zadań
-- `openssl` (do generowania haseł, zazwyczaj preinstalowany)
-- `envsubst` (zazwyczaj w pakiecie `gettext`)
+### Linux (Debian/Ubuntu)
 
-### Instalacja na Linux (Debian/Ubuntu)
+Zainstaluj podstawowe narzędzia:
 
-1. Zainstaluj narzędzia systemowe:
-   ```bash
-   sudo apt update && sudo apt install -y git make openssl gettext
-   ```
-2. Zainstaluj [Docker Engine dla Debian](https://docs.docker.com/engine/install/debian/) lub [Docker Engine dla Ubuntu](https://docs.docker.com/engine/install/ubuntu/) (zawiera Docker Compose)
-   — lub po sklonowaniu repo: `make install-docker`
+```bash
+$ sudo apt update
+$ sudo apt install -y git make openssl gettext
+```
 
-### Instalacja na macOS
+Zainstaluj Docker Engine — oficjalna instrukcja dla [Debian](https://docs.docker.com/engine/install/debian/) lub [Ubuntu](https://docs.docker.com/engine/install/ubuntu/) (zawiera Docker Compose).
 
-1. Zainstaluj Xcode Command Line Tools (zawiera git i make):
-   ```bash
-   xcode-select --install
-   ```
-2. Zainstaluj [Docker Desktop dla macOS](https://docs.docker.com/desktop/install/mac-install/) — zawiera Docker Engine i Docker Compose
-3. Zainstaluj `envsubst`:
-   ```bash
-   brew install gettext
-   ```
+Sklonuj repozytorium i przejdź do katalogu:
 
-### Instalacja na Windows
+```bash
+$ git clone https://github.com/iplweb/bpp-deploy.git
+$ cd bpp-deploy
+```
 
-1. Zainstaluj [Git for Windows](https://gitforwindows.org/) — dostarcza Git Bash z narzędziami Unix (bash, grep, sed, openssl)
-2. Zainstaluj [Docker Desktop for Windows](https://docs.docker.com/desktop/install/windows-install/) — zawiera Docker Engine i Docker Compose
-3. Zainstaluj GNU Make — najprościej przez [Chocolatey](https://chocolatey.org/install):
-   ```
-   choco install make
-   ```
-   lub przez [Scoop](https://scoop.sh/):
-   ```
-   scoop install make
-   ```
-4. Wszystkie komendy `make` uruchamiaj w **Git Bash** (nie w CMD ani PowerShell)
+> **Podpowiedź:** Możesz też zainstalować Docker poleceniem `make install-docker` po sklonowaniu repo.
+
+---
+
+### macOS
+
+Zainstaluj Xcode Command Line Tools (zawiera git i make):
+
+```bash
+$ xcode-select --install
+```
+
+Zainstaluj [Docker Desktop dla macOS](https://docs.docker.com/desktop/install/mac-install/) — zawiera Docker Engine i Docker Compose.
+
+Zainstaluj `envsubst` (potrzebny do generowania konfiguracji):
+
+```bash
+$ brew install gettext
+```
+
+Sklonuj repozytorium i przejdź do katalogu:
+
+```bash
+$ git clone https://github.com/iplweb/bpp-deploy.git
+$ cd bpp-deploy
+```
+
+---
+
+### Windows
+
+Zainstaluj [Git for Windows](https://gitforwindows.org/) — dostarcza Git Bash z narzędziami Unix (bash, grep, sed, openssl).
+
+Zainstaluj [Docker Desktop for Windows](https://docs.docker.com/desktop/install/windows-install/) — zawiera Docker Engine i Docker Compose.
+
+Zainstaluj GNU Make — najprościej przez [Chocolatey](https://chocolatey.org/install):
+
+```bash
+$ choco install make
+```
+
+...lub przez [Scoop](https://scoop.sh/):
+
+```bash
+$ scoop install make
+```
+
+Otwórz **Git Bash** i sklonuj repozytorium:
+
+```bash
+$ git clone https://github.com/iplweb/bpp-deploy.git
+$ cd bpp-deploy
+```
+
+> **Ważne:** Wszystkie komendy `make` uruchamiaj w **Git Bash**, nie w CMD ani PowerShell.
 
 ## Szybki start
 
-### 1. Sklonuj repozytorium
-
-```bash
-git clone https://github.com/iplweb/bpp-deploy.git
-cd bpp-deploy
-```
-
-### 2. Pierwsze uruchomienie
+### 1. Pierwsze uruchomienie
 
 ```bash
 make
@@ -88,7 +115,7 @@ Sciezka: /home/deploy/moja-instancja
 - wygeneruje losowe hasła do bazy danych i RabbitMQ,
 - utworzy plik `.env` z konfiguracją.
 
-### 3. Sprawdź i dostosuj konfigurację
+### 2. Sprawdź i dostosuj konfigurację
 
 Otwórz plik `.env` z katalogu konfiguracyjnego w dowolnym edytorze tekstu (np. Notepad, VS Code, nano, vim):
 
@@ -111,13 +138,13 @@ Dodaj certyfikaty SSL (lub wygeneruj samopodpisane):
 make generate-snakeoil-certs
 ```
 
-### 4. Uruchom usługi
+### 3. Uruchom usługi
 
 ```bash
 make run
 ```
 
-### 5. Otwórz aplikację w przeglądarce
+### 4. Otwórz aplikację w przeglądarce
 
 Po uruchomieniu `make run` główny serwis jest dostępny przez `webserver` (Nginx), który wystawia standardowe porty HTTP i HTTPS:
 
