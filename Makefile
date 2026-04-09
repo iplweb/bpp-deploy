@@ -1,4 +1,5 @@
 # BPP Deploy - Makefile
+# Wersja: patrz `make version`
 #
 # Przy pierwszym uruchomieniu `make` bez .env, zostaniesz poproszony o podanie
 # ścieżki do katalogu konfiguracyjnego. Szczegóły w .env.sample.
@@ -71,9 +72,11 @@ include mk/ssl.mk
 include mk/misc.mk
 include mk/version.mk
 
+BPP_VERSION := $(shell git describe --tags --abbrev=0 2>/dev/null || echo "brak")
+
 help:
 	@echo ""
-	@echo "BPP Docker Deployment - Available targets"
+	@echo "BPP Docker Deployment $(BPP_VERSION)"
 	@echo ""
 	@echo "  =================================================="
 	@echo "  Katalog konfiguracyjny: $(BPP_CONFIGS_DIR)"
