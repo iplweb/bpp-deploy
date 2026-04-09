@@ -184,6 +184,7 @@ if [ ! -f "$ENV_FILE" ]; then
 
     cat > "$ENV_FILE" <<EOF
 # BPP Application Configuration
+# BPP Deploy $(git describe --tags --abbrev=0 2>/dev/null || echo "dev")
 # Wygenerowano automatycznie przez make init-configs: $(date '+%Y-%m-%d %H:%M:%S')
 # Ten plik mozna edytowac recznie -- nie zostanie nadpisany
 # przy ponownym uruchomieniu init-configs.

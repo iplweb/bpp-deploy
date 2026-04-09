@@ -70,7 +70,7 @@ include mk/django.mk
 include mk/rclone.mk
 include mk/ssl.mk
 include mk/misc.mk
--include mk/version.mk
+include mk/version.mk
 
 BPP_VERSION := $(shell git describe --tags --abbrev=0 2>/dev/null || echo "brak")
 
