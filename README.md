@@ -3,7 +3,7 @@
 # BPP Deploy
 
 [![CI](https://github.com/iplweb/bpp-deploy/actions/workflows/ci.yml/badge.svg)](https://github.com/iplweb/bpp-deploy/actions/workflows/ci.yml)
-![Version](https://img.shields.io/badge/version-2026.04.09-blue)
+![Version](https://img.shields.io/badge/version-2026.04.09.0-blue)
 
 Konfiguracja wdrożeniowa systemu **[BPP (Bibliografia Publikacji Pracowników)](https://github.com/iplweb/bpp)** — orkiestracja Docker Compose z monitoringiem, backupami i automatyczną konfiguracją.
 
@@ -14,22 +14,70 @@ Konfiguracja wdrożeniowa systemu **[BPP (Bibliografia Publikacji Pracowników)]
 
 ## Instalacja
 
-### Linux (Debian/Ubuntu)
+### Linux
 
-Zainstaluj podstawowe narzędzia:
+Otwórz **Terminal** (zazwyczaj skrót `Ctrl+Alt+T` lub znajdziesz go w menu aplikacji).
+
+Wybierz swoją dystrybucję i wpisz podane polecenia jedno po drugim:
+
+<details>
+<summary><b>Debian / Ubuntu</b></summary>
 
 ```bash
-$ sudo apt update
-$ sudo apt install -y git make openssl gettext
+sudo apt update
+sudo apt install -y git make openssl gettext
 ```
 
 Zainstaluj Docker Engine — oficjalna instrukcja dla [Debian](https://docs.docker.com/engine/install/debian/) lub [Ubuntu](https://docs.docker.com/engine/install/ubuntu/) (zawiera Docker Compose).
 
-Sklonuj repozytorium i przejdź do katalogu:
+</details>
+
+<details>
+<summary><b>Fedora</b></summary>
 
 ```bash
-$ git clone https://github.com/iplweb/bpp-deploy.git
-$ cd bpp-deploy
+sudo dnf install -y git make openssl gettext
+```
+
+Zainstaluj Docker Engine — [oficjalna instrukcja dla Fedory](https://docs.docker.com/engine/install/fedora/) (zawiera Docker Compose).
+
+</details>
+
+<details>
+<summary><b>Arch Linux</b></summary>
+
+```bash
+sudo pacman -Sy --noconfirm git make openssl gettext
+```
+
+Zainstaluj Docker Engine:
+
+```bash
+sudo pacman -Sy --noconfirm docker docker-compose
+sudo systemctl enable --now docker
+sudo usermod -aG docker $USER
+```
+
+Wyloguj się i zaloguj ponownie, aby uprawnienia do Dockera zaczęły działać.
+
+</details>
+
+<details>
+<summary><b>openSUSE</b></summary>
+
+```bash
+sudo zypper install -y git make openssl gettext-runtime
+```
+
+Zainstaluj Docker Engine — [oficjalna instrukcja dla SLES/openSUSE](https://docs.docker.com/engine/install/sles/) (zawiera Docker Compose).
+
+</details>
+
+Po zainstalowaniu narzędzi i Dockera, sklonuj repozytorium i przejdź do katalogu:
+
+```bash
+git clone https://github.com/iplweb/bpp-deploy.git
+cd bpp-deploy
 ```
 
 > **Podpowiedź:** Możesz też zainstalować Docker poleceniem `make install-docker` po sklonowaniu repo.
@@ -38,55 +86,64 @@ $ cd bpp-deploy
 
 ### macOS
 
-Zainstaluj Xcode Command Line Tools (zawiera git i make):
+Otwórz **Terminal** — znajdziesz go w Finderze pod sciezką *Aplikacje > Narzędzia > Terminal* (albo wyszukaj "Terminal" przez Spotlight: `Cmd+Spacja`).
+
+Zainstaluj Xcode Command Line Tools (zawiera git i make). Wpisz w Terminalu:
 
 ```bash
-$ xcode-select --install
+xcode-select --install
 ```
 
-Zainstaluj [Docker Desktop dla macOS](https://docs.docker.com/desktop/install/mac-install/) — zawiera Docker Engine i Docker Compose.
+Pojawi się okno z prośbą o potwierdzenie — kliknij **Zainstaluj** i poczekaj na zakończenie.
 
-Zainstaluj `envsubst` (potrzebny do generowania konfiguracji):
+Zainstaluj [Docker Desktop dla macOS](https://docs.docker.com/desktop/install/mac-install/) — pobierz ze strony, otwórz plik `.dmg` i przeciągnij Docker do folderu Aplikacje. Uruchom Docker Desktop i poczekaj, aż ikona w pasku menu przestanie się animować.
+
+Zainstaluj `envsubst` (potrzebny do generowania konfiguracji). Jeśli nie masz jeszcze [Homebrew](https://brew.sh/), najpierw go zainstaluj, a potem wpisz w Terminalu:
 
 ```bash
-$ brew install gettext
+brew install gettext
 ```
 
 Sklonuj repozytorium i przejdź do katalogu:
 
 ```bash
-$ git clone https://github.com/iplweb/bpp-deploy.git
-$ cd bpp-deploy
+git clone https://github.com/iplweb/bpp-deploy.git
+cd bpp-deploy
 ```
 
 ---
 
 ### Windows
 
-Zainstaluj [Git for Windows](https://gitforwindows.org/) — dostarcza Git Bash z narzędziami Unix (bash, grep, sed, openssl).
+#### 1. Zainstaluj potrzebne programy
 
-Zainstaluj [Docker Desktop for Windows](https://docs.docker.com/desktop/install/windows-install/) — zawiera Docker Engine i Docker Compose.
+Pobierz i zainstaluj (klikając "Dalej" w instalatorach):
 
-Zainstaluj GNU Make — najprościej przez [Chocolatey](https://chocolatey.org/install):
+- [Git for Windows](https://gitforwindows.org/) — dostarcza **Git Bash**, czyli terminal z narzędziami Unix
+- [Docker Desktop for Windows](https://docs.docker.com/desktop/install/windows-install/) — po instalacji uruchom Docker Desktop i poczekaj, aż ikona w zasobniku przestanie się animować
 
-```bash
-$ choco install make
+Zainstaluj GNU Make. Otwórz **PowerShell jako Administrator** (kliknij prawym przyciskiem na menu Start > "Terminal (Administrator)" lub "Windows PowerShell (Administrator)") i wpisz:
+
+```powershell
+choco install make
 ```
 
-...lub przez [Scoop](https://scoop.sh/):
+Jeśli nie masz [Chocolatey](https://chocolatey.org/install), możesz zamiast tego użyć [Scoop](https://scoop.sh/):
 
-```bash
-$ scoop install make
+```powershell
+scoop install make
 ```
 
-Otwórz **Git Bash** i sklonuj repozytorium:
+#### 2. Sklonuj repozytorium
+
+Otwórz **Git Bash** (znajdziesz go w menu Start po wpisaniu "Git Bash"). Wpisz:
 
 ```bash
-$ git clone https://github.com/iplweb/bpp-deploy.git
-$ cd bpp-deploy
+git clone https://github.com/iplweb/bpp-deploy.git
+cd bpp-deploy
 ```
 
-> **Ważne:** Wszystkie komendy `make` uruchamiaj w **Git Bash**, nie w CMD ani PowerShell.
+> **Ważne:** Od tego momentu wszystkie komendy `make` uruchamiaj w **Git Bash**, nie w CMD ani PowerShell.
 
 ## Szybki start
 
