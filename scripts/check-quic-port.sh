@@ -21,7 +21,9 @@ echo ""
 
 # 1. Sprawdz czy Docker Compose ma skonfigurowany port UDP 443
 echo -n "  Port UDP 443 w konfiguracji Docker Compose... "
-if docker compose port webserver 443/udp >/dev/null 2>&1; then
+if docker compose config --format json 2>/dev/null | grep -q '"443:443/udp"'; then
+    echo -e "$OK"
+elif docker compose config 2>/dev/null | grep -q '443/udp'; then
     echo -e "$OK"
 else
     echo -e "$FAIL"

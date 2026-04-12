@@ -71,6 +71,6 @@ repull:
 	$(MAKE) pull
 
 check-quic:
-	@bash scripts/check-quic-port.sh
+	@bash scripts/check-quic-port.sh $(HOST)
 
 run: pull build update-configs up test-email
