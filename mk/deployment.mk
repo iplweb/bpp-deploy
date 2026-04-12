@@ -1,4 +1,4 @@
-.PHONY: all run refresh up up-quick up-appserver up-webserver up-rclone stop rmrf restart-appserver health repull
+.PHONY: all run refresh up up-quick up-appserver up-webserver up-rclone stop rmrf restart-appserver health repull check-quic
 
 all: run
 
@@ -69,5 +69,8 @@ repull:
 	@docker image prune -f > /dev/null
 	@echo "Pulling fresh images..."
 	$(MAKE) pull
+
+check-quic:
+	@bash scripts/check-quic-port.sh
 
 run: pull build update-configs up test-email

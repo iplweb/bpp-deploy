@@ -115,6 +115,7 @@ help:
 	@echo "    logs-denorm          - View denorm-queue logs"
 	@echo "    ps                   - Show running containers"
 	@echo "    health               - Quick health check of all services"
+	@echo "    check-quic           - Verify HTTP/3 (QUIC) UDP port availability"
 	@echo ""
 	@echo "  Celery/Background tasks:"
 	@echo "    celery-stats         - View active tasks and queues"

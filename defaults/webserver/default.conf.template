@@ -42,7 +42,7 @@ server {
 # Catch-all server block for HTTPS traffic with unknown hostnames
 # Rejects SSL handshake for invalid hostnames to prevent serving content to wrong domains
 server {
-    listen 443 ssl default_server;
+    listen 443 ssl http2 default_server;
     server_name _;
     ssl_reject_handshake on;
     access_log off;
@@ -54,7 +54,10 @@ server {
 server {
     client_max_body_size 100M;
 
-    listen 443 ssl;
+    listen 443 ssl http2;
+    listen 443 quic;
+    listen [::]:443 quic;
+    add_header Alt-Svc 'h3=":443"; ma=86400' always;
     server_name ${DJANGO_BPP_HOSTNAME};
 
     # ============================================================================
