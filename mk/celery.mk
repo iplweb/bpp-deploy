@@ -30,7 +30,10 @@ denorm-rebuild-command:
 
 denorm-count-forever:
 	@while true; do \
-		docker compose exec dbserver psql -U postgres bpp -c "select count(*) from denorm_dirtyinstance;"; \
+		docker compose exec -e PGPASSWORD=$(DJANGO_BPP_DB_PASSWORD) dbserver \
+			psql -h $(DJANGO_BPP_DB_HOST) -p $(DJANGO_BPP_DB_PORT) \
+			     -U $(DJANGO_BPP_DB_USER) $(DJANGO_BPP_DB_NAME) \
+			     -c "select count(*) from denorm_dirtyinstance;"; \
 		sleep 5; \
 	done
 

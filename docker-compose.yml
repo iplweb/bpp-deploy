@@ -18,7 +18,7 @@ include:
   - path: docker-compose.monitoring.yml
     env_file:
       - ${BPP_CONFIGS_DIR}/.env
-  - path: docker-compose.database.yml
+  - path: ${BPP_DATABASE_COMPOSE:-docker-compose.database.yml}
     env_file:
       - ${BPP_CONFIGS_DIR}/.env
   - path: docker-compose.infrastructure.yml

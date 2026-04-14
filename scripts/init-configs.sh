@@ -51,9 +51,47 @@ esac
 # --- 3. Zapisz do .env w repo ---
 
 PROJECT_NAME="$(basename "$ABS_CONFIG")"
+
+# Zachowaj poprzednio wybrany tryb bazy (external vs lokalna), jeśli istniał.
+PREV_DATABASE_COMPOSE=""
+if [ -f "$REPO_DIR/.env" ]; then
+    PREV_DATABASE_COMPOSE="$(grep -E '^BPP_DATABASE_COMPOSE=' "$REPO_DIR/.env" 2>/dev/null | tail -1 | cut -d= -f2- || true)"
+fi
+
 echo "BPP_CONFIGS_DIR=$ABS_CONFIG" > "$REPO_DIR/.env"
 echo "COMPOSE_PROJECT_NAME=$PROJECT_NAME" >> "$REPO_DIR/.env"
 echo "Zapisano BPP_CONFIGS_DIR=$ABS_CONFIG, COMPOSE_PROJECT_NAME=$PROJECT_NAME w .env"
+echo ""
+
+# --- 3a. Zapytaj o tryb bazy danych (wewnetrzna vs zewnetrzna) ---
+
+echo "Tryb bazy danych:"
+echo "  (1) wewnetrzna - PostgreSQL w kontenerze Docker (domyslne)"
+echo "  (2) zewnetrzna - podlaczenie do istniejacego, zewnetrznego serwera PostgreSQL"
+echo ""
+
+if [ "$PREV_DATABASE_COMPOSE" = "docker-compose.database.external.yml" ]; then
+    DB_MODE_DEFAULT="2"
+    DB_MODE_LABEL="zewnetrzna (poprzedni wybor)"
+else
+    DB_MODE_DEFAULT="1"
+    DB_MODE_LABEL="wewnetrzna"
+fi
+
+printf "Wybierz tryb [1/2, default: %s - %s]: " "$DB_MODE_DEFAULT" "$DB_MODE_LABEL"
+read -r DB_MODE_INPUT || true
+DB_MODE_INPUT="${DB_MODE_INPUT:-$DB_MODE_DEFAULT}"
+
+case "$DB_MODE_INPUT" in
+    2|external|zewnetrzna|z)
+        BPP_EXTERNAL_DB=yes
+        echo "BPP_DATABASE_COMPOSE=docker-compose.database.external.yml" >> "$REPO_DIR/.env"
+        echo "Zapisano BPP_DATABASE_COMPOSE=docker-compose.database.external.yml w .env"
+        ;;
+    *)
+        BPP_EXTERNAL_DB=no
+        ;;
+esac
 echo ""
 
 # --- 4. Backup jeśli istnieje ---
@@ -177,10 +215,54 @@ if [ ! -f "$ENV_FILE" ]; then
     printf "Google Verification Code (opcjonalny, Enter = pomin): "
     read -r GA_VERIFICATION_CODE || true
 
-    DB_PASS="$(openssl rand -base64 24 | tr -d '/+=' | head -c 32)"
     RMQ_PASS="$(openssl rand -base64 24 | tr -d '/+=' | head -c 32)"
     RMQ_COOKIE="$(openssl rand -base64 24 | tr -d '/+=' | head -c 32)"
     SECRET_KEY="$(openssl rand -base64 48 | head -c 50)"
+
+    if [ "$BPP_EXTERNAL_DB" = "yes" ]; then
+        echo "=== Konfiguracja zewnetrznej bazy PostgreSQL ==="
+        printf "Hostname zewnetrznego serwera PostgreSQL: "
+        read -r EXT_DB_HOST || true
+        printf "Port [5432]: "
+        read -r EXT_DB_PORT || true
+        EXT_DB_PORT="${EXT_DB_PORT:-5432}"
+        printf "Nazwa bazy danych [bpp]: "
+        read -r EXT_DB_NAME || true
+        EXT_DB_NAME="${EXT_DB_NAME:-bpp}"
+        printf "Uzytkownik bazy [bpp]: "
+        read -r EXT_DB_USER || true
+        EXT_DB_USER="${EXT_DB_USER:-bpp}"
+        printf "Haslo uzytkownika bazy: "
+        read -r EXT_DB_PASS || true
+
+        DB_NAME="$EXT_DB_NAME"
+        DB_USER="$EXT_DB_USER"
+        DB_PASS="$EXT_DB_PASS"
+        DB_HOST="$EXT_DB_HOST"
+        DB_PORT="$EXT_DB_PORT"
+
+        echo ""
+        echo "Probuje wykryc wersje PostgreSQL na $DB_HOST:$DB_PORT..."
+        if DETECTED_PG_MAJOR="$("$REPO_DIR/scripts/detect-postgres-version.sh" \
+                "$DB_HOST" "$DB_PORT" "$DB_USER" "$DB_PASS" "$DB_NAME" 2>/dev/null)" \
+                && [ -n "$DETECTED_PG_MAJOR" ]; then
+            echo "Wykryto PostgreSQL major $DETECTED_PG_MAJOR"
+            EXT_PG_VERSION="$DETECTED_PG_MAJOR"
+        else
+            echo "UWAGA: nie udalo sie wykryc wersji (brak polaczenia, bledna auth lub firewall)."
+            printf "Podaj wersje major PostgreSQL recznie [17]: "
+            read -r EXT_PG_VERSION || true
+            EXT_PG_VERSION="${EXT_PG_VERSION:-17}"
+        fi
+        echo ""
+    else
+        DB_PASS="$(openssl rand -base64 24 | tr -d '/+=' | head -c 32)"
+        DB_NAME="bpp"
+        DB_USER="postgres"
+        DB_HOST="dbserver"
+        DB_PORT="5432"
+        EXT_PG_VERSION=""
+    fi
 
     cat > "$ENV_FILE" <<EOF
 # BPP Application Configuration
@@ -190,11 +272,11 @@ if [ ! -f "$ENV_FILE" ]; then
 # przy ponownym uruchomieniu init-configs.
 
 # === Baza danych ===
-DJANGO_BPP_DB_NAME=bpp
-DJANGO_BPP_DB_USER=postgres
+DJANGO_BPP_DB_NAME=$DB_NAME
+DJANGO_BPP_DB_USER=$DB_USER
 DJANGO_BPP_DB_PASSWORD=$DB_PASS
-DJANGO_BPP_DB_HOST=dbserver
-DJANGO_BPP_DB_PORT=5432
+DJANGO_BPP_DB_HOST=$DB_HOST
+DJANGO_BPP_DB_PORT=$DB_PORT
 
 # === Redis ===
 DJANGO_BPP_REDIS_HOST=redis
@@ -231,6 +313,17 @@ DJANGO_BPP_SLACK_WEBHOOK=$SLACK_WEBHOOK
 # === Backupy ===
 DJANGO_BPP_BACKUP_DIR=$BACKUP_DIR
 EOF
+
+    if [ "$BPP_EXTERNAL_DB" = "yes" ] && [ -n "$EXT_PG_VERSION" ]; then
+        cat >> "$ENV_FILE" <<EOF
+
+# === Zewnetrzna baza danych ===
+# Major version zewnetrznego PostgreSQL - uzywany przez sentinel
+# w docker-compose.database.external.yml (obraz postgres:<wersja>-alpine).
+DJANGO_BPP_EXTERNAL_POSTGRESQL_DB_VERSION=$EXT_PG_VERSION
+EOF
+    fi
+
     echo "Wygenerowano $ENV_FILE z losowymi haslami."
 
 else
@@ -293,6 +386,30 @@ else
         "Slack webhook URL (opcjonalny, Enter = pomin)" "Powiadomienia (opcjonalne)"
     ensure_env_var "DJANGO_BPP_BACKUP_DIR" "$DEFAULT_BACKUP_DIR" \
         "Katalog backupow" "Backupy"
+
+    # W trybie zewnetrznej bazy - upewnij sie ze major version sentinela jest ustawiony.
+    if [ "$BPP_EXTERNAL_DB" = "yes" ] && ! env_has_var "DJANGO_BPP_EXTERNAL_POSTGRESQL_DB_VERSION"; then
+        _db_host=$(grep "^DJANGO_BPP_DB_HOST=" "$ENV_FILE" | head -1 | cut -d= -f2-)
+        _db_port=$(grep "^DJANGO_BPP_DB_PORT=" "$ENV_FILE" | head -1 | cut -d= -f2-)
+        _db_user=$(grep "^DJANGO_BPP_DB_USER=" "$ENV_FILE" | head -1 | cut -d= -f2-)
+        _db_pass=$(grep "^DJANGO_BPP_DB_PASSWORD=" "$ENV_FILE" | head -1 | cut -d= -f2-)
+        _db_name=$(grep "^DJANGO_BPP_DB_NAME=" "$ENV_FILE" | head -1 | cut -d= -f2-)
+
+        echo ""
+        echo "Probuje wykryc wersje zewnetrznej bazy PostgreSQL na $_db_host:$_db_port..."
+        if DETECTED_PG_MAJOR="$("$REPO_DIR/scripts/detect-postgres-version.sh" \
+                "$_db_host" "$_db_port" "$_db_user" "$_db_pass" "$_db_name" 2>/dev/null)" \
+                && [ -n "$DETECTED_PG_MAJOR" ]; then
+            echo "Wykryto PostgreSQL major $DETECTED_PG_MAJOR"
+            ensure_env_var "DJANGO_BPP_EXTERNAL_POSTGRESQL_DB_VERSION" "$DETECTED_PG_MAJOR" \
+                "" "Zewnetrzna baza danych"
+        else
+            echo "UWAGA: nie udalo sie wykryc wersji."
+            ensure_env_var "DJANGO_BPP_EXTERNAL_POSTGRESQL_DB_VERSION" "17" \
+                "Wersja major zewnetrznego PostgreSQL (np. 17, 16, 15)" \
+                "Zewnetrzna baza danych"
+        fi
+    fi
 
     echo ""
     echo "Sprawdzanie zakonczone."

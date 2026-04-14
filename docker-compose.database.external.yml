@@ -1,0 +1,40 @@
+# Tryb "zewnętrzna baza danych" - alternatywa dla docker-compose.database.yml.
+#
+# Ten plik jest ładowany przez docker-compose.yml gdy zmienna BPP_DATABASE_COMPOSE
+# w repo-lokalnym .env wskazuje na ten plik. Ustawia to interaktywnie
+# scripts/init-configs.sh po wybraniu trybu zewnętrznej bazy.
+#
+# W tym trybie kontener 'dbserver' NIE jest prawdziwym PostgreSQL - to lekki
+# sentinel (postgres:<major>-alpine w wersji dopasowanej do zewnętrznej bazy),
+# który:
+#
+#   1. Istnieje po to, żeby 'depends_on: dbserver' w authserver/appserver/
+#      postgres-exporter nadal działało.
+#   2. Jego healthcheck sonduje prawdziwą, zewnętrzną bazę przez pg_isready,
+#      więc serwisy zależne startują dopiero gdy zewnętrzna baza jest
+#      faktycznie dostępna.
+#   3. Udostępnia psql/pg_dump/pg_restore w tej samej wersji co serwer,
+#      dzięki czemu 'make db-backup', 'make dbshell-psql' itp. działają bez
+#      zmian w targetach.
+#
+# Aplikacja (appserver, authserver, workerserver-*, postgres-exporter) łączy
+# się BEZPOŚREDNIO z zewnętrzną bazą przez DJANGO_BPP_DB_HOST z .env -
+# sentinel nie jest pośrednikiem, tylko wartownikiem.
+
+services:
+
+  dbserver:
+    image: postgres:${DJANGO_BPP_EXTERNAL_POSTGRESQL_DB_VERSION:-17}-alpine
+    restart: always
+    env_file: ${BPP_CONFIGS_DIR}/.env
+    environment:
+      PGPASSWORD: ${DJANGO_BPP_DB_PASSWORD}
+    command: ["sleep", "infinity"]
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - pg_isready -h "$$DJANGO_BPP_DB_HOST" -p "$$DJANGO_BPP_DB_PORT" -U "$$DJANGO_BPP_DB_USER" -d "$$DJANGO_BPP_DB_NAME"
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
