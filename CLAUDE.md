@@ -436,7 +436,7 @@ make install-docker           # Install Docker on host
 │   ├── ssl/, rclone/, alloy/...    # Service configs (bind-mounted)
 │   └── grafana/provisioning/       # Dashboards & datasources
 │
-└── backups/                        # Database backups (DJANGO_BPP_BACKUP_DIR)
+└── backups/                        # Database + media backups (DJANGO_BPP_HOST_BACKUP_DIR)
 ```
 
 ### Deployment-Specific Files (in `$BPP_CONFIGS_DIR`)

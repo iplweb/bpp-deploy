@@ -29,6 +29,10 @@ services:
     env_file: ${BPP_CONFIGS_DIR}/.env
     environment:
       PGPASSWORD: ${DJANGO_BPP_DB_PASSWORD}
+    volumes:
+      # Katalog na backupy, bind-mount z hosta (tak samo jak w trybie
+      # lokalnym) - pg_dump pisze bezposrednio tutaj, bez drogi przez /tmp.
+      - ${DJANGO_BPP_HOST_BACKUP_DIR}:/backup
     command: ["sleep", "infinity"]
     healthcheck:
       test:

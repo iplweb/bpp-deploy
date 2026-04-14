@@ -9,6 +9,10 @@ services:
       POSTGRES_PASSWORD: ${DJANGO_BPP_DB_PASSWORD}
     volumes:
       - postgresql_data:/var/lib/postgresql/data
+      # Katalog na backupy, bind-mount z hosta. Kierujemy tu pg_dump/tar
+      # zamiast pisac do /tmp w writable layer kontenera - inaczej dlugo
+      # zyjacy dbserver by puchnal o rozmiar backupu przy kazdym wywolaniu.
+      - ${DJANGO_BPP_HOST_BACKUP_DIR}:/backup
 
 volumes:
   postgresql_data:

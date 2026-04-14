@@ -37,8 +37,18 @@ INPUT_DIR="${INPUT_DIR:-$DEFAULT_CONFIG_DIR}"
 # Expand tilde
 INPUT_DIR=$(eval echo "$INPUT_DIR")
 
-# Absolutna ścieżka
-ABS_CONFIG="$(cd "$INPUT_DIR" 2>/dev/null && pwd || echo "$INPUT_DIR")"
+# Absolutna ścieżka. Jesli katalog istnieje - uzyj `cd && pwd` (najbardziej
+# niezawodne). Jesli nie istnieje - zrob absolutyzacje recznie, bo dirname
+# na sciezce wzglednej (np. "./foo") daje "." i psuje obliczanie
+# DEFAULT_BACKUP_DIR ponizej.
+if [ -d "$INPUT_DIR" ]; then
+    ABS_CONFIG="$(cd "$INPUT_DIR" && pwd)"
+else
+    case "$INPUT_DIR" in
+        /*) ABS_CONFIG="$INPUT_DIR" ;;
+        *)  ABS_CONFIG="$(pwd)/$INPUT_DIR" ;;
+    esac
+fi
 
 # Walidacja: nie wewnątrz repozytorium
 case "$ABS_CONFIG" in
@@ -355,7 +365,7 @@ ADMINS=$ADMIN_USERNAME <$ADMIN_EMAIL>
 DJANGO_BPP_SLACK_WEBHOOK=$SLACK_WEBHOOK
 
 # === Backupy ===
-DJANGO_BPP_BACKUP_DIR=$BACKUP_DIR
+DJANGO_BPP_HOST_BACKUP_DIR=$BACKUP_DIR
 EOF
 
     if [ "$BPP_EXTERNAL_DB" = "yes" ] && [ -n "$EXT_PG_VERSION" ]; then
@@ -485,8 +495,20 @@ else
 
     ensure_env_var "DJANGO_BPP_SLACK_WEBHOOK" "" \
         "Slack webhook URL (opcjonalny, Enter = pomin)" "Powiadomienia (opcjonalne)"
-    ensure_env_var "DJANGO_BPP_BACKUP_DIR" "$DEFAULT_BACKUP_DIR" \
-        "Katalog backupow" "Backupy"
+    # Migracja: stara nazwa zmiennej DJANGO_BPP_BACKUP_DIR -> nowa
+    # DJANGO_BPP_HOST_BACKUP_DIR (dodana gdy dbserver dostal bind-mount
+    # /backup, zeby nazwa podkreslala ze to katalog na hoscie).
+    if env_has_var "DJANGO_BPP_BACKUP_DIR" && ! env_has_var "DJANGO_BPP_HOST_BACKUP_DIR"; then
+        _old_backup_dir="$(get_env_var DJANGO_BPP_BACKUP_DIR)"
+        awk '!/^DJANGO_BPP_BACKUP_DIR=/ && !/^# Dopisano automatycznie.*DJANGO_BPP_BACKUP_DIR/' "$ENV_FILE" > "$ENV_FILE.tmp.$$" \
+            && mv "$ENV_FILE.tmp.$$" "$ENV_FILE"
+        set_env_var "DJANGO_BPP_HOST_BACKUP_DIR" "$_old_backup_dir" \
+            "Backupy (migracja z DJANGO_BPP_BACKUP_DIR)"
+        echo "  ~ zmigrowalem DJANGO_BPP_BACKUP_DIR -> DJANGO_BPP_HOST_BACKUP_DIR"
+    fi
+
+    ensure_env_var "DJANGO_BPP_HOST_BACKUP_DIR" "$DEFAULT_BACKUP_DIR" \
+        "Katalog backupow na hoscie" "Backupy"
 
     # W trybie zewnetrznej bazy - upewnij sie ze major version sentinela jest ustawiony.
     if [ "$BPP_EXTERNAL_DB" = "yes" ] && ! env_has_var "DJANGO_BPP_EXTERNAL_POSTGRESQL_DB_VERSION"; then

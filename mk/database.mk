@@ -1,14 +1,34 @@
 .PHONY: do-migrate stop-denorm-celery start-denorm-celery migrate \
-       db-backup dbshell dbshell-psql ps-dbserver \
+       backup db-backup media-backup dbshell dbshell-psql ps-dbserver \
        dump-local-postgresql-and-copy-to-remote \
        restore-db-stop-servers restore-db-remove-db-rebuild-db-rm-backup \
        restore-remote-db-from-dump restore-remote-db-from-dump-dont-backup \
        push-local-bpp-db-to-remote
 
-DJANGO_BPP_BACKUP_DIR ?= $(dir $(BPP_CONFIGS_DIR))backups
-BACKUP_DIRNAME := db-backup-$(shell date +%Y%m%d-%H%M%S)
+# Katalog backupow na hoscie. Nowa nazwa: DJANGO_BPP_HOST_BACKUP_DIR
+# (stara: DJANGO_BPP_BACKUP_DIR - fallback dla deploymentow ktore jeszcze
+# nie przeszly migracji przez init-configs).
+ifndef DJANGO_BPP_HOST_BACKUP_DIR
+  ifdef DJANGO_BPP_BACKUP_DIR
+    DJANGO_BPP_HOST_BACKUP_DIR := $(DJANGO_BPP_BACKUP_DIR)
+  endif
+endif
+DJANGO_BPP_HOST_BACKUP_DIR ?= $(abspath $(BPP_CONFIGS_DIR)/..)/backups
+
+# Wyeksportuj do srodowiska, zeby docker compose widzial te zmienna podczas
+# interpolacji w docker-compose.database*.yml (volume mount /backup).
+# Dotyczy zarowno deploymentow ktore maja stara nazwe w .env i korzystaja
+# z fallbacku powyzej, jak i deploymentow uzywajacych computed default.
+export DJANGO_BPP_HOST_BACKUP_DIR
+
+BACKUP_TIMESTAMP := $(shell date +%Y%m%d-%H%M%S)
+BACKUP_DIRNAME := db-backup-$(BACKUP_TIMESTAMP)
 BACKUP_TAR := $(BACKUP_DIRNAME).tar.gz
-BACKUP_FULL_PATH := $(DJANGO_BPP_BACKUP_DIR)/$(BACKUP_TAR)
+BACKUP_FULL_PATH := $(DJANGO_BPP_HOST_BACKUP_DIR)/$(BACKUP_TAR)
+
+MEDIA_BACKUP_TAR := media-backup-$(BACKUP_TIMESTAMP).tar.gz
+MEDIA_BACKUP_FULL_PATH := $(DJANGO_BPP_HOST_BACKUP_DIR)/$(MEDIA_BACKUP_TAR)
+
 PARALLEL_JOBS ?= 4
 
 do-migrate:
@@ -22,9 +42,15 @@ start-denorm-celery:
 
 migrate: stop-denorm-celery do-migrate start-denorm-celery
 
+backup: db-backup media-backup
+
 db-backup:
-	@mkdir -p $(DJANGO_BPP_BACKUP_DIR)
+	@mkdir -p $(DJANGO_BPP_HOST_BACKUP_DIR)
 	@echo "Creating parallel database backup ($(PARALLEL_JOBS) jobs)..."
+	# pg_dump pisze bezposrednio do /backup w kontenerze, ktory jest
+	# bind-mountem z hosta $(DJANGO_BPP_HOST_BACKUP_DIR). Nic nie laduje
+	# w writable layer kontenera, wiec dbserver nie puchnie przy kolejnych
+	# backupach (nawet jesli wywolanie bedzie przerwane).
 	docker compose exec -e PGPASSWORD=$(DJANGO_BPP_DB_PASSWORD) dbserver pg_dump \
 		-Fd \
 		-j $(PARALLEL_JOBS) \
@@ -32,15 +58,27 @@ db-backup:
 		-p $(DJANGO_BPP_DB_PORT) \
 		-U $(DJANGO_BPP_DB_USER) \
 		$(DJANGO_BPP_DB_NAME) \
-		-f /tmp/$(BACKUP_DIRNAME)
+		-f /backup/$(BACKUP_DIRNAME)
 	@echo "Archiving backup..."
-	docker compose exec dbserver tar czf /tmp/$(BACKUP_TAR) -C /tmp $(BACKUP_DIRNAME)
-	docker compose exec dbserver rm -rf /tmp/$(BACKUP_DIRNAME)
-	@echo "Copying archive from container..."
-	docker compose cp dbserver:/tmp/$(BACKUP_TAR) $(BACKUP_FULL_PATH)
-	docker compose exec dbserver rm -f /tmp/$(BACKUP_TAR)
+	docker compose exec dbserver tar czf /backup/$(BACKUP_TAR) -C /backup $(BACKUP_DIRNAME)
+	docker compose exec dbserver rm -rf /backup/$(BACKUP_DIRNAME)
 	@echo "Backup saved to: $(BACKUP_FULL_PATH)"
 	@echo "Restore: tar xzf $(BACKUP_TAR) && pg_restore -Fd -j $(PARALLEL_JOBS) -d $(DJANGO_BPP_DB_NAME) $(BACKUP_DIRNAME)"
+
+media-backup:
+	@mkdir -p $(DJANGO_BPP_HOST_BACKUP_DIR)
+	@echo "Creating media files backup..."
+	# docker run --rm tworzy efemeryczny kontener alpine ktory po tar czf
+	# jest usuwany. Volumen media jest montowany read-only, katalog backupow
+	# na hoscie - jako /backup. Dziala niezaleznie od tego czy appserver
+	# /workery sa uruchomione.
+	docker run --rm \
+		-v $(COMPOSE_PROJECT_NAME)_media:/src:ro \
+		-v $(DJANGO_BPP_HOST_BACKUP_DIR):/backup \
+		alpine \
+		tar czf /backup/$(MEDIA_BACKUP_TAR) -C /src .
+	@echo "Media backup saved to: $(MEDIA_BACKUP_FULL_PATH)"
+	@echo "Restore: tar xzf $(MEDIA_BACKUP_TAR) -C /mediaroot/"
 
 dbshell:
 	docker compose exec appserver uv run src/manage.py dbshell
