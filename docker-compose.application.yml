@@ -59,6 +59,11 @@ services:
       timeout: 5s
       start_period: 1800s
       retries: 3
+    deploy:
+      resources:
+        limits:
+          memory: ${APPSERVER_MEM_LIMIT:-1g}
+          cpus: "${APPSERVER_CPU_LIMIT:-2.0}"
     labels:
       ofelia.enabled: "true"
 

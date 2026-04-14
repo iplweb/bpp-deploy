@@ -26,6 +26,16 @@ services:
   redis:
     image: redis:8.6.2
     restart: always
+    # --maxmemory + allkeys-lru: Redis sam ewiktuje klucze gdy zbliza sie
+    # do wlasnego limitu, zamiast czekac az Docker zabije caly kontener.
+    # Wewnetrzny limit musi byc mniejszy niz zewnetrzny, zeby eviction
+    # mial szanse zadzialac przed hard-OOM-kill-em.
+    command:
+      - redis-server
+      - --maxmemory
+      - ${REDIS_MAXMEMORY:-200mb}
+      - --maxmemory-policy
+      - allkeys-lru
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       start_period: 5s
@@ -34,6 +44,11 @@ services:
       retries: 3
     volumes:
       - redis:/data
+    deploy:
+      resources:
+        limits:
+          memory: ${REDIS_MEM_LIMIT:-256m}
+          cpus: "${REDIS_CPU_LIMIT:-0.5}"
 
   rabbitmq:
     image: rabbitmq:4.2.5-management-alpine
@@ -57,6 +72,11 @@ services:
     volumes:
       - rabbitmq_data:/var/lib/rabbitmq/mnesia
       - ${BPP_CONFIGS_DIR}/rabbitmq:/etc/rabbitmq:ro
+    deploy:
+      resources:
+        limits:
+          memory: ${RABBITMQ_MEM_LIMIT:-512m}
+          cpus: "${RABBITMQ_CPU_LIMIT:-1.0}"
 
 volumes:
   redis:

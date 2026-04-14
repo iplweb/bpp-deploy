@@ -42,3 +42,10 @@ services:
       timeout: 5s
       retries: 5
       start_period: 10s
+    # Sentinel w trybie external nie obsluguje ruchu bazy, ale symetria z
+    # trybem local - ta sama zmienna, ten sam limit.
+    deploy:
+      resources:
+        limits:
+          memory: ${DBSERVER_MEM_LIMIT:-2g}
+          cpus: "${DBSERVER_CPU_LIMIT:-2.0}"

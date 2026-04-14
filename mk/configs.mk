@@ -1,4 +1,4 @@
-.PHONY: update-ssl-certs generate-grafana-datasources update-configs
+.PHONY: update-ssl-certs generate-grafana-datasources update-configs configure-resources
 
 update-ssl-certs:
 	@if docker compose ps webserver 2>/dev/null | grep -q "Up"; then \
@@ -16,3 +16,6 @@ generate-grafana-datasources:
 
 update-configs: generate-grafana-datasources
 	@echo "Configs are bind-mounted from $(BPP_CONFIGS_DIR), no copy needed."
+
+configure-resources:
+	@./scripts/configure-resources.sh

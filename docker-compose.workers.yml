@@ -11,6 +11,11 @@ services:
       # Czy nawet w ogóle ją buduje...
       appserver:
         condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: ${WORKER_GENERAL_MEM_LIMIT:-1g}
+          cpus: "${WORKER_GENERAL_CPU_LIMIT:-2.0}"
 
   workerserver-denorm:
     image: iplweb/bpp_workerserver:${DOCKER_VERSION:-latest}
@@ -25,6 +30,11 @@ services:
       # Czy nawet w ogóle ją buduje...
       appserver:
         condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: ${WORKER_DENORM_MEM_LIMIT:-1g}
+          cpus: "${WORKER_DENORM_CPU_LIMIT:-1.0}"
 
   denorm-queue:
     # run only SINGLE service, this is only a mechanism to pass

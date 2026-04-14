@@ -130,6 +130,7 @@ help:
 	@echo "    update-configs       - Regenerate templated configs (datasources.yaml)"
 	@echo "    update-ssl-certs     - Reload nginx to pick up new SSL certs"
 	@echo "    init-configs         - Re-initialize config directory structure"
+	@echo "    configure-resources  - Tune Docker memory/CPU limits for this host"
 	@echo "    generate-snakeoil-certs - Generate self-signed SSL certificates"
 	@echo ""
 	@echo "  Host management:"

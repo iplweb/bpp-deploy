@@ -13,6 +13,13 @@ services:
       # zamiast pisac do /tmp w writable layer kontenera - inaczej dlugo
       # zyjacy dbserver by puchnal o rozmiar backupu przy kazdym wywolaniu.
       - ${DJANGO_BPP_HOST_BACKUP_DIR}:/backup
+    # Limity zasobow - domyslne wartosci dla 8 GB hosta; `make configure-resources`
+    # wylicza wartosci proporcjonalne do rzeczywistego rozmiaru hosta.
+    deploy:
+      resources:
+        limits:
+          memory: ${DBSERVER_MEM_LIMIT:-2g}
+          cpus: "${DBSERVER_CPU_LIMIT:-2.0}"
 
 volumes:
   postgresql_data:

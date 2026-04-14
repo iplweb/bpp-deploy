@@ -20,6 +20,11 @@ services:
     command: -config.file=/etc/loki/local-config.yaml -log.level=warn
     volumes:
       - loki_data:/loki
+    deploy:
+      resources:
+        limits:
+          memory: ${LOKI_MEM_LIMIT:-256m}
+          cpus: "${LOKI_CPU_LIMIT:-0.5}"
 
   grafana:
     image: grafana/grafana:12.4.2
@@ -74,6 +79,11 @@ services:
       - ${BPP_CONFIGS_DIR}/prometheus:/etc/prometheus:ro
     depends_on:
       - appserver
+    deploy:
+      resources:
+        limits:
+          memory: ${PROMETHEUS_MEM_LIMIT:-512m}
+          cpus: "${PROMETHEUS_CPU_LIMIT:-1.0}"
 
   postgres-exporter:
     image: quay.io/prometheuscommunity/postgres-exporter:v0.19.1

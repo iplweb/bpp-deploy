@@ -453,8 +453,28 @@ Config files are bind-mounted directly — editing files in `$BPP_CONFIGS_DIR` t
 - `make update-configs` - Regenerates `datasources.yaml` from template (envsubst)
 - `make update-ssl-certs` - Reloads nginx to pick up new SSL certificates
 - `make init-configs` - Re-creates missing config directory structure
+- `make configure-resources` - Tune Docker memory/CPU limits for this host (interactive)
 - `make generate-snakeoil-certs` - Generates self-signed SSL certificates (won't overwrite existing)
 - `make generate-snakeoil-certs-force` - Regenerates self-signed SSL certificates (overwrites existing)
+
+### Resource Limits (`deploy.resources.limits`)
+
+Osiem high-risk serwisów ma limity pamięci i CPU sparametryzowane przez env vars, żeby runaway container (memory leak, heavy query) nie mógł zjeść całego hosta:
+
+- `dbserver` — `DBSERVER_MEM_LIMIT` / `DBSERVER_CPU_LIMIT`
+- `appserver` — `APPSERVER_MEM_LIMIT` / `APPSERVER_CPU_LIMIT`
+- `workerserver-general` — `WORKER_GENERAL_MEM_LIMIT` / `WORKER_GENERAL_CPU_LIMIT`
+- `workerserver-denorm` — `WORKER_DENORM_MEM_LIMIT` / `WORKER_DENORM_CPU_LIMIT`
+- `rabbitmq` — `RABBITMQ_MEM_LIMIT` / `RABBITMQ_CPU_LIMIT`
+- `redis` — `REDIS_MEM_LIMIT` / `REDIS_CPU_LIMIT` + wewnętrzny `REDIS_MAXMEMORY` (z `allkeys-lru` eviction policy, musi być mniejszy od Docker limit żeby ewiktowanie działało zanim Docker zabije kontener)
+- `loki` — `LOKI_MEM_LIMIT` / `LOKI_CPU_LIMIT`
+- `prometheus` — `PROMETHEUS_MEM_LIMIT` / `PROMETHEUS_CPU_LIMIT`
+
+**Domyślne wartości** w compose'ach są skrojone pod host 8 GB (najmniejszy rozsądny deployment), więc stack startuje out-of-the-box po `git pull && make up` bez żadnej akcji użytkownika.
+
+**Tuning pod większy host**: `make configure-resources` wykrywa RAM i CPU (Linux `/proc/meminfo` + `nproc`, macOS `sysctl`), proponuje proporcjonalny podział (30% RAM dla Postgresa, 15% dla Django/workerów itd.) i interaktywnie pyta o akceptację każdego serwisu. Wynik ląduje w `$BPP_CONFIGS_DIR/.env` i jest odczytywany przez compose przy następnym `make up`.
+
+Małe daemony (authserver, exportery, webserver, ofelia, celerybeat, denorm-queue, grafana, backup-runner, alloy, dozzle) **nie mają limitów** — cost/benefit się nie spina, każdy z nich trzyma się poniżej 100 MB i nie ma tendencji do growu.
 
 ### Backwards Compatibility and `.env` Migrations — CRITICAL
 
