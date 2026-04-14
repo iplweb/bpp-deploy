@@ -47,6 +47,7 @@ setup:
 	@echo "=== BPP Deploy - pierwsze uruchomienie ==="
 	$(MAKE) init-configs
 	$(MAKE) generate-grafana-datasources
+	$(MAKE) configure-resources
 
 else
 # === Normal operation (BPP_CONFIGS_DIR is set) ===

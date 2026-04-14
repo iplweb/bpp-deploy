@@ -288,8 +288,17 @@ make celery-stats     # Statystyki zadań Celery
 make update-configs     # Regeneruj datasources.yaml (envsubst)
 make update-ssl-certs   # Przeładuj nginx po zmianie certyfikatów
 make init-configs       # Uzupełnij brakujące pliki w katalogu konfiguracyjnym
+make configure-resources # Dostrój limity RAM/CPU dla wszystkich serwisów
 make generate-snakeoil-certs  # Wygeneruj samopodpisane certyfikaty SSL
 ```
+
+#### Limity zasobów (`make configure-resources`)
+
+Podczas pierwszego uruchomienia `make` skrypt `configure-resources` jest odpalany automatycznie — wykrywa RAM i liczbę rdzeni hosta, proponuje proporcjonalny podział budżetu między 8 serwisów wysokiego ryzyka (dbserver, appserver, workerserver-general/denorm, rabbitmq, redis, loki, prometheus) i pyta użytkownika o akceptację każdej wartości. Jeżeli odstąpisz od zaproponowanego defaultu dla któregoś serwisu, pozostałe mają swój budżet proporcjonalnie powiększony lub zmniejszony.
+
+Docker traktuje limit RAM jako **twardy** (przekroczenie → OOM kill), a CPU jako **miękki** (throttling bez zabijania). RAM ustawiaj z zapasem.
+
+Wynik ląduje w `$BPP_CONFIGS_DIR/.env` jako zmienne `DBSERVER_MEM_LIMIT`, `APPSERVER_MEM_LIMIT` itd. Możesz wrócić i przekonfigurować w każdej chwili uruchamiając `make configure-resources` ręcznie.
 
 ### Zarządzanie hostem
 
