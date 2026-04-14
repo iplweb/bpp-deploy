@@ -315,7 +315,9 @@ if [ ! -f "$ENV_FILE" ]; then
         DB_USER="postgres"
         DB_HOST="dbserver"
         DB_PORT="5432"
-        EXT_PG_VERSION=""
+        printf "Major version lokalnego PostgreSQL (dla backup-runner) [17]: "
+        read -r EXT_PG_VERSION || true
+        EXT_PG_VERSION="${EXT_PG_VERSION:-17}"
     fi
 
     cat > "$ENV_FILE" <<EOF
@@ -366,15 +368,23 @@ DJANGO_BPP_SLACK_WEBHOOK=$SLACK_WEBHOOK
 
 # === Backupy ===
 DJANGO_BPP_HOST_BACKUP_DIR=$BACKUP_DIR
+DJANGO_BPP_BACKUP_KEEP_LAST=7
+DJANGO_BPP_RCLONE_REMOTE=backup_enc:
+
+# === Rollbar (opcjonalne, dla notyfikacji backup-cycle) ===
+# Gdy puste, backup-cycle.sh pomija powiadomienia. Uzyj tokena typu
+# "post_server_item" z https://rollbar.com/<project>/settings/access_tokens/
+ROLLBAR_ACCESS_TOKEN=
 EOF
 
-    if [ "$BPP_EXTERNAL_DB" = "yes" ] && [ -n "$EXT_PG_VERSION" ]; then
+    if [ -n "$EXT_PG_VERSION" ]; then
         cat >> "$ENV_FILE" <<EOF
 
-# === Zewnetrzna baza danych ===
-# Major version zewnetrznego PostgreSQL - uzywany przez sentinel
-# w docker-compose.database.external.yml (obraz postgres:<wersja>-alpine).
-DJANGO_BPP_EXTERNAL_POSTGRESQL_DB_VERSION=$EXT_PG_VERSION
+# === Wersja PostgreSQL ===
+# Wspolna dla sentinela w trybie external (docker-compose.database.external.yml)
+# oraz dla backup-runner (docker-compose.backup.yml). pg_dump tej wersji
+# musi byc >= wersji serwera (regula Postgresa dot. kompatybilnosci).
+DJANGO_BPP_POSTGRESQL_DB_VERSION=$EXT_PG_VERSION
 EOF
     fi
 
@@ -509,9 +519,28 @@ else
 
     ensure_env_var "DJANGO_BPP_HOST_BACKUP_DIR" "$DEFAULT_BACKUP_DIR" \
         "Katalog backupow na hoscie" "Backupy"
+    ensure_env_var "DJANGO_BPP_BACKUP_KEEP_LAST" "7" \
+        "" "Backupy - ile ostatnich kopii kazdego typu trzymac lokalnie"
+    ensure_env_var "DJANGO_BPP_RCLONE_REMOTE" "backup_enc:" \
+        "" "Backupy - rclone remote (np. backup_enc:)"
+    ensure_env_var "ROLLBAR_ACCESS_TOKEN" "" \
+        "Rollbar access token (post_server_item, opcjonalny, Enter = pomin)" \
+        "Rollbar (notyfikacje backup-cycle)"
+
+    # Migracja: DJANGO_BPP_EXTERNAL_POSTGRESQL_DB_VERSION -> DJANGO_BPP_POSTGRESQL_DB_VERSION.
+    # Zmienna dotyczy teraz obu trybow (sentinel external + backup-runner),
+    # wiec przedrostek "EXTERNAL" zniknal z nazwy.
+    if env_has_var "DJANGO_BPP_EXTERNAL_POSTGRESQL_DB_VERSION" && ! env_has_var "DJANGO_BPP_POSTGRESQL_DB_VERSION"; then
+        _old_pg_ver="$(get_env_var DJANGO_BPP_EXTERNAL_POSTGRESQL_DB_VERSION)"
+        awk '!/^DJANGO_BPP_EXTERNAL_POSTGRESQL_DB_VERSION=/ && !/^# Dopisano automatycznie.*DJANGO_BPP_EXTERNAL_POSTGRESQL_DB_VERSION/' "$ENV_FILE" > "$ENV_FILE.tmp.$$" \
+            && mv "$ENV_FILE.tmp.$$" "$ENV_FILE"
+        set_env_var "DJANGO_BPP_POSTGRESQL_DB_VERSION" "$_old_pg_ver" \
+            "Wersja PostgreSQL (migracja z DJANGO_BPP_EXTERNAL_POSTGRESQL_DB_VERSION)"
+        echo "  ~ zmigrowalem DJANGO_BPP_EXTERNAL_POSTGRESQL_DB_VERSION -> DJANGO_BPP_POSTGRESQL_DB_VERSION"
+    fi
 
     # W trybie zewnetrznej bazy - upewnij sie ze major version sentinela jest ustawiony.
-    if [ "$BPP_EXTERNAL_DB" = "yes" ] && ! env_has_var "DJANGO_BPP_EXTERNAL_POSTGRESQL_DB_VERSION"; then
+    if [ "$BPP_EXTERNAL_DB" = "yes" ] && ! env_has_var "DJANGO_BPP_POSTGRESQL_DB_VERSION"; then
         _db_host="$(get_env_var DJANGO_BPP_DB_HOST)"
         _db_port="$(get_env_var DJANGO_BPP_DB_PORT)"
         _db_user="$(get_env_var DJANGO_BPP_DB_USER)"
@@ -524,14 +553,21 @@ else
                 "$_db_host" "$_db_port" "$_db_user" "$_db_pass" "$_db_name" 2>/dev/null)" \
                 && [ -n "$DETECTED_PG_MAJOR" ]; then
             echo "Wykryto PostgreSQL major $DETECTED_PG_MAJOR"
-            ensure_env_var "DJANGO_BPP_EXTERNAL_POSTGRESQL_DB_VERSION" "$DETECTED_PG_MAJOR" \
+            ensure_env_var "DJANGO_BPP_POSTGRESQL_DB_VERSION" "$DETECTED_PG_MAJOR" \
                 "" "Zewnetrzna baza danych"
         else
             echo "UWAGA: nie udalo sie wykryc wersji."
-            ensure_env_var "DJANGO_BPP_EXTERNAL_POSTGRESQL_DB_VERSION" "17" \
+            ensure_env_var "DJANGO_BPP_POSTGRESQL_DB_VERSION" "17" \
                 "Wersja major zewnetrznego PostgreSQL (np. 17, 16, 15)" \
                 "Zewnetrzna baza danych"
         fi
+    fi
+
+    # W trybie lokalnej bazy - zapytaj o major version (default 17, dla backup-runner).
+    if [ "$BPP_EXTERNAL_DB" != "yes" ]; then
+        ensure_env_var "DJANGO_BPP_POSTGRESQL_DB_VERSION" "17" \
+            "Major version lokalnego PostgreSQL (dla backup-runner)" \
+            "Wersja PostgreSQL"
     fi
 
     echo ""

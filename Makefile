@@ -96,6 +96,7 @@ help:
 	@echo "  Database:"
 	@echo "    migrate              - Run Django migrations (stops workers safely)"
 	@echo "    backup               - Run db-backup + media-backup"
+	@echo "    backup-cycle         - Full cycle: backup + rclone sync + Rollbar notify"
 	@echo "    db-backup            - Create parallel database backup (tar.gz)"
 	@echo "    media-backup         - Create media files backup (tar.gz)"
 	@echo "    dbshell              - Django database shell"

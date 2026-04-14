@@ -24,7 +24,7 @@
 services:
 
   dbserver:
-    image: postgres:${DJANGO_BPP_EXTERNAL_POSTGRESQL_DB_VERSION:-17}-alpine
+    image: postgres:${DJANGO_BPP_POSTGRESQL_DB_VERSION:-17}-alpine
     restart: always
     env_file: ${BPP_CONFIGS_DIR}/.env
     environment:

@@ -31,7 +31,7 @@ docker-compose.yml              # Main orchestration (include + env_file for int
 ├── docker-compose.infrastructure.yml # Nginx, Redis, RabbitMQ + infrastructure volumes
 ├── docker-compose.application.yml    # Django app servers + shared volumes (staticfiles, media)
 ├── docker-compose.workers.yml        # Celery workers (general, denorm, beat, flower, denorm-queue)
-└── docker-compose.backup.yml         # Rclone backup service
+└── docker-compose.backup.yml         # backup-runner (pg_dump + tar media + rclone + Rollbar)
 ```
 
 **Key Pattern**: Volumes are defined in the file that "owns" them logically, but can be referenced by services in any included file. For example, `staticfiles` and `media` are defined in `application.yml` but referenced by worker services.
@@ -128,7 +128,7 @@ Named volumes are used for **data only** (not configuration). Config files are b
 | infrastructure.yml | `redis`, `rabbitmq_data` |
 | application.yml | `staticfiles`, `media` |
 | monitoring.yml | `grafana_data`, `prometheus_data`, `loki_data` |
-| backup.yml | `backup` |
+| backup.yml | (no named volumes — backup-runner uses bind-mount from host) |
 
 **Cross-file References**: Services in `workers.yml` reference `staticfiles` and `media` volumes defined in `application.yml`. Docker Compose merges all volume definitions before resolving references.
 
@@ -292,7 +292,7 @@ make wait                     # Wait for GitHub Actions Docker build, then refre
 
 **Support Services:**
 - `ofelia` - Docker cron scheduler for maintenance tasks
-- `rclone` - Cloud backup synchronization
+- `backup-runner` - Codzienny pełny cykl backupu: pg_dump bazy, tar volumenu media, lokalna rotacja (KEEP_LAST), rclone sync na zdalny serwer, notyfikacja Rollbar (level `info`/`error`). Obraz `postgres:$DJANGO_BPP_POSTGRESQL_DB_VERSION-alpine` z runtime-install rclone/curl/jq. Scheduler: Ofelia label w samym kontenerze (cron `0 30 2 * * *`). Ręczny trigger: `make backup-cycle`.
 
 ### Service Profiles
 
@@ -455,6 +455,39 @@ Config files are bind-mounted directly — editing files in `$BPP_CONFIGS_DIR` t
 - `make init-configs` - Re-creates missing config directory structure
 - `make generate-snakeoil-certs` - Generates self-signed SSL certificates (won't overwrite existing)
 - `make generate-snakeoil-certs-force` - Regenerates self-signed SSL certificates (overwrites existing)
+
+### Backwards Compatibility and `.env` Migrations — CRITICAL
+
+**Reguła:** nowa wersja `bpp-deploy` musi dać się uruchomić na **starym** `$BPP_CONFIGS_DIR/.env`, bez wymagania od użytkownika ręcznych edycji pliku. Deploymenty produkcyjne są aktualizowane przez `git pull && make up` i każdy obowiązkowy krok ręczny jest potencjalnym powodem do awarii. Dotyczy to w szczególności:
+
+- **Rename zmiennych** w `.env` (np. `DJANGO_BPP_BACKUP_DIR` → `DJANGO_BPP_HOST_BACKUP_DIR`, `DJANGO_BPP_EXTERNAL_POSTGRESQL_DB_VERSION` → `DJANGO_BPP_POSTGRESQL_DB_VERSION`)
+- **Zmiana semantyki** istniejących zmiennych
+- **Nowe zmienne wymagane** przez nowe serwisy/skrypty
+- **Restrukturyzacja** układu katalogów konfiguracyjnych
+
+**Obowiązkowe dwie warstwy zabezpieczenia**:
+
+1. **Fallback w kodzie czytającym** — Makefile/skrypty muszą akceptować starą nazwę jako alternatywę (np. `ifdef OLD_VAR; NEW_VAR := $(OLD_VAR); endif` w Makefile). Daje to natychmiastowe działanie po `git pull` bez żadnej akcji użytkownika.
+2. **Migracja w `scripts/init-configs.sh`** — gdy user uruchomi `make init-configs` (co i tak zaleca się po każdym upgrade), skrypt musi wykryć starą nazwę i zmienić ją na nową w `.env`, zachowując wartość. Wzorzec:
+
+```bash
+if env_has_var "OLD_NAME" && ! env_has_var "NEW_NAME"; then
+    _val="$(get_env_var OLD_NAME)"
+    awk '!/^OLD_NAME=/ && !/^# Dopisano automatycznie.*OLD_NAME/' "$ENV_FILE" > "$ENV_FILE.tmp.$$" \
+        && mv "$ENV_FILE.tmp.$$" "$ENV_FILE"
+    set_env_var "NEW_NAME" "$_val" "Komentarz (migracja z OLD_NAME)"
+    echo "  ~ zmigrowalem OLD_NAME -> NEW_NAME"
+fi
+```
+
+Pomocnicze funkcje w `init-configs.sh`: `env_has_var`, `get_env_var` (strip-uje otaczające cudzysłowy), `set_env_var` (nadpisuje lub dopisuje). Ich sygnatury są stabilne — używaj ich zamiast własnego `grep`/`sed`.
+
+**Czego NIE robić**:
+
+- NIE dodawać nowej wymaganej zmiennej bez defaultu w compose (`${VAR:-default}`) lub bez migracji w init-configs.
+- NIE usuwać starej zmiennej bez migracji nawet jeśli "nikt już nie powinien jej używać".
+- NIE zakładać że user przeczyta release notes i zedytuje `.env` ręcznie.
+- NIE łamać kompatybilności w pół-release (najpierw dodaj nową nazwę + fallback + migrację, dopiero w następnym release-u pomyśl o usunięciu starej po latach).
 
 ## Important Notes
 

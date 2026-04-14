@@ -1,23 +1,41 @@
 services:
 
-  rclone:
-    image: rclone/rclone:1.73.3
+  # Zunifikowany backup worker - obsluguje CALY cykl backupu:
+  #   1. pg_dump bazy -> /backup/db-backup-TS.tar.gz
+  #   2. tar volumenu media -> /backup/media-backup-TS.tar.gz
+  #   3. lokalna rotacja (KEEP_LAST)
+  #   4. rclone sync -> zdalny serwer (struktura YYYY-MM/DD/)
+  #   5. notyfikacja do Rollbara (level=info/error)
+  #
+  # Wszystko w jednym kontenerze, wolany raz dziennie przez Ofelie.
+  # Obraz postgres:<wersja>-alpine daje pg_dump w tej samej wersji co
+  # sentinel/prawdziwy dbserver. rclone, curl, jq, bash, coreutils
+  # doinstalowane w runtime przez apk add.
+  backup-runner:
+    image: postgres:${DJANGO_BPP_POSTGRESQL_DB_VERSION:-17}-alpine
     restart: always
-    entrypoint: sleep infinity
+    env_file: ${BPP_CONFIGS_DIR}/.env
+    environment:
+      PGPASSWORD: ${DJANGO_BPP_DB_PASSWORD}
     volumes:
-      - backup:/backup
-      - media:/mediaroot
+      - ${DJANGO_BPP_HOST_BACKUP_DIR}:/backup
+      - media:/mediaroot:ro
       - ${BPP_CONFIGS_DIR}/rclone:/config/rclone:ro
-
-    # To jest serwer testowy. Nie robimy backupów, dlatego labels: są wykomentowane
-    # labels:
-      #ofelia.enabled: "true"
-      # Zrób kopię katalogu /mediaroot o 5tej rano w dni robocze:
-      #ofelia.job-exec.tar_media.schedule: "0 0 5 * * 1,2,3,4,5"
-      #ofelia.job-exec.tar_media.command: "tar czf /backup/mediaroot.tgz /mediaroot"
-      # Wyślij pliki na Dropbox o 6tej rano w dni robocze:
-      #ofelia.job-exec.rclone.schedule: "0 0 6 * * 1,2,3,4,5"
-      #ofelia.job-exec.rclone.command: "rclone sync /backup/ backup_enc:`date +%Y-%m`/`date +%d`/"
-
-volumes:
-  backup:
+      - ./scripts:/scripts:ro
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        apk add --no-cache rclone curl jq bash coreutils >/dev/null 2>&1 || exit 1
+        exec sleep infinity
+    healthcheck:
+      test: ["CMD-SHELL", "command -v rclone >/dev/null && command -v curl >/dev/null && command -v pg_dump >/dev/null && command -v jq >/dev/null"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+    labels:
+      ofelia.enabled: "true"
+      # Codzienny cykl backupu o 2:30 - po denorm_rebuild (22:00) i przed
+      # poranna prace biznesowa.
+      ofelia.job-exec.backup_cycle.schedule: "0 30 2 * * *"
+      ofelia.job-exec.backup_cycle.command: "/scripts/backup-cycle.sh"
