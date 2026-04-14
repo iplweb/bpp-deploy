@@ -157,9 +157,23 @@ env_has_var() {
     grep -q "^${1}=" "$ENV_FILE" 2>/dev/null
 }
 
-# Zwraca wartość zmiennej z .env (pusta jeśli brak).
+# Zwraca wartość zmiennej z .env (pusta jeśli brak). Usuwa otaczające
+# cudzysłowy (pojedyncze lub podwójne), jeśli wartość byla zapisana w
+# postaci KEY="value" lub KEY='value'.
 get_env_var() {
-    grep -E "^${1}=" "$ENV_FILE" 2>/dev/null | tail -1 | cut -d= -f2- || true
+    local raw
+    raw="$(grep -E "^${1}=" "$ENV_FILE" 2>/dev/null | tail -1 | cut -d= -f2-)" || true
+    # Strip otaczających podwójnych cudzysłowów
+    if [ "${raw#\"}" != "$raw" ] && [ "${raw%\"}" != "$raw" ]; then
+        raw="${raw#\"}"
+        raw="${raw%\"}"
+    fi
+    # Strip otaczających pojedynczych cudzysłowów
+    if [ "${raw#\'}" != "$raw" ] && [ "${raw%\'}" != "$raw" ]; then
+        raw="${raw#\'}"
+        raw="${raw%\'}"
+    fi
+    printf '%s' "$raw"
 }
 
 # Ustawia (nadpisuje lub dopisuje) zmienną w .env. W przeciwieństwie do
