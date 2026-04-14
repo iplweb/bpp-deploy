@@ -157,6 +157,36 @@ env_has_var() {
     grep -q "^${1}=" "$ENV_FILE" 2>/dev/null
 }
 
+# Zwraca wartość zmiennej z .env (pusta jeśli brak).
+get_env_var() {
+    grep -E "^${1}=" "$ENV_FILE" 2>/dev/null | tail -1 | cut -d= -f2- || true
+}
+
+# Ustawia (nadpisuje lub dopisuje) zmienną w .env. W przeciwieństwie do
+# ensure_env_var nie jest idempotentny - zawsze wymusza podaną wartość.
+set_env_var() {
+    local var_name="$1" value="$2" comment="${3:-}"
+
+    if env_has_var "$var_name"; then
+        # Nadpisz istniejącą linię (BSD/GNU sed compat przez plik tymczasowy).
+        local tmp="$ENV_FILE.tmp.$$"
+        awk -v k="$var_name" -v v="$value" '
+            BEGIN { FS=OFS="=" }
+            $1 == k { print k "=" v; next }
+            { print }
+        ' "$ENV_FILE" > "$tmp" && mv "$tmp" "$ENV_FILE"
+        echo "  ~ zaktualizowano ${var_name}"
+    else
+        echo "" >> "$ENV_FILE"
+        if [ -n "$comment" ]; then
+            echo "# $comment" >> "$ENV_FILE"
+        fi
+        echo "# Dopisano automatycznie: $(date '+%Y-%m-%d %H:%M:%S')" >> "$ENV_FILE"
+        echo "${var_name}=${value}" >> "$ENV_FILE"
+        echo "  + dodano ${var_name}"
+    fi
+}
+
 # Dopisuje brakującą zmienną do .env. Pyta użytkownika o wartość jeśli
 # $3 (ask) jest niepuste — wtedy $2 to wartość domyślna wyświetlana w prompcie.
 # Jeśli $3 jest puste, dopisuje $2 jako wartość bez pytania.
@@ -335,6 +365,63 @@ else
     DEFAULT_HOSTNAME="$(hostname -f 2>/dev/null || hostname)"
     DEFAULT_BACKUP_DIR="$(dirname "$ABS_CONFIG")/backups"
 
+    # W trybie zewnetrznej bazy - zapytaj o parametry polaczenia i nadpisz je
+    # w .env (nawet jesli juz byly ustawione na stare wartosci typu "dbserver").
+    if [ "$BPP_EXTERNAL_DB" = "yes" ]; then
+        _cur_host="$(get_env_var DJANGO_BPP_DB_HOST)"
+        _cur_port="$(get_env_var DJANGO_BPP_DB_PORT)"
+        _cur_name="$(get_env_var DJANGO_BPP_DB_NAME)"
+        _cur_user="$(get_env_var DJANGO_BPP_DB_USER)"
+        _cur_pass="$(get_env_var DJANGO_BPP_DB_PASSWORD)"
+
+        # Jesli host wskazuje na lokalny kontener - to poprzednio byla baza
+        # wewnetrzna; nie podpowiadaj "dbserver" jako defaultu.
+        if [ -z "$_cur_host" ] || [ "$_cur_host" = "dbserver" ]; then
+            _cur_host=""
+        fi
+        if [ -z "$_cur_user" ] || [ "$_cur_user" = "postgres" ]; then
+            _cur_user="bpp"
+        fi
+        if [ -z "$_cur_name" ]; then
+            _cur_name="bpp"
+        fi
+        if [ -z "$_cur_port" ]; then
+            _cur_port="5432"
+        fi
+
+        echo "=== Konfiguracja zewnetrznej bazy PostgreSQL ==="
+        EXT_DB_HOST_INPUT=""
+        while [ -z "$EXT_DB_HOST_INPUT" ]; do
+            printf "Hostname zewnetrznego serwera PostgreSQL%s: " \
+                "${_cur_host:+ [$_cur_host]}"
+            read -r EXT_DB_HOST_INPUT || true
+            EXT_DB_HOST_INPUT="${EXT_DB_HOST_INPUT:-$_cur_host}"
+            if [ -z "$EXT_DB_HOST_INPUT" ]; then
+                echo "  Hostname jest wymagany."
+            fi
+        done
+        printf "Port [%s]: " "$_cur_port"
+        read -r EXT_DB_PORT_INPUT || true
+        EXT_DB_PORT_INPUT="${EXT_DB_PORT_INPUT:-$_cur_port}"
+        printf "Nazwa bazy danych [%s]: " "$_cur_name"
+        read -r EXT_DB_NAME_INPUT || true
+        EXT_DB_NAME_INPUT="${EXT_DB_NAME_INPUT:-$_cur_name}"
+        printf "Uzytkownik bazy [%s]: " "$_cur_user"
+        read -r EXT_DB_USER_INPUT || true
+        EXT_DB_USER_INPUT="${EXT_DB_USER_INPUT:-$_cur_user}"
+        printf "Haslo uzytkownika bazy%s: " \
+            "${_cur_pass:+ [pozostaw puste aby zachowac obecne]}"
+        read -r EXT_DB_PASS_INPUT || true
+        EXT_DB_PASS_INPUT="${EXT_DB_PASS_INPUT:-$_cur_pass}"
+        echo ""
+
+        set_env_var "DJANGO_BPP_DB_HOST" "$EXT_DB_HOST_INPUT" "Zewnetrzna baza danych"
+        set_env_var "DJANGO_BPP_DB_PORT" "$EXT_DB_PORT_INPUT" "Zewnetrzna baza danych"
+        set_env_var "DJANGO_BPP_DB_NAME" "$EXT_DB_NAME_INPUT" "Zewnetrzna baza danych"
+        set_env_var "DJANGO_BPP_DB_USER" "$EXT_DB_USER_INPUT" "Zewnetrzna baza danych"
+        set_env_var "DJANGO_BPP_DB_PASSWORD" "$EXT_DB_PASS_INPUT" "Zewnetrzna baza danych"
+    fi
+
     ensure_env_var "DJANGO_BPP_DB_NAME" "bpp" "" "Baza danych"
     ensure_env_var "DJANGO_BPP_DB_USER" "postgres" "" "Baza danych"
     ensure_env_var "DJANGO_BPP_DB_PASSWORD" \
@@ -389,11 +476,11 @@ else
 
     # W trybie zewnetrznej bazy - upewnij sie ze major version sentinela jest ustawiony.
     if [ "$BPP_EXTERNAL_DB" = "yes" ] && ! env_has_var "DJANGO_BPP_EXTERNAL_POSTGRESQL_DB_VERSION"; then
-        _db_host=$(grep "^DJANGO_BPP_DB_HOST=" "$ENV_FILE" | head -1 | cut -d= -f2-)
-        _db_port=$(grep "^DJANGO_BPP_DB_PORT=" "$ENV_FILE" | head -1 | cut -d= -f2-)
-        _db_user=$(grep "^DJANGO_BPP_DB_USER=" "$ENV_FILE" | head -1 | cut -d= -f2-)
-        _db_pass=$(grep "^DJANGO_BPP_DB_PASSWORD=" "$ENV_FILE" | head -1 | cut -d= -f2-)
-        _db_name=$(grep "^DJANGO_BPP_DB_NAME=" "$ENV_FILE" | head -1 | cut -d= -f2-)
+        _db_host="$(get_env_var DJANGO_BPP_DB_HOST)"
+        _db_port="$(get_env_var DJANGO_BPP_DB_PORT)"
+        _db_user="$(get_env_var DJANGO_BPP_DB_USER)"
+        _db_pass="$(get_env_var DJANGO_BPP_DB_PASSWORD)"
+        _db_name="$(get_env_var DJANGO_BPP_DB_NAME)"
 
         echo ""
         echo "Probuje wykryc wersje zewnetrznej bazy PostgreSQL na $_db_host:$_db_port..."
