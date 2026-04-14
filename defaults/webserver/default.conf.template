@@ -42,8 +42,9 @@ server {
 # Catch-all server block for HTTPS traffic with unknown hostnames
 # Rejects SSL handshake for invalid hostnames to prevent serving content to wrong domains
 server {
-    listen 443 ssl http2 default_server;
+    listen 443 ssl default_server;
     listen 443 quic default_server;
+    http2 on;
     server_name _;
     ssl_reject_handshake on;
     access_log off;
@@ -55,11 +56,14 @@ server {
 server {
     client_max_body_size 100M;
 
-    listen 443 ssl http2;
+    listen 443 ssl;
     listen 443 quic;
     listen [::]:443 quic;
+    http2 on;
     add_header Alt-Svc 'h3=":443"; ma=86400' always;
     server_name ${DJANGO_BPP_HOSTNAME};
+
+    include /etc/nginx/conf.d/security-headers.conf;
 
     # ============================================================================
     # ERROR PAGES CONFIGURATION
@@ -365,12 +369,13 @@ server {
     location /static/ {
         alias /var/www/html/staticroot/;
         expires 30d;
+        include /etc/nginx/conf.d/security-headers.conf;
         add_header Cache-Control "public, immutable";
-        add_header X-Content-Type-Options "nosniff" always;
 
         # Extended caching for static assets that rarely change
         location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot)$ {
             expires 1y;
+            include /etc/nginx/conf.d/security-headers.conf;
             add_header Cache-Control "public, immutable";
         }
 
@@ -389,8 +394,8 @@ server {
     location /media/ {
         alias /mediaroot/;
         expires 7d;
+        include /etc/nginx/conf.d/security-headers.conf;
         add_header Cache-Control "public";
-        add_header X-Content-Type-Options "nosniff" always;
 
         # Prevent execution of uploaded files for security
         location ~* \.(php|php3|php4|php5|php7|phtml|pl|py|pyc|pyo|sh|cgi|rb|asp|aspx|exe|com|bat|dll|vbs|js|jar|jsp|jspx)$ {
