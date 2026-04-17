@@ -270,6 +270,7 @@ make migrate          # Migracje Django (bezpiecznie zatrzymuje workery)
 make db-backup        # Backup bazy (równoległy pg_dump, tar.gz)
 make dbshell          # Django database shell
 make dbshell-psql     # Bezpośredni psql
+make upgrade-postgres # Upgrade major wersji PostgreSQL (np. 16.13 -> 18.3)
 ```
 
 ### Monitoring i logi
@@ -299,6 +300,57 @@ Podczas pierwszego uruchomienia `make` skrypt `configure-resources` jest odpalan
 Docker traktuje limit RAM jako **twardy** (przekroczenie → OOM kill), a CPU jako **miękki** (throttling bez zabijania). RAM ustawiaj z zapasem.
 
 Wynik ląduje w `$BPP_CONFIGS_DIR/.env` jako zmienne `DBSERVER_MEM_LIMIT`, `APPSERVER_MEM_LIMIT` itd. Możesz wrócić i przekonfigurować w każdej chwili uruchamiając `make configure-resources` ręcznie.
+
+### Wersja serwera PostgreSQL
+
+Kontener `dbserver` używa obrazu `iplweb/bpp_dbserver:psql-<MAJOR.MINOR>`. Wersja jest sterowana zmienną `DJANGO_BPP_DBSERVER_PG_VERSION` w `$BPP_CONFIGS_DIR/.env`. Aktualna lista tagów: [hub.docker.com/r/iplweb/bpp_dbserver/tags](https://hub.docker.com/r/iplweb/bpp_dbserver/tags) (np. `16.13`, `17.9`, `18.3`).
+
+**Domyślna wersja**: `16.13`. Wybór wersji następuje przy pierwszym uruchomieniu `make` — skrypt `init-configs` zapyta o `Wersja PostgreSQL [16.13]:`. Możesz wpisać dowolną dostępną na Docker Hub.
+
+#### Minor upgrade (ta sama wersja major, np. 16.13 → 16.14)
+
+Format PGDATA jest binarnie kompatybilny w obrębie tego samego majora, więc wystarczy zmiana tagu i restart:
+
+```bash
+# 1. W $BPP_CONFIGS_DIR/.env zmień: DJANGO_BPP_DBSERVER_PG_VERSION=16.14
+# 2. Pobierz nowy obraz i odśwież kontener:
+docker compose pull dbserver
+docker compose up -d dbserver
+```
+
+#### Major upgrade (np. 16.13 → 18.3)
+
+Między różnymi major wersjami PostgreSQL **nie ma binarnej kompatybilności formatu PGDATA** — każdy nowy kontener musi wystartować na pustym, świeżo zainicjalizowanym wolumenie. Przenosimy dane metodą *logical dump & restore*:
+
+```bash
+make upgrade-postgres
+```
+
+Skrypt interaktywnie poprowadzi cię przez 9 kroków:
+
+1. Zrobi świeży `pg_dump -Fd -j N` do `$DJANGO_BPP_HOST_BACKUP_DIR` (tarball `db-backup-*.tar.gz`).
+2. Zatrzyma serwisy zależne (appserver, workery, celerybeat, denorm-queue, flower, authserver).
+3. Zatrzyma i usunie kontener `dbserver`.
+4. **Skopiuje** obecny volume `${COMPOSE_PROJECT_NAME}_postgresql_data` pod nową nazwę `..._pg<stary_major>_<timestamp>` — zachowany jako kopia zapasowa do ręcznego usunięcia po weryfikacji.
+5. Usunie obecny volume (nowy kontener dostanie pusty wolumen — to niezbędne, bo formatu PGDATA starego majora nie da się otworzyć nowszą binarką Postgresa).
+6. Podbije `DJANGO_BPP_DBSERVER_PG_VERSION` w `.env` (plus `DJANGO_BPP_POSTGRESQL_DB_VERSION` dla backup-runnera, jeśli były spójne).
+7. Wykona `docker compose pull dbserver && docker compose up -d dbserver` — `initdb` utworzy pusty cluster na nowym majorze.
+8. Wykona `pg_restore -Fd -j N` z tarballa z kroku 1.
+9. Uruchomi `make migrate`, `make up` i smoke test logów appservera.
+
+**Wymagania**:
+- Obraz `iplweb/bpp_dbserver:psql-<nowa_wersja>` musi być już opublikowany na Docker Hub.
+- Wolne miejsce na hoście: ~2.5× rozmiar PGDATA (tarball + kopia starego wolumenu).
+- Stack musi być uruchomiony (`make up`), żeby wykonać `pg_dump`.
+
+**Rollback**: stary volume (`..._pg<old>_<ts>`) oraz tarball pozostają zachowane. W `$BPP_CONFIGS_DIR/.upgrade-rollback-<ts>` znajdziesz plik z dokładnymi krokami przywrócenia poprzedniej wersji. Po pomyślnej weryfikacji nowego clustra możesz usunąć kopie ręcznie:
+
+```bash
+docker volume rm <COMPOSE_PROJECT_NAME>_postgresql_data_pg<old>_<ts>
+rm $BPP_CONFIGS_DIR/.upgrade-rollback-<ts>
+```
+
+**Tryb external** (`BPP_DATABASE_COMPOSE=docker-compose.database.external.yml`): `make upgrade-postgres` wykryje tryb i wyświetli 3-stopniową instrukcję. Upgrade samej bazy wykonujesz po swojej stronie (managed service, RDS blue/green, `pg_upgradecluster` itp.), a skrypt tylko synchronizuje `DJANGO_BPP_POSTGRESQL_DB_VERSION` i odświeża sentinel/backup-runner.
 
 ### Zarządzanie hostem
 

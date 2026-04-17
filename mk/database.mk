@@ -3,6 +3,7 @@
        dump-local-postgresql-and-copy-to-remote \
        restore-db-stop-servers restore-db-remove-db-rebuild-db-rm-backup \
        restore-remote-db-from-dump restore-remote-db-from-dump-dont-backup \
+       upgrade-postgres \
        push-local-bpp-db-to-remote
 
 # Katalog backupow na hoscie. Nowa nazwa: DJANGO_BPP_HOST_BACKUP_DIR
@@ -119,3 +120,8 @@ restore-remote-db-from-dump: db-backup restore-db-stop-servers restore-db-remove
 restore-remote-db-from-dump-dont-backup: restore-db-stop-servers restore-db-remove-db-rebuild-db-rm-backup up logs
 
 push-local-bpp-db-to-remote: dump-local-postgresql-and-copy-to-remote restore-remote-db-from-dump
+
+# Major version upgrade Postgresa (np. 15 -> 18). Cala logika w skrypcie -
+# Makefile target jest tylko thin wrapperem.
+upgrade-postgres:
+	@bash scripts/upgrade-postgres.sh

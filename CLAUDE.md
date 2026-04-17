@@ -75,10 +75,21 @@ Config files are bind-mounted directly into containers (no SCP or named volume c
 ```bash
 make                    # First run: prompts for config directory path,
                         # hostname, admin username/email, Slack webhook,
-                        # backup directory. Generates random passwords.
+                        # backup directory, PostgreSQL version for dbserver
+                        # (default 16.13 — patrz lista tagow:
+                        # https://hub.docker.com/r/iplweb/bpp_dbserver/tags).
+                        # Generates random passwords.
                         # Edit $BPP_CONFIGS_DIR/.env
 make                    # Second run: starts services normally
 ```
+
+**Wersja PostgreSQL**: kontener `dbserver` uzywa obrazu
+`iplweb/bpp_dbserver:psql-${DJANGO_BPP_DBSERVER_PG_VERSION}`. Format wersji
+`MAJOR.MINOR` (np. `16.13`, `17.9`, `18.3`). Domyslnie `16.13`. Upgrade majorow
+wymaga dump/restore - uzyj `make upgrade-postgres`, nie edytuj recznie zmiennej.
+W trybie external (`BPP_DATABASE_COMPOSE=docker-compose.database.external.yml`)
+ta zmienna nie jest uzywana - tam liczy sie tylko `DJANGO_BPP_POSTGRESQL_DB_VERSION`
+(major) dla sentinela i backup-runnera.
 
 ### Monitoring Stack Configuration
 
@@ -189,6 +200,7 @@ make migrate                  # Run Django migrations (stops workers safely)
 make db-backup                # Create parallel database backup (tar.gz, pg_dump -Fd)
 make dbshell                  # Django database shell
 make dbshell-psql             # Direct PostgreSQL shell
+make upgrade-postgres         # Major version upgrade (np. 15 -> 18) via dump & restore
 ```
 
 ### Shell Access
@@ -334,6 +346,39 @@ The project uses **uv** (ultra-fast Python package manager) instead of pip:
 # 3. Restarts workers
 make migrate
 ```
+
+### PostgreSQL Major Version Upgrade
+
+`make upgrade-postgres` (skrypt: `scripts/upgrade-postgres.sh`) wykonuje pelny upgrade
+Postgresa miedzy major wersjami (np. 16.13 -> 18.3) metoda **logical dump & restore**:
+
+1. `make db-backup` -> swiezy `pg_dump -Fd -j N` tarball w `$DJANGO_BPP_HOST_BACKUP_DIR`
+2. Stop dependent services (app, workers, beat, denorm-queue, flower, authserver)
+3. Stop+rm kontener `dbserver`
+4. **Kopia volume `${COMPOSE_PROJECT_NAME}_postgresql_data`** do volume backupowego
+   `..._pg<old>_<ts>` (zachowana, do recznego usuniecia po weryfikacji)
+5. Usuniecie obecnego volume `${COMPOSE_PROJECT_NAME}_postgresql_data` — nowy kontener
+   **musi uzywac nowego, pustego woluminu**, poniewaz miedzy majorami Postgresa
+   NIE ma binarnej kompatybilnosci formatu PGDATA.
+6. Bump `DJANGO_BPP_DBSERVER_PG_VERSION` (+ `DJANGO_BPP_POSTGRESQL_DB_VERSION`
+   dla backup-runnera, gdy byla spojna) w `$BPP_CONFIGS_DIR/.env`
+7. `docker compose pull dbserver` + `up -d dbserver` -> initdb na nowym majorze
+8. `pg_restore -Fd -j N` z tarballa
+9. `make migrate` + `make up` + smoke test logow appserver
+
+**Wymagania**: nowy obraz `iplweb/bpp_dbserver:psql-<MAJOR.MINOR>` musi byc juz
+wypchniety na Docker Hub (lista tagow:
+https://hub.docker.com/r/iplweb/bpp_dbserver/tags). Skrypt nie buduje obrazu -
+tylko go pull-uje. Wolne miejsce na hoscie: ~2.5x rozmiar PGDATA (tarball + kopia
+volume).
+
+**Tryb external** (`BPP_DATABASE_COMPOSE=docker-compose.database.external.yml`): skrypt
+wykrywa tryb i pokazuje 3-stopniowa instrukcje (admin upgrade'uje zewnetrzna baze
+sam, skrypt opcjonalnie bumpuje `DJANGO_BPP_POSTGRESQL_DB_VERSION` i recreate-uje
+sentinel + backup-runner).
+
+**Rollback**: stary volume + tarball pozostaja zachowane. W razie problemu - patrz
+plik `$BPP_CONFIGS_DIR/.upgrade-rollback-<ts>` z dokladnymi krokami.
 
 ### Environment-Specific Behavior
 - **Environment Markers**: Database may be automatically marked with environment identifiers
@@ -481,6 +526,7 @@ Małe daemony (authserver, exportery, webserver, ofelia, celerybeat, denorm-queu
 **Reguła:** nowa wersja `bpp-deploy` musi dać się uruchomić na **starym** `$BPP_CONFIGS_DIR/.env`, bez wymagania od użytkownika ręcznych edycji pliku. Deploymenty produkcyjne są aktualizowane przez `git pull && make up` i każdy obowiązkowy krok ręczny jest potencjalnym powodem do awarii. Dotyczy to w szczególności:
 
 - **Rename zmiennych** w `.env` (np. `DJANGO_BPP_BACKUP_DIR` → `DJANGO_BPP_HOST_BACKUP_DIR`, `DJANGO_BPP_EXTERNAL_POSTGRESQL_DB_VERSION` → `DJANGO_BPP_POSTGRESQL_DB_VERSION`)
+- **Dodanie nowej zmiennej z defaultem w compose** (np. `DJANGO_BPP_DBSERVER_PG_VERSION` dodane wraz z parametryzacja tagu dbservera — stare .envy nadal dzialaja bo `${DJANGO_BPP_DBSERVER_PG_VERSION:-16.13}` w compose daje ostatnia znana dobra wartosc)
 - **Zmiana semantyki** istniejących zmiennych
 - **Nowe zmienne wymagane** przez nowe serwisy/skrypty
 - **Restrukturyzacja** układu katalogów konfiguracyjnych

@@ -315,9 +315,22 @@ if [ ! -f "$ENV_FILE" ]; then
         DB_USER="postgres"
         DB_HOST="dbserver"
         DB_PORT="5432"
-        printf "Major version lokalnego PostgreSQL (dla backup-runner) [17]: "
+
+        echo ""
+        echo "=== Wersja PostgreSQL dla dbserver ==="
+        echo "Kontener dbserver uzywa obrazu iplweb/bpp_dbserver:psql-<wersja>."
+        echo "Dostepne tagi: https://hub.docker.com/r/iplweb/bpp_dbserver/tags"
+        echo "Przyklady: 16.13, 17.9, 18.3 (zalecany format MAJOR.MINOR)."
+        printf "Wersja PostgreSQL [16.13]: "
+        read -r DBSERVER_PG_VERSION || true
+        DBSERVER_PG_VERSION="${DBSERVER_PG_VERSION:-16.13}"
+        # Wyciagnij major (16.13 -> 16) jako domyslny dla backup-runnera,
+        # zeby out-of-the-box pg_dump byl tej samej wersji co serwer.
+        DBSERVER_PG_MAJOR="${DBSERVER_PG_VERSION%%.*}"
+
+        printf "Major version PostgreSQL dla backup-runner (pg_dump, >= wersji dbservera) [%s]: " "$DBSERVER_PG_MAJOR"
         read -r EXT_PG_VERSION || true
-        EXT_PG_VERSION="${EXT_PG_VERSION:-17}"
+        EXT_PG_VERSION="${EXT_PG_VERSION:-$DBSERVER_PG_MAJOR}"
     fi
 
     cat > "$ENV_FILE" <<EOF
@@ -385,6 +398,22 @@ EOF
 # oraz dla backup-runner (docker-compose.backup.yml). pg_dump tej wersji
 # musi byc >= wersji serwera (regula Postgresa dot. kompatybilnosci).
 DJANGO_BPP_POSTGRESQL_DB_VERSION=$EXT_PG_VERSION
+EOF
+    fi
+
+    # Zmienna wybierajaca tag obrazu iplweb/bpp_dbserver (tylko tryb lokalny -
+    # w trybie external dbserver to sentinel postgres:<ver>-alpine, nie nasz
+    # obraz). Trzymana osobno od DJANGO_BPP_POSTGRESQL_DB_VERSION zeby dac
+    # kontrole nad pelnym MAJOR.MINOR (nie tylko majorem). Upgrade majorow:
+    # `make upgrade-postgres` (logical dump & restore z zachowaniem starego
+    # volume jako kopii zapasowej).
+    if [ "$BPP_EXTERNAL_DB" != "yes" ] && [ -n "${DBSERVER_PG_VERSION:-}" ]; then
+        cat >> "$ENV_FILE" <<EOF
+
+# === Wersja obrazu dbserver ===
+# Tag iplweb/bpp_dbserver:psql-<MAJOR.MINOR>. Nie zmieniaj recznie dla
+# upgrade'u majora - uzyj 'make upgrade-postgres' (dump & restore).
+DJANGO_BPP_DBSERVER_PG_VERSION=$DBSERVER_PG_VERSION
 EOF
     fi
 
@@ -563,10 +592,23 @@ else
         fi
     fi
 
-    # W trybie lokalnej bazy - zapytaj o major version (default 17, dla backup-runner).
+    # W trybie lokalnej bazy - zapytaj o wersje dbservera i backup-runnera.
     if [ "$BPP_EXTERNAL_DB" != "yes" ]; then
-        ensure_env_var "DJANGO_BPP_POSTGRESQL_DB_VERSION" "17" \
-            "Major version lokalnego PostgreSQL (dla backup-runner)" \
+        # Tag iplweb/bpp_dbserver:psql-<MAJOR.MINOR>. Default 16.13 to ostatnio
+        # znana dobra wersja - dla starych deploymentow po `git pull` daje
+        # zgodnosc bit-in-bit z poprzednim hardcoded tagem z docker-compose.
+        ensure_env_var "DJANGO_BPP_DBSERVER_PG_VERSION" "16.13" \
+            "Wersja dbservera (iplweb/bpp_dbserver:psql-<ver>, np. 16.13, 17.9, 18.3)" \
+            "Wersja obrazu dbserver - upgrade majora przez 'make upgrade-postgres'"
+
+        # Default dla backup-runnera = major z dbservera (16.13 -> 16) tylko
+        # gdy zmienna jeszcze nie istnieje. Zachowujemy istniejaca wartosc
+        # jesli uzytkownik mial np. backup-runner na 17 a dbserver na 16 (to
+        # jest OK bo pg_dump 17 umie dumpowac baze 16).
+        _dbserver_ver="$(get_env_var DJANGO_BPP_DBSERVER_PG_VERSION)"
+        _backup_runner_default="${_dbserver_ver%%.*}"
+        ensure_env_var "DJANGO_BPP_POSTGRESQL_DB_VERSION" "${_backup_runner_default:-16}" \
+            "Major version lokalnego PostgreSQL (dla backup-runner, >= wersji dbservera)" \
             "Wersja PostgreSQL"
     fi
 
