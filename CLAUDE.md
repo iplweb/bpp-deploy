@@ -389,6 +389,23 @@ Tarball pg_dump pozostaje jako disaster recovery.
 **Rollback**: stary volume + tarball pozostaja zachowane. W razie problemu - patrz
 plik `$BPP_CONFIGS_DIR/.upgrade-rollback-<ts>` z dokladnymi krokami.
 
+**Wznowienie od konkretnego kroku** (`--from-step=N`): skrypt zapisuje stan do
+`$BPP_CONFIGS_DIR/.upgrade-rollback-<ts>` ZARAZ po potwierdzeniu upgrade'u (przed
+krokiem 1), a po kroku 3 dopisuje tam sciezke tarballa. Dzieki temu, jesli ktos
+krok padnie - np. krok 8 (start nowego dbservera) - mozna wznowic od niego bez
+ponownego wykonywania dumpa/kopiowania volume:
+
+```bash
+bash scripts/upgrade-postgres.sh --from-step=8
+# auto-detect najnowszego pliku stanu z $BPP_CONFIGS_DIR
+# albo jawnie: --rollback-file=$BPP_CONFIGS_DIR/.upgrade-rollback-<ts>
+```
+
+Komunikat o awarii (trap `on_error`) pokazuje dokladna komende do wznowienia.
+Niektore kroki nie sa w pelni idempotentne - np. krok 5 wywali sie jesli
+BACKUP_VOLUME juz istnieje (usun go recznie), a krok 9 zglosi konflikty gdy
+baza ma juz czesciowo wlane dane. `--help` dla pelnego opisu.
+
 ### Environment-Specific Behavior
 - **Environment Markers**: Database may be automatically marked with environment identifiers
 - **Backup Configuration**: Rclone backup jobs may be enabled or disabled based on environment requirements

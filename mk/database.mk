@@ -3,7 +3,7 @@
        dump-local-postgresql-and-copy-to-remote \
        restore-db-stop-servers restore-db-remove-db-rebuild-db-rm-backup \
        restore-remote-db-from-dump restore-remote-db-from-dump-dont-backup \
-       upgrade-postgres \
+       upgrade-postgres test-upgrade-postgres \
        push-local-bpp-db-to-remote
 
 # Katalog backupow na hoscie. Nowa nazwa: DJANGO_BPP_HOST_BACKUP_DIR
@@ -125,3 +125,10 @@ push-local-bpp-db-to-remote: dump-local-postgresql-and-copy-to-remote restore-re
 # Makefile target jest tylko thin wrapperem.
 upgrade-postgres:
 	@bash scripts/upgrade-postgres.sh
+
+# Integration test dla upgrade-postgres.sh (16.13 -> 18.3 na izolowanej piaskownicy).
+# Tworzy wlasny COMPOSE_PROJECT_NAME, BPP_CONFIGS_DIR i docker-compose.test.yml.
+# Podmienia tymczasowo repo .env (cleanup trap przywraca). Oba iplweb/bpp_dbserver
+# obrazy (psql-16.13 i psql-18.3) sa pullowane przez test + skrypt.
+test-upgrade-postgres:
+	@bash scripts/test-upgrade-postgres.sh
