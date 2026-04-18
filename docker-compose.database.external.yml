@@ -24,7 +24,10 @@
 services:
 
   dbserver:
-    image: postgres:${DJANGO_BPP_POSTGRESQL_DB_VERSION:-17}-alpine
+    # Major Postgresa: DJANGO_BPP_POSTGRESQL_VERSION_MAJOR (nowa nazwa) z
+    # fallbackiem na DJANGO_BPP_POSTGRESQL_DB_VERSION (stara, sprzed rename
+    # w 2026-04-18). Default 17 jesli .env nie ma zadnej z nich.
+    image: postgres:${DJANGO_BPP_POSTGRESQL_VERSION_MAJOR:-${DJANGO_BPP_POSTGRESQL_DB_VERSION:-17}}-alpine
     restart: always
     env_file: ${BPP_CONFIGS_DIR}/.env
     environment:

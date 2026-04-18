@@ -303,7 +303,7 @@ Wynik ląduje w `$BPP_CONFIGS_DIR/.env` jako zmienne `DBSERVER_MEM_LIMIT`, `APPS
 
 ### Wersja serwera PostgreSQL
 
-Kontener `dbserver` używa obrazu `iplweb/bpp_dbserver:psql-<MAJOR.MINOR>`. Wersja jest sterowana zmienną `DJANGO_BPP_DBSERVER_PG_VERSION` w `$BPP_CONFIGS_DIR/.env`. Aktualna lista tagów: [hub.docker.com/r/iplweb/bpp_dbserver/tags](https://hub.docker.com/r/iplweb/bpp_dbserver/tags) (np. `16.13`, `17.9`, `18.3`).
+Kontener `dbserver` używa obrazu `iplweb/bpp_dbserver:psql-<MAJOR.MINOR>`. Wersja jest sterowana zmienną `DJANGO_BPP_POSTGRESQL_VERSION` w `$BPP_CONFIGS_DIR/.env` (obok jest auto-derived `DJANGO_BPP_POSTGRESQL_VERSION_MAJOR` używana przez backup-runnera `postgres:<major>-alpine`). Aktualna lista tagów: [hub.docker.com/r/iplweb/bpp_dbserver/tags](https://hub.docker.com/r/iplweb/bpp_dbserver/tags) (np. `16.13`, `17.9`, `18.3`).
 
 **Domyślna wersja**: `16.13`. Wybór wersji następuje przy pierwszym uruchomieniu `make` — skrypt `init-configs` zapyta o `Wersja PostgreSQL [16.13]:`. Możesz wpisać dowolną dostępną na Docker Hub.
 
@@ -312,7 +312,7 @@ Kontener `dbserver` używa obrazu `iplweb/bpp_dbserver:psql-<MAJOR.MINOR>`. Wers
 Format PGDATA jest binarnie kompatybilny w obrębie tego samego majora, więc wystarczy zmiana tagu i restart:
 
 ```bash
-# 1. W $BPP_CONFIGS_DIR/.env zmień: DJANGO_BPP_DBSERVER_PG_VERSION=16.14
+# 1. W $BPP_CONFIGS_DIR/.env zmień: DJANGO_BPP_POSTGRESQL_VERSION=16.14
 # 2. Pobierz nowy obraz i odśwież kontener:
 docker compose pull dbserver
 docker compose up -d dbserver
@@ -333,7 +333,7 @@ Skrypt interaktywnie poprowadzi cię przez 9 kroków:
 3. Zatrzyma i usunie kontener `dbserver`.
 4. **Skopiuje** obecny volume `${COMPOSE_PROJECT_NAME}_postgresql_data` pod nową nazwę `..._pg<stary_major>_<timestamp>` — zachowany jako kopia zapasowa do ręcznego usunięcia po weryfikacji.
 5. Usunie obecny volume (nowy kontener dostanie pusty wolumen — to niezbędne, bo formatu PGDATA starego majora nie da się otworzyć nowszą binarką Postgresa).
-6. Podbije `DJANGO_BPP_DBSERVER_PG_VERSION` w `.env` (plus `DJANGO_BPP_POSTGRESQL_DB_VERSION` dla backup-runnera, jeśli były spójne).
+6. Podbije `DJANGO_BPP_POSTGRESQL_VERSION` w `.env` (plus `DJANGO_BPP_POSTGRESQL_VERSION_MAJOR` dla backup-runnera, jeśli były spójne).
 7. Wykona `docker compose pull dbserver && docker compose up -d dbserver` — `initdb` utworzy pusty cluster na nowym majorze.
 8. Wykona `pg_restore -Fd -j N` z tarballa z kroku 1.
 9. Uruchomi `make migrate`, `make up` i smoke test logów appservera.
@@ -350,7 +350,9 @@ docker volume rm <COMPOSE_PROJECT_NAME>_postgresql_data_pg<old>_<ts>
 rm $BPP_CONFIGS_DIR/.upgrade-rollback-<ts>
 ```
 
-**Tryb external** (`BPP_DATABASE_COMPOSE=docker-compose.database.external.yml`): `make upgrade-postgres` wykryje tryb i wyświetli 3-stopniową instrukcję. Upgrade samej bazy wykonujesz po swojej stronie (managed service, RDS blue/green, `pg_upgradecluster` itp.), a skrypt tylko synchronizuje `DJANGO_BPP_POSTGRESQL_DB_VERSION` i odświeża sentinel/backup-runner.
+**Tryb external** (`BPP_DATABASE_COMPOSE=docker-compose.database.external.yml`): `make upgrade-postgres` wykryje tryb i wyświetli 3-stopniową instrukcję. Upgrade samej bazy wykonujesz po swojej stronie (managed service, RDS blue/green, `pg_upgradecluster` itp.), a skrypt tylko synchronizuje `DJANGO_BPP_POSTGRESQL_VERSION` + `_MAJOR` i odświeża sentinel/backup-runner.
+
+**Auto-rollback przy failed startup**: gdy nowy dbserver nie wstaje (błąd initu, niezgodny layout volume, healthcheck timeout), skrypt zapyta o potwierdzenie auto-rollback. Po `yes` odkręca bump `.env`, kasuje niedziałający `postgresql_data`, przywraca go z backup volume, startuje stary dbserver. Po sukcesie backup volume jest usuwany (dane są z powrotem w oryginalnym volume), tarball pg_dump pozostaje.
 
 ### Zarządzanie hostem
 

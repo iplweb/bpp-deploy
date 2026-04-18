@@ -5,7 +5,7 @@
 # Strategia: logical dump & restore.
 #   1. pg_dump -Fd -j N (przez `make db-backup`) starego clustra
 #   2. zachowanie starego volume jako kopii (na wypadek rollbacku)
-#   3. bump DJANGO_BPP_DBSERVER_PG_VERSION w $BPP_CONFIGS_DIR/.env
+#   3. bump DJANGO_BPP_POSTGRESQL_VERSION w $BPP_CONFIGS_DIR/.env
 #   4. docker compose pull dbserver -> nowy obraz z nowym majorem
 #   5. docker compose up -d dbserver -> initdb na nowej wersji w pustym volume
 #   6. pg_restore -Fd -j N z tarballa
@@ -119,12 +119,18 @@ cd "$REPO_DIR"
 DATABASE_COMPOSE="${BPP_DATABASE_COMPOSE:-docker-compose.database.yml}"
 
 if [ "$DATABASE_COMPOSE" = "docker-compose.database.external.yml" ]; then
+    # Fallback na stare nazwy (sprzed rename 2026-04-18): jesli .env nie
+    # przeszlo jeszcze przez init-configs po git pull, czytamy z legacy var.
+    _cur_ext_major="$(get_env_var DJANGO_BPP_POSTGRESQL_VERSION_MAJOR "$APP_ENV")"
+    if [ -z "$_cur_ext_major" ]; then
+        _cur_ext_major="$(get_env_var DJANGO_BPP_POSTGRESQL_DB_VERSION "$APP_ENV")"
+    fi
     cat <<EOF
 
 === Tryb EXTERNAL ===
 
 Lokalnie nie ma clustra Postgresa do upgrade'u - dbserver to tylko sentinel
-postgres:\${DJANGO_BPP_POSTGRESQL_DB_VERSION}-alpine. Prawdziwa baza zyje
+postgres:\${DJANGO_BPP_POSTGRESQL_VERSION_MAJOR}-alpine. Prawdziwa baza zyje
 poza compose i jej upgrade jest poza scope tego skryptu.
 
 Procedura po stronie BPP (po skutecznym upgrade'ie zewnetrznej bazy):
@@ -133,8 +139,9 @@ Procedura po stronie BPP (po skutecznym upgrade'ie zewnetrznej bazy):
      pg_upgradecluster - cokolwiek odpowiednie dla Twojego setupu).
 
   2. W $APP_ENV bumpnij:
-       DJANGO_BPP_POSTGRESQL_DB_VERSION=<nowy_major>
-     (obecnie: $(get_env_var DJANGO_BPP_POSTGRESQL_DB_VERSION "$APP_ENV"))
+       DJANGO_BPP_POSTGRESQL_VERSION=<nowy_major>
+       DJANGO_BPP_POSTGRESQL_VERSION_MAJOR=<nowy_major>
+     (obecnie: ${_cur_ext_major:-<nieustawione>})
 
   3. make up
      -> recreate sentinela i backup-runnera na nowym obrazie
@@ -148,8 +155,15 @@ EOF
             echo "BLAD: '$NEW_MAJOR' nie jest liczba." >&2
             exit 1
         fi
-        run set_env_var DJANGO_BPP_POSTGRESQL_DB_VERSION "$NEW_MAJOR" "$APP_ENV"
-        echo "Zaktualizowano DJANGO_BPP_POSTGRESQL_DB_VERSION=$NEW_MAJOR w $APP_ENV"
+        run set_env_var DJANGO_BPP_POSTGRESQL_VERSION "$NEW_MAJOR" "$APP_ENV"
+        run set_env_var DJANGO_BPP_POSTGRESQL_VERSION_MAJOR "$NEW_MAJOR" "$APP_ENV"
+        # Sprzatanie starej nazwy (po rename 2026-04-18) zeby uniknac rozjazdu.
+        if env_has_var "DJANGO_BPP_POSTGRESQL_DB_VERSION" "$APP_ENV"; then
+            awk '!/^DJANGO_BPP_POSTGRESQL_DB_VERSION=/' "$APP_ENV" > "$APP_ENV.tmp.$$" \
+                && mv "$APP_ENV.tmp.$$" "$APP_ENV"
+            echo "Usunieto stara DJANGO_BPP_POSTGRESQL_DB_VERSION (po migracji)."
+        fi
+        echo "Zaktualizowano wersje PostgreSQL na $NEW_MAJOR w $APP_ENV"
         run docker compose pull dbserver backup-runner
         run docker compose up -d dbserver backup-runner
         echo
@@ -183,10 +197,13 @@ fi
 
 CURRENT_PG_VERSION="$(docker compose exec -T dbserver postgres --version 2>/dev/null || echo unknown)"
 CURRENT_PG_MAJOR="$(echo "$CURRENT_PG_VERSION" | grep -oE '[0-9]+' | head -1 || echo 0)"
-CURRENT_DBSERVER_PG_VERSION="$(get_env_var DJANGO_BPP_DBSERVER_PG_VERSION "$APP_ENV")"
-# Stare .envy moga nie miec tej zmiennej (sprzed parametryzacji tagu dbservera).
-# Wtedy pokazujemy default ktory jest w docker-compose.database.yml.
-CURRENT_DBSERVER_PG_VERSION="${CURRENT_DBSERVER_PG_VERSION:-16.13 (default z compose, brak w .env)}"
+# Czytamy z nowej nazwy (DJANGO_BPP_POSTGRESQL_VERSION) z fallbackiem na stara
+# (DJANGO_BPP_DBSERVER_PG_VERSION) - patrz komentarze w docker-compose.database.yml.
+CURRENT_POSTGRESQL_VERSION="$(get_env_var DJANGO_BPP_POSTGRESQL_VERSION "$APP_ENV")"
+if [ -z "$CURRENT_POSTGRESQL_VERSION" ]; then
+    CURRENT_POSTGRESQL_VERSION="$(get_env_var DJANGO_BPP_DBSERVER_PG_VERSION "$APP_ENV")"
+fi
+CURRENT_POSTGRESQL_VERSION="${CURRENT_POSTGRESQL_VERSION:-16.13 (default z compose, brak w .env)}"
 
 cat <<EOF
 
@@ -195,7 +212,7 @@ cat <<EOF
 Project:                            $COMPOSE_PROJECT_NAME
 Volume:                             $VOLUME_NAME
 Obecna wersja PG (z kontenera):     $CURRENT_PG_VERSION
-Obecny DJANGO_BPP_DBSERVER_PG_VERSION: $CURRENT_DBSERVER_PG_VERSION
+Obecny DJANGO_BPP_POSTGRESQL_VERSION: $CURRENT_POSTGRESQL_VERSION
 
 Procedura wykona:
   1. Pull nowego obrazu dbservera (fail-fast - zanim cokolwiek destrukcyjnego;
@@ -209,9 +226,9 @@ Procedura wykona:
   6. Usunie obecny volume $VOLUME_NAME
      (nowy kontener musi uzywac nowego, pustego woluminu - miedzy majorami
       Postgresa NIE ma binarnej kompatybilnosci formatu PGDATA)
-  7. Bumpnie DJANGO_BPP_DBSERVER_PG_VERSION w $APP_ENV
-     (plus DJANGO_BPP_POSTGRESQL_DB_VERSION dla backup-runnera)
+  7. Bumpnie DJANGO_BPP_POSTGRESQL_VERSION + _MAJOR w $APP_ENV
   8. Start nowego dbserver -> initdb na nowym majorze
+     (w razie failu - prompt o auto-rollback z backup volume)
   9. pg_restore z tarballa
  10. make migrate, make up, smoke test
 
@@ -221,17 +238,17 @@ Tarball z pg_dump tez zostaje w \$DJANGO_BPP_HOST_BACKUP_DIR.
 EOF
 
 echo "Dostepne tagi (psql-<ver>): https://hub.docker.com/r/iplweb/bpp_dbserver/tags"
-read -r -p "Nowa wersja dbservera (format MAJOR.MINOR, np. 18.3): " NEW_DBSERVER_PG_VERSION
-if [ -z "$NEW_DBSERVER_PG_VERSION" ]; then
+read -r -p "Nowa wersja dbservera (format MAJOR.MINOR, np. 18.3): " NEW_POSTGRESQL_VERSION
+if [ -z "$NEW_POSTGRESQL_VERSION" ]; then
     echo "BLAD: wersja nie moze byc pusta." >&2
     exit 1
 fi
-if ! [[ "$NEW_DBSERVER_PG_VERSION" =~ ^[0-9]+\.[0-9]+$ ]]; then
-    echo "BLAD: '$NEW_DBSERVER_PG_VERSION' nie pasuje do formatu MAJOR.MINOR (np. 18.3)." >&2
+if ! [[ "$NEW_POSTGRESQL_VERSION" =~ ^[0-9]+\.[0-9]+$ ]]; then
+    echo "BLAD: '$NEW_POSTGRESQL_VERSION' nie pasuje do formatu MAJOR.MINOR (np. 18.3)." >&2
     exit 1
 fi
 
-EXPECTED_MAJOR="${NEW_DBSERVER_PG_VERSION%%.*}"
+EXPECTED_MAJOR="${NEW_POSTGRESQL_VERSION%%.*}"
 
 if [ "$EXPECTED_MAJOR" -le "$CURRENT_PG_MAJOR" ]; then
     echo "BLAD: nowy major ($EXPECTED_MAJOR) <= obecny ($CURRENT_PG_MAJOR). Upgrade w dol nie jest wspierany." >&2
@@ -239,7 +256,7 @@ if [ "$EXPECTED_MAJOR" -le "$CURRENT_PG_MAJOR" ]; then
     exit 1
 fi
 
-if ! confirm "Kontynuowac upgrade $CURRENT_PG_MAJOR -> $EXPECTED_MAJOR (DJANGO_BPP_DBSERVER_PG_VERSION: $CURRENT_DBSERVER_PG_VERSION -> $NEW_DBSERVER_PG_VERSION)?"; then
+if ! confirm "Kontynuowac upgrade $CURRENT_PG_MAJOR -> $EXPECTED_MAJOR (DJANGO_BPP_POSTGRESQL_VERSION: $CURRENT_POSTGRESQL_VERSION -> $NEW_POSTGRESQL_VERSION)?"; then
     echo "Anulowano."
     exit 0
 fi
@@ -248,7 +265,9 @@ TS="$(date +%Y%m%d-%H%M%S)"
 BACKUP_VOLUME="${VOLUME_NAME}_pg${CURRENT_PG_MAJOR}_${TS}"
 ROLLBACK_FILE="$BPP_CONFIGS_DIR/.upgrade-rollback-${TS}"
 
-# Trap z duzym banerem na wypadek awarii po krytycznym kroku.
+# Trap z duzym banerem na wypadek awarii po krytycznym kroku (gdy
+# auto_rollback nie zostal wywolany - np. przerwanie Ctrl-C, blad w obcym
+# miejscu, user odmowil auto-rollback).
 CRITICAL_STAGE_REACHED=0
 on_error() {
     local exit_code=$?
@@ -271,19 +290,60 @@ on_error() {
 #   1. docker compose stop dbserver
 #   2. docker compose rm -f dbserver
 #   3. docker volume rm $VOLUME_NAME
-#   4. docker run --rm \\
-#        -v $BACKUP_VOLUME:/from \\
+#   4. docker volume create $VOLUME_NAME
+#   5. docker run --rm \\
+#        -v $BACKUP_VOLUME:/from:ro \\
 #        -v $VOLUME_NAME:/to \\
 #        alpine sh -c 'cp -a /from/. /to/'
-#      (najpierw: docker volume create $VOLUME_NAME)
-#   5. W $APP_ENV ustaw DJANGO_BPP_DBSERVER_PG_VERSION=$CURRENT_DBSERVER_PG_VERSION
-#   6. docker compose pull dbserver
-#   7. make up
+#   6. W $APP_ENV:
+#        DJANGO_BPP_POSTGRESQL_VERSION=$CURRENT_POSTGRESQL_VERSION
+#        DJANGO_BPP_POSTGRESQL_VERSION_MAJOR=$CURRENT_PG_MAJOR
+#   7. docker compose up -d dbserver
 ##############################################################################
 EOF
     fi
 }
 trap on_error ERR
+
+# Auto-rollback: odkreca destrukcyjne kroki (bumpa env, skasowanie volume,
+# uruchomienie nowego kontenera) wracajac do starego clustra z BACKUP_VOLUME.
+# Wywolywane interaktywnie gdy nowy dbserver nie wstaje w [8/10] lub gdy
+# wersja kontenera nie pasuje do oczekiwanej. Po wywolaniu BACKUP_VOLUME jest
+# usuniety (dane wrocily do $VOLUME_NAME), tarball pg_dump zostaje.
+auto_rollback() {
+    echo ""
+    echo "##############################################################################"
+    echo "# AUTO-ROLLBACK"
+    echo "##############################################################################"
+    run docker compose stop dbserver || true
+    run docker compose rm -f dbserver || true
+    run docker volume rm "$VOLUME_NAME" 2>/dev/null || true
+    run docker volume create "$VOLUME_NAME"
+    run docker run --rm \
+        -v "$BACKUP_VOLUME:/from:ro" \
+        -v "$VOLUME_NAME:/to" \
+        alpine sh -c 'cp -a /from/. /to/'
+    run docker volume rm "$BACKUP_VOLUME"
+    run set_env_var DJANGO_BPP_POSTGRESQL_VERSION "$CURRENT_POSTGRESQL_VERSION" "$APP_ENV"
+    run set_env_var DJANGO_BPP_POSTGRESQL_VERSION_MAJOR "$CURRENT_PG_MAJOR" "$APP_ENV"
+    run docker compose up -d dbserver
+
+    echo "Czekam az stary dbserver wstanie (max 60s)..."
+    for _i in $(seq 1 20); do
+        _state="$(docker inspect -f '{{.State.Health.Status}}' "$(docker compose ps -q dbserver)" 2>/dev/null || echo none)"
+        if [ "$_state" = "healthy" ]; then
+            echo "OK - stary cluster wstal."
+            # CRITICAL_STAGE zostaje wylaczony zeby trap on_error nie drukowal
+            # banera manualnego rollbacku (rollback juz zostal wykonany).
+            CRITICAL_STAGE_REACHED=0
+            return 0
+        fi
+        sleep 3
+    done
+    echo "UWAGA: stary dbserver nie wstal jako healthy w 60s - sprawdz 'docker compose logs dbserver'." >&2
+    CRITICAL_STAGE_REACHED=0
+    return 1
+}
 
 # ---- Krok 1: pre-flight pull (fail-fast) --------------------------------
 # WAZNE: robimy to zanim cokolwiek destrukcyjnego. Jesli siec padnie, Docker
@@ -292,7 +352,7 @@ trap on_error ERR
 # image siedzi w lokalnym cache i krok 8 (up dbserver) jest juz offline-safe.
 echo
 echo "=== [1/10] Pull nowego obrazu dbserver (pre-flight, fail-fast) ==="
-NEW_DBSERVER_IMAGE="iplweb/bpp_dbserver:psql-${NEW_DBSERVER_PG_VERSION}"
+NEW_DBSERVER_IMAGE="iplweb/bpp_dbserver:psql-${NEW_POSTGRESQL_VERSION}"
 run docker pull "$NEW_DBSERVER_IMAGE"
 
 # ---- Krok 2: dump ---------------------------------------------------------
@@ -340,8 +400,8 @@ cat > "$ROLLBACK_FILE" <<EOF
 # BPP postgres upgrade rollback info - $TS
 OLD_VOLUME=$BACKUP_VOLUME
 NEW_VOLUME=$VOLUME_NAME
-OLD_DBSERVER_PG_VERSION=$CURRENT_DBSERVER_PG_VERSION
-NEW_DBSERVER_PG_VERSION=$NEW_DBSERVER_PG_VERSION
+OLD_POSTGRESQL_VERSION=$CURRENT_POSTGRESQL_VERSION
+NEW_POSTGRESQL_VERSION=$NEW_POSTGRESQL_VERSION
 OLD_PG_MAJOR=$CURRENT_PG_MAJOR
 NEW_PG_MAJOR=$EXPECTED_MAJOR
 TARBALL=$TARBALL
@@ -355,25 +415,44 @@ run docker volume rm "$VOLUME_NAME"
 
 # ---- Krok 7: bump wersji dbservera i backup-runnera ---------------------
 echo
-echo "=== [7/10] Bumpuje DJANGO_BPP_DBSERVER_PG_VERSION w $APP_ENV ==="
-run set_env_var DJANGO_BPP_DBSERVER_PG_VERSION "$NEW_DBSERVER_PG_VERSION" "$APP_ENV"
-echo "DJANGO_BPP_DBSERVER_PG_VERSION: $CURRENT_DBSERVER_PG_VERSION -> $NEW_DBSERVER_PG_VERSION"
+echo "=== [7/10] Bumpuje DJANGO_BPP_POSTGRESQL_VERSION w $APP_ENV ==="
+run set_env_var DJANGO_BPP_POSTGRESQL_VERSION "$NEW_POSTGRESQL_VERSION" "$APP_ENV"
+echo "DJANGO_BPP_POSTGRESQL_VERSION: $CURRENT_POSTGRESQL_VERSION -> $NEW_POSTGRESQL_VERSION"
 
-# Jednoczesnie synchronizuj DJANGO_BPP_POSTGRESQL_DB_VERSION (major dla
+# Sprzatanie starej nazwy (po rename 2026-04-18) zeby uniknac rozjazdu
+# miedzy VERSION a DBSERVER_PG_VERSION.
+if env_has_var "DJANGO_BPP_DBSERVER_PG_VERSION" "$APP_ENV"; then
+    awk '!/^DJANGO_BPP_DBSERVER_PG_VERSION=/' "$APP_ENV" > "$APP_ENV.tmp.$$" \
+        && mv "$APP_ENV.tmp.$$" "$APP_ENV"
+    echo "Usunieto stara DJANGO_BPP_POSTGRESQL_DBSERVER_PG_VERSION (zastapiona przez _VERSION)."
+fi
+
+# Jednoczesnie synchronizuj DJANGO_BPP_POSTGRESQL_VERSION_MAJOR (major dla
 # backup-runnera) jesli byla spojna z dbserverem. Gdy byla rozjechana
 # (np. user swiadomie trzyma backup-runner na nowszej wersji), nie ruszamy jej.
-CURRENT_BACKUP_RUNNER_MAJOR="$(get_env_var DJANGO_BPP_POSTGRESQL_DB_VERSION "$APP_ENV")"
+CURRENT_BACKUP_RUNNER_MAJOR="$(get_env_var DJANGO_BPP_POSTGRESQL_VERSION_MAJOR "$APP_ENV")"
+if [ -z "$CURRENT_BACKUP_RUNNER_MAJOR" ]; then
+    # Fallback na stara nazwe (pre-rename).
+    CURRENT_BACKUP_RUNNER_MAJOR="$(get_env_var DJANGO_BPP_POSTGRESQL_DB_VERSION "$APP_ENV")"
+fi
 if [ -z "$CURRENT_BACKUP_RUNNER_MAJOR" ] || [ "$CURRENT_BACKUP_RUNNER_MAJOR" = "$CURRENT_PG_MAJOR" ]; then
-    run set_env_var DJANGO_BPP_POSTGRESQL_DB_VERSION "$EXPECTED_MAJOR" "$APP_ENV"
-    echo "DJANGO_BPP_POSTGRESQL_DB_VERSION: ${CURRENT_BACKUP_RUNNER_MAJOR:-<puste>} -> $EXPECTED_MAJOR"
+    run set_env_var DJANGO_BPP_POSTGRESQL_VERSION_MAJOR "$EXPECTED_MAJOR" "$APP_ENV"
+    echo "DJANGO_BPP_POSTGRESQL_VERSION_MAJOR: ${CURRENT_BACKUP_RUNNER_MAJOR:-<puste>} -> $EXPECTED_MAJOR"
 elif [[ "$CURRENT_BACKUP_RUNNER_MAJOR" =~ ^[0-9]+$ ]]; then
-    echo "UWAGA: DJANGO_BPP_POSTGRESQL_DB_VERSION=$CURRENT_BACKUP_RUNNER_MAJOR rozjechane z"
+    echo "UWAGA: DJANGO_BPP_POSTGRESQL_VERSION_MAJOR=$CURRENT_BACKUP_RUNNER_MAJOR rozjechane z"
     echo "       dbserver ($CURRENT_PG_MAJOR) - nie ruszam (backup-runner moze miec >= wersja serwera)."
     if [ "$CURRENT_BACKUP_RUNNER_MAJOR" -lt "$EXPECTED_MAJOR" ]; then
         echo "       ALE: $CURRENT_BACKUP_RUNNER_MAJOR < $EXPECTED_MAJOR - rozwaz recznie bumpnac po upgrade."
     fi
 else
-    echo "UWAGA: DJANGO_BPP_POSTGRESQL_DB_VERSION=$CURRENT_BACKUP_RUNNER_MAJOR nie jest liczba - nie ruszam."
+    echo "UWAGA: DJANGO_BPP_POSTGRESQL_VERSION_MAJOR=$CURRENT_BACKUP_RUNNER_MAJOR nie jest liczba - nie ruszam."
+fi
+
+# Sprzatanie starej nazwy dla majora (po rename 2026-04-18).
+if env_has_var "DJANGO_BPP_POSTGRESQL_DB_VERSION" "$APP_ENV"; then
+    awk '!/^DJANGO_BPP_POSTGRESQL_DB_VERSION=/' "$APP_ENV" > "$APP_ENV.tmp.$$" \
+        && mv "$APP_ENV.tmp.$$" "$APP_ENV"
+    echo "Usunieto stara DJANGO_BPP_POSTGRESQL_DB_VERSION (zastapiona przez _MAJOR)."
 fi
 
 # ---- Krok 8: start dbserver ----------------------------------------------
@@ -395,7 +474,17 @@ for i in $(seq 1 60); do
 done
 if [ "$HEALTHY" != 1 ]; then
     echo "BLAD: dbserver nie zostal healthy w 180s." >&2
-    docker compose logs --tail=50 dbserver >&2 || true
+    echo "Logi dbservera (ostatnie 100 linii):" >&2
+    docker compose logs --tail=100 dbserver >&2 || true
+    echo ""
+    if confirm "Wykonac auto-rollback (przywrocic stary cluster z backup volume)?"; then
+        auto_rollback || true
+        echo ""
+        echo "Rollback wykonany. Upgrade nie powiodl sie, stary cluster wrocil."
+        echo "Tarball pg_dump zachowany: $TARBALL (mozesz usunac po weryfikacji)."
+        exit 1
+    fi
+    echo "Auto-rollback pominiety - patrz banner z manualnymi krokami." >&2
     exit 1
 fi
 
@@ -403,7 +492,15 @@ NEW_PG_VERSION="$(docker compose exec -T dbserver postgres --version 2>/dev/null
 NEW_PG_MAJOR="$(echo "$NEW_PG_VERSION" | grep -oE '[0-9]+' | head -1 || echo 0)"
 echo "Nowa wersja PG: $NEW_PG_VERSION"
 if [ "$NEW_PG_MAJOR" != "$EXPECTED_MAJOR" ]; then
-    echo "BLAD: spodziewany major $EXPECTED_MAJOR, dostalem $NEW_PG_MAJOR. Sprawdz tag psql-$NEW_DBSERVER_PG_VERSION." >&2
+    echo "BLAD: spodziewany major $EXPECTED_MAJOR, dostalem $NEW_PG_MAJOR. Sprawdz tag psql-$NEW_POSTGRESQL_VERSION." >&2
+    echo ""
+    if confirm "Wykonac auto-rollback (przywrocic stary cluster z backup volume)?"; then
+        auto_rollback || true
+        echo ""
+        echo "Rollback wykonany. Upgrade nie powiodl sie (zly tag), stary cluster wrocil."
+        exit 1
+    fi
+    echo "Auto-rollback pominiety - patrz banner z manualnymi krokami." >&2
     exit 1
 fi
 

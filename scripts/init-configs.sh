@@ -394,26 +394,30 @@ EOF
         cat >> "$ENV_FILE" <<EOF
 
 # === Wersja PostgreSQL ===
-# Wspolna dla sentinela w trybie external (docker-compose.database.external.yml)
-# oraz dla backup-runner (docker-compose.backup.yml). pg_dump tej wersji
-# musi byc >= wersji serwera (regula Postgresa dot. kompatybilnosci).
-DJANGO_BPP_POSTGRESQL_DB_VERSION=$EXT_PG_VERSION
+# W trybie external VERSION i VERSION_MAJOR sa rowne - sentinel i backup-runner
+# potrzebuja tylko majora (postgres:<major>-alpine). Zmienne istnieja osobno
+# dla spojnosci z trybem lokalnym (gdzie VERSION jest MAJOR.MINOR).
+DJANGO_BPP_POSTGRESQL_VERSION=$EXT_PG_VERSION
+DJANGO_BPP_POSTGRESQL_VERSION_MAJOR=$EXT_PG_VERSION
 EOF
     fi
 
-    # Zmienna wybierajaca tag obrazu iplweb/bpp_dbserver (tylko tryb lokalny -
-    # w trybie external dbserver to sentinel postgres:<ver>-alpine, nie nasz
-    # obraz). Trzymana osobno od DJANGO_BPP_POSTGRESQL_DB_VERSION zeby dac
-    # kontrole nad pelnym MAJOR.MINOR (nie tylko majorem). Upgrade majorow:
-    # `make upgrade-postgres` (logical dump & restore z zachowaniem starego
-    # volume jako kopii zapasowej).
+    # Zmienne wersji dla trybu lokalnego:
+    #   DJANGO_BPP_POSTGRESQL_VERSION       - pelny MAJOR.MINOR, tag iplweb/bpp_dbserver:psql-<ver>
+    #   DJANGO_BPP_POSTGRESQL_VERSION_MAJOR - derived major, dla backup-runnera (postgres:<major>-alpine)
+    # Upgrade majora: `make upgrade-postgres` (logical dump & restore z zachowaniem
+    # starego volume jako kopii zapasowej).
     if [ "$BPP_EXTERNAL_DB" != "yes" ] && [ -n "${DBSERVER_PG_VERSION:-}" ]; then
+        _dbserver_major="${DBSERVER_PG_VERSION%%.*}"
         cat >> "$ENV_FILE" <<EOF
 
-# === Wersja obrazu dbserver ===
-# Tag iplweb/bpp_dbserver:psql-<MAJOR.MINOR>. Nie zmieniaj recznie dla
-# upgrade'u majora - uzyj 'make upgrade-postgres' (dump & restore).
-DJANGO_BPP_DBSERVER_PG_VERSION=$DBSERVER_PG_VERSION
+# === Wersja PostgreSQL ===
+# DJANGO_BPP_POSTGRESQL_VERSION - pelny tag dbservera (iplweb/bpp_dbserver:psql-<ver>).
+# Nie zmieniaj recznie dla upgrade'u majora - uzyj 'make upgrade-postgres'
+# (dump & restore). Minor update (np. 16.13 -> 16.14) mozna zrobic recznie.
+DJANGO_BPP_POSTGRESQL_VERSION=$DBSERVER_PG_VERSION
+# Auto-derived major (pg_dump backup-runnera musi byc >= wersji serwera).
+DJANGO_BPP_POSTGRESQL_VERSION_MAJOR=$_dbserver_major
 EOF
     fi
 
@@ -557,8 +561,8 @@ else
         "Rollbar (notyfikacje backup-cycle)"
 
     # Migracja: DJANGO_BPP_EXTERNAL_POSTGRESQL_DB_VERSION -> DJANGO_BPP_POSTGRESQL_DB_VERSION.
-    # Zmienna dotyczy teraz obu trybow (sentinel external + backup-runner),
-    # wiec przedrostek "EXTERNAL" zniknal z nazwy.
+    # (Historyczny rename - zmienna dotyczyla tylko external, po rozszerzeniu na
+    # backup-runner przedrostek EXTERNAL zniknal. Zachowane dla bardzo starych .envow.)
     if env_has_var "DJANGO_BPP_EXTERNAL_POSTGRESQL_DB_VERSION" && ! env_has_var "DJANGO_BPP_POSTGRESQL_DB_VERSION"; then
         _old_pg_ver="$(get_env_var DJANGO_BPP_EXTERNAL_POSTGRESQL_DB_VERSION)"
         awk '!/^DJANGO_BPP_EXTERNAL_POSTGRESQL_DB_VERSION=/ && !/^# Dopisano automatycznie.*DJANGO_BPP_EXTERNAL_POSTGRESQL_DB_VERSION/' "$ENV_FILE" > "$ENV_FILE.tmp.$$" \
@@ -568,8 +572,52 @@ else
         echo "  ~ zmigrowalem DJANGO_BPP_EXTERNAL_POSTGRESQL_DB_VERSION -> DJANGO_BPP_POSTGRESQL_DB_VERSION"
     fi
 
+    # Migracja 2026-04-18: konsolidacja nazw wersji PostgreSQL.
+    #   DJANGO_BPP_DBSERVER_PG_VERSION     -> DJANGO_BPP_POSTGRESQL_VERSION
+    #   DJANGO_BPP_POSTGRESQL_DB_VERSION   -> DJANGO_BPP_POSTGRESQL_VERSION_MAJOR
+    # VERSION jest source of truth (MAJOR.MINOR lokalnie, MAJOR w external),
+    # VERSION_MAJOR jest auto-derived i uzywane przez backup-runner/sentinel.
+    if env_has_var "DJANGO_BPP_DBSERVER_PG_VERSION" && ! env_has_var "DJANGO_BPP_POSTGRESQL_VERSION"; then
+        _old_ver="$(get_env_var DJANGO_BPP_DBSERVER_PG_VERSION)"
+        awk '!/^DJANGO_BPP_DBSERVER_PG_VERSION=/ && !/^# Dopisano automatycznie.*DJANGO_BPP_DBSERVER_PG_VERSION/ && !/^# === Wersja obrazu dbserver ===/ && !/^# Tag iplweb.bpp_dbserver:psql.*MAJOR.MINOR/ && !/^# upgrade.u majora - uzyj .make upgrade-postgres/' \
+            "$ENV_FILE" > "$ENV_FILE.tmp.$$" \
+            && mv "$ENV_FILE.tmp.$$" "$ENV_FILE"
+        set_env_var "DJANGO_BPP_POSTGRESQL_VERSION" "$_old_ver" \
+            "Pelna wersja PostgreSQL (MAJOR.MINOR lokalnie, MAJOR w external) - migracja z DJANGO_BPP_DBSERVER_PG_VERSION"
+        echo "  ~ zmigrowalem DJANGO_BPP_DBSERVER_PG_VERSION -> DJANGO_BPP_POSTGRESQL_VERSION"
+    fi
+
+    if env_has_var "DJANGO_BPP_POSTGRESQL_DB_VERSION" && ! env_has_var "DJANGO_BPP_POSTGRESQL_VERSION_MAJOR"; then
+        _old_ver="$(get_env_var DJANGO_BPP_POSTGRESQL_DB_VERSION)"
+        awk '!/^DJANGO_BPP_POSTGRESQL_DB_VERSION=/ && !/^# Dopisano automatycznie.*DJANGO_BPP_POSTGRESQL_DB_VERSION/ && !/^# === Wersja PostgreSQL ===/ && !/^# Wspolna dla sentinela/ && !/^# oraz dla backup-runner/ && !/^# musi byc >= wersji serwera/' \
+            "$ENV_FILE" > "$ENV_FILE.tmp.$$" \
+            && mv "$ENV_FILE.tmp.$$" "$ENV_FILE"
+        set_env_var "DJANGO_BPP_POSTGRESQL_VERSION_MAJOR" "$_old_ver" \
+            "Major wersja PostgreSQL (derived z DJANGO_BPP_POSTGRESQL_VERSION) - migracja z DJANGO_BPP_POSTGRESQL_DB_VERSION"
+        echo "  ~ zmigrowalem DJANGO_BPP_POSTGRESQL_DB_VERSION -> DJANGO_BPP_POSTGRESQL_VERSION_MAJOR"
+    fi
+
+    # Derivacja brakujacej polowki pary VERSION/VERSION_MAJOR. Happy-path:
+    #   - local fresh: generate sekcja dala obie
+    #   - external fresh: generate sekcja dala obie
+    #   - post-migracja z DBSERVER_PG_VERSION tylko: derive _MAJOR z _VERSION
+    #   - post-migracja z POSTGRESQL_DB_VERSION tylko (stary external .env ktory
+    #     nigdy nie mial DBSERVER_PG_VERSION): derive _VERSION z _MAJOR
+    if env_has_var "DJANGO_BPP_POSTGRESQL_VERSION" && ! env_has_var "DJANGO_BPP_POSTGRESQL_VERSION_MAJOR"; then
+        _val="$(get_env_var DJANGO_BPP_POSTGRESQL_VERSION)"
+        set_env_var "DJANGO_BPP_POSTGRESQL_VERSION_MAJOR" "${_val%%.*}" \
+            "Major wersja PostgreSQL (derived z DJANGO_BPP_POSTGRESQL_VERSION)"
+        echo "  + derive DJANGO_BPP_POSTGRESQL_VERSION_MAJOR=${_val%%.*} z DJANGO_BPP_POSTGRESQL_VERSION"
+    fi
+    if env_has_var "DJANGO_BPP_POSTGRESQL_VERSION_MAJOR" && ! env_has_var "DJANGO_BPP_POSTGRESQL_VERSION"; then
+        _val="$(get_env_var DJANGO_BPP_POSTGRESQL_VERSION_MAJOR)"
+        set_env_var "DJANGO_BPP_POSTGRESQL_VERSION" "$_val" \
+            "Pelna wersja PostgreSQL (MAJOR.MINOR lokalnie, MAJOR w external)"
+        echo "  + derive DJANGO_BPP_POSTGRESQL_VERSION=$_val z DJANGO_BPP_POSTGRESQL_VERSION_MAJOR"
+    fi
+
     # W trybie zewnetrznej bazy - upewnij sie ze major version sentinela jest ustawiony.
-    if [ "$BPP_EXTERNAL_DB" = "yes" ] && ! env_has_var "DJANGO_BPP_POSTGRESQL_DB_VERSION"; then
+    if [ "$BPP_EXTERNAL_DB" = "yes" ] && ! env_has_var "DJANGO_BPP_POSTGRESQL_VERSION_MAJOR"; then
         _db_host="$(get_env_var DJANGO_BPP_DB_HOST)"
         _db_port="$(get_env_var DJANGO_BPP_DB_PORT)"
         _db_user="$(get_env_var DJANGO_BPP_DB_USER)"
@@ -582,13 +630,18 @@ else
                 "$_db_host" "$_db_port" "$_db_user" "$_db_pass" "$_db_name" 2>/dev/null)" \
                 && [ -n "$DETECTED_PG_MAJOR" ]; then
             echo "Wykryto PostgreSQL major $DETECTED_PG_MAJOR"
-            ensure_env_var "DJANGO_BPP_POSTGRESQL_DB_VERSION" "$DETECTED_PG_MAJOR" \
+            ensure_env_var "DJANGO_BPP_POSTGRESQL_VERSION" "$DETECTED_PG_MAJOR" \
+                "" "Zewnetrzna baza danych"
+            ensure_env_var "DJANGO_BPP_POSTGRESQL_VERSION_MAJOR" "$DETECTED_PG_MAJOR" \
                 "" "Zewnetrzna baza danych"
         else
             echo "UWAGA: nie udalo sie wykryc wersji."
-            ensure_env_var "DJANGO_BPP_POSTGRESQL_DB_VERSION" "17" \
+            ensure_env_var "DJANGO_BPP_POSTGRESQL_VERSION" "17" \
                 "Wersja major zewnetrznego PostgreSQL (np. 17, 16, 15)" \
                 "Zewnetrzna baza danych"
+            _ext_ver="$(get_env_var DJANGO_BPP_POSTGRESQL_VERSION)"
+            ensure_env_var "DJANGO_BPP_POSTGRESQL_VERSION_MAJOR" "${_ext_ver:-17}" \
+                "" "Zewnetrzna baza danych"
         fi
     fi
 
@@ -597,19 +650,19 @@ else
         # Tag iplweb/bpp_dbserver:psql-<MAJOR.MINOR>. Default 16.13 to ostatnio
         # znana dobra wersja - dla starych deploymentow po `git pull` daje
         # zgodnosc bit-in-bit z poprzednim hardcoded tagem z docker-compose.
-        ensure_env_var "DJANGO_BPP_DBSERVER_PG_VERSION" "16.13" \
+        ensure_env_var "DJANGO_BPP_POSTGRESQL_VERSION" "16.13" \
             "Wersja dbservera (iplweb/bpp_dbserver:psql-<ver>, np. 16.13, 17.9, 18.3)" \
-            "Wersja obrazu dbserver - upgrade majora przez 'make upgrade-postgres'"
+            "Wersja PostgreSQL - upgrade majora przez 'make upgrade-postgres'"
 
         # Default dla backup-runnera = major z dbservera (16.13 -> 16) tylko
         # gdy zmienna jeszcze nie istnieje. Zachowujemy istniejaca wartosc
         # jesli uzytkownik mial np. backup-runner na 17 a dbserver na 16 (to
         # jest OK bo pg_dump 17 umie dumpowac baze 16).
-        _dbserver_ver="$(get_env_var DJANGO_BPP_DBSERVER_PG_VERSION)"
+        _dbserver_ver="$(get_env_var DJANGO_BPP_POSTGRESQL_VERSION)"
         _backup_runner_default="${_dbserver_ver%%.*}"
-        ensure_env_var "DJANGO_BPP_POSTGRESQL_DB_VERSION" "${_backup_runner_default:-16}" \
+        ensure_env_var "DJANGO_BPP_POSTGRESQL_VERSION_MAJOR" "${_backup_runner_default:-16}" \
             "Major version lokalnego PostgreSQL (dla backup-runner, >= wersji dbservera)" \
-            "Wersja PostgreSQL"
+            "Wersja PostgreSQL - auto-derived z DJANGO_BPP_POSTGRESQL_VERSION"
     fi
 
     echo ""

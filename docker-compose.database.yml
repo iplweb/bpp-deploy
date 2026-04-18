@@ -2,13 +2,13 @@ services:
 
   dbserver:
     # Tag iplweb/bpp_dbserver:psql-<MAJOR.MINOR> wybierany przez
-    # DJANGO_BPP_DBSERVER_PG_VERSION w $BPP_CONFIGS_DIR/.env. Domyslna
-    # wartosc tutaj (16.13) to safety net dla starych deploymentow, ktore
-    # nie maja tej zmiennej po `git pull` - wtedy compose dalej dziala
-    # na ostatnio dostarczonej "znanej dobrej" wersji. Nowe konfiguracje
-    # dostaja wartosc z init-configs. Pelna lista tagow:
+    # DJANGO_BPP_POSTGRESQL_VERSION w $BPP_CONFIGS_DIR/.env. Dwuwarstwowy
+    # fallback: nowa nazwa -> stara (DJANGO_BPP_DBSERVER_PG_VERSION, sprzed
+    # rename w 2026-04-18) -> default 16.13 jako safety net dla deploymentow
+    # ktore nie przeszly jeszcze przez init-configs po upgrade repo. Nowe
+    # konfiguracje dostaja wartosc z init-configs. Pelna lista tagow:
     # https://hub.docker.com/r/iplweb/bpp_dbserver/tags
-    image: iplweb/bpp_dbserver:psql-${DJANGO_BPP_DBSERVER_PG_VERSION:-16.13}
+    image: iplweb/bpp_dbserver:psql-${DJANGO_BPP_POSTGRESQL_VERSION:-${DJANGO_BPP_DBSERVER_PG_VERSION:-16.13}}
     restart: always
     environment:
       POSTGRES_DB: ${DJANGO_BPP_DB_NAME}
