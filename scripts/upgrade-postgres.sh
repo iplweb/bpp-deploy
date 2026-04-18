@@ -34,37 +34,12 @@ set -euo pipefail
 REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 REPO_ENV="$REPO_DIR/.env"
 
-if [ ! -f "$REPO_ENV" ]; then
-    echo "BLAD: brak $REPO_ENV. Najpierw uruchom 'make' zeby zainicjalizowac konfiguracje." >&2
-    exit 1
-fi
-
-# Repo .env trzyma: BPP_CONFIGS_DIR, COMPOSE_PROJECT_NAME, opcjonalnie BPP_DATABASE_COMPOSE.
-set -a
-# shellcheck disable=SC1090
-source "$REPO_ENV"
-set +a
-
-if [ -z "${BPP_CONFIGS_DIR:-}" ]; then
-    echo "BLAD: BPP_CONFIGS_DIR nie ustawione w $REPO_ENV." >&2
-    exit 1
-fi
-
-APP_ENV="$BPP_CONFIGS_DIR/.env"
-if [ ! -f "$APP_ENV" ]; then
-    echo "BLAD: brak $APP_ENV. Uruchom 'make init-configs'." >&2
-    exit 1
-fi
-
-# Aplikacyjne zmienne (DJANGO_BPP_*, DOCKER_VERSION, ...).
-set -a
-# shellcheck disable=SC1090
-source "$APP_ENV"
-set +a
-
-# Pomocnicze funkcje do edycji .env. Te same kontrakty co w scripts/init-configs.sh
-# (env_has_var, get_env_var, set_env_var) - reimplementowane lokalnie zeby uniknac
-# source'owania init-configs.sh, ktore wykonuje cala swoja logike przy zaladowaniu.
+# Helpery do czytania/pisania .env BEZ `source`. Plik .env uzytkownika moze zawierac
+# wartosci ktore shell potraktowalby jako skladnie: `ADMINS=admin <foo@bar.pl>`
+# (redirect), backtick w passwordzie, niezamkniete cudzyslowy, znak `$` itd.
+# Docker Compose nie ma z tym problemu bo uzywa wlasnego parsera KEY=VALUE,
+# a `source` probuje interpretowac cala linie jako bash i sie wywala. Robimy tu
+# to co Compose: czytamy tylko surowe pary klucz=wartosc linia po linii.
 env_has_var() {
     grep -q "^${1}=" "$2" 2>/dev/null
 }
@@ -105,6 +80,36 @@ run() {
     echo "+ $*"
     "$@"
 }
+
+if [ ! -f "$REPO_ENV" ]; then
+    echo "BLAD: brak $REPO_ENV. Najpierw uruchom 'make' zeby zainicjalizowac konfiguracje." >&2
+    exit 1
+fi
+
+# Repo .env trzyma: BPP_CONFIGS_DIR, COMPOSE_PROJECT_NAME, opcjonalnie BPP_DATABASE_COMPOSE.
+BPP_CONFIGS_DIR="$(get_env_var BPP_CONFIGS_DIR "$REPO_ENV")"
+COMPOSE_PROJECT_NAME="$(get_env_var COMPOSE_PROJECT_NAME "$REPO_ENV")"
+BPP_DATABASE_COMPOSE="$(get_env_var BPP_DATABASE_COMPOSE "$REPO_ENV")"
+
+if [ -z "$BPP_CONFIGS_DIR" ]; then
+    echo "BLAD: BPP_CONFIGS_DIR nie ustawione w $REPO_ENV." >&2
+    exit 1
+fi
+
+APP_ENV="$BPP_CONFIGS_DIR/.env"
+if [ ! -f "$APP_ENV" ]; then
+    echo "BLAD: brak $APP_ENV. Uruchom 'make init-configs'." >&2
+    exit 1
+fi
+
+# Aplikacyjne zmienne - ladujemy tylko to, czego skrypt faktycznie uzywa. NIE
+# sourcujemy calego .env (patrz komentarz przy get_env_var powyzej).
+DJANGO_BPP_DB_PASSWORD="$(get_env_var DJANGO_BPP_DB_PASSWORD "$APP_ENV")"
+DJANGO_BPP_DB_HOST="$(get_env_var DJANGO_BPP_DB_HOST "$APP_ENV")"
+DJANGO_BPP_DB_PORT="$(get_env_var DJANGO_BPP_DB_PORT "$APP_ENV")"
+DJANGO_BPP_DB_USER="$(get_env_var DJANGO_BPP_DB_USER "$APP_ENV")"
+DJANGO_BPP_DB_NAME="$(get_env_var DJANGO_BPP_DB_NAME "$APP_ENV")"
+DJANGO_BPP_HOST_BACKUP_DIR="$(get_env_var DJANGO_BPP_HOST_BACKUP_DIR "$APP_ENV")"
 
 cd "$REPO_DIR"
 
