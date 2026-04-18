@@ -198,19 +198,22 @@ Obecna wersja PG (z kontenera):     $CURRENT_PG_VERSION
 Obecny DJANGO_BPP_DBSERVER_PG_VERSION: $CURRENT_DBSERVER_PG_VERSION
 
 Procedura wykona:
-  1. pg_dump aktualnego clustra (przez 'make db-backup')
-  2. Zatrzyma dependent services (app, workers, beat, denorm-queue, flower, authserver)
-  3. Zatrzyma i usunie kontener dbserver
-  4. Skopiuje obecny volume $VOLUME_NAME do volume backupowego
+  1. Pull nowego obrazu dbservera (fail-fast - zanim cokolwiek destrukcyjnego;
+     jesli siec padnie lub tag nie istnieje, dowiemy sie TERAZ a nie po
+     skasowaniu volume)
+  2. pg_dump aktualnego clustra (przez 'make db-backup')
+  3. Zatrzyma dependent services (app, workers, beat, denorm-queue, flower, authserver)
+  4. Zatrzyma i usunie kontener dbserver
+  5. Skopiuje obecny volume $VOLUME_NAME do volume backupowego
      (wymaga ~rozmiar_PGDATA wolnego miejsca w docker volumes)
-  5. Usunie obecny volume $VOLUME_NAME
+  6. Usunie obecny volume $VOLUME_NAME
      (nowy kontener musi uzywac nowego, pustego woluminu - miedzy majorami
       Postgresa NIE ma binarnej kompatybilnosci formatu PGDATA)
-  6. Bumpnie DJANGO_BPP_DBSERVER_PG_VERSION w $APP_ENV
+  7. Bumpnie DJANGO_BPP_DBSERVER_PG_VERSION w $APP_ENV
      (plus DJANGO_BPP_POSTGRESQL_DB_VERSION dla backup-runnera)
-  7. docker compose pull + up dbserver -> initdb na nowym majorze
-  8. pg_restore z tarballa
-  9. make migrate, make up, smoke test
+  8. Start nowego dbserver -> initdb na nowym majorze
+  9. pg_restore z tarballa
+ 10. make migrate, make up, smoke test
 
 Stary volume bedzie zachowany pod nowa nazwa az do recznego usuniecia.
 Tarball z pg_dump tez zostaje w \$DJANGO_BPP_HOST_BACKUP_DIR.
@@ -261,7 +264,7 @@ on_error() {
 #   - Stary volume zachowany jako: $BACKUP_VOLUME
 #   - Aktualny volume:              $VOLUME_NAME (moze byc pusty lub czesciowo
 #                                                  zapelniony nowym clustrem)
-#   - Tarball pg_dump:              $TARBALL (jesli krok 1 sie udal)
+#   - Tarball pg_dump:              $TARBALL (jesli krok 2 sie udal)
 #   - Plik rollback:                $ROLLBACK_FILE
 #
 # ROLLBACK do starego clustra:
@@ -282,9 +285,19 @@ EOF
 }
 trap on_error ERR
 
-# ---- Krok 1: dump ---------------------------------------------------------
+# ---- Krok 1: pre-flight pull (fail-fast) --------------------------------
+# WAZNE: robimy to zanim cokolwiek destrukcyjnego. Jesli siec padnie, Docker
+# Hub jest nieosiagalny, albo tag nie istnieje (literowka w wersji) - dowiemy
+# sie teraz, gdy jeszcze nic nie zostalo zatrzymane ani skasowane. Po sukcesie
+# image siedzi w lokalnym cache i krok 8 (up dbserver) jest juz offline-safe.
 echo
-echo "=== [1/9] Dump aktualnej bazy (make db-backup) ==="
+echo "=== [1/10] Pull nowego obrazu dbserver (pre-flight, fail-fast) ==="
+NEW_DBSERVER_IMAGE="iplweb/bpp_dbserver:psql-${NEW_DBSERVER_PG_VERSION}"
+run docker pull "$NEW_DBSERVER_IMAGE"
+
+# ---- Krok 2: dump ---------------------------------------------------------
+echo
+echo "=== [2/10] Dump aktualnej bazy (make db-backup) ==="
 run make db-backup
 
 # Znajdz najswiezszy tarball - sortowanie po nazwie dziala bo timestamp jest w nazwie.
@@ -297,26 +310,26 @@ TARBALL_NAME="$(basename "$TARBALL")"
 DUMP_DIRNAME="${TARBALL_NAME%.tar.gz}"
 echo "Tarball: $TARBALL"
 
-# ---- Krok 2: stop dependent services -------------------------------------
+# ---- Krok 3: stop dependent services -------------------------------------
 echo
-echo "=== [2/9] Zatrzymuje dependent services ==="
+echo "=== [3/10] Zatrzymuje dependent services ==="
 # Workery denorm sa zatrzymywane przez dedykowany target (czeka az queue sie oprozni).
 run make stop-denorm-celery
 # Reszta - bez niczego oczekiwania, te serwisy nie maja persistent state poza baza.
 run docker compose stop appserver authserver workerserver-general celerybeat denorm-queue flower
 
-# ---- Krok 3: stop+rm dbserver --------------------------------------------
+# ---- Krok 4: stop+rm dbserver --------------------------------------------
 echo
-echo "=== [3/9] Zatrzymuje i usuwam kontener dbserver ==="
+echo "=== [4/10] Zatrzymuje i usuwam kontener dbserver ==="
 run docker compose stop dbserver
 run docker compose rm -f dbserver
 
 # Od tego momentu kazdy blad oznacza nieodwracalna zmiane stanu - wlaczamy banner.
 CRITICAL_STAGE_REACHED=1
 
-# ---- Krok 4: kopia volume na bok ----------------------------------------
+# ---- Krok 5: kopia volume na bok ----------------------------------------
 echo
-echo "=== [4/9] Tworze kopie volume $VOLUME_NAME -> $BACKUP_VOLUME ==="
+echo "=== [5/10] Tworze kopie volume $VOLUME_NAME -> $BACKUP_VOLUME ==="
 run docker volume create "$BACKUP_VOLUME"
 run docker run --rm \
     -v "$VOLUME_NAME:/from:ro" \
@@ -335,14 +348,14 @@ TARBALL=$TARBALL
 EOF
 echo "Plik rollback: $ROLLBACK_FILE"
 
-# ---- Krok 5: usun stary volume ------------------------------------------
+# ---- Krok 6: usun stary volume ------------------------------------------
 echo
-echo "=== [5/9] Usuwam obecny volume $VOLUME_NAME ==="
+echo "=== [6/10] Usuwam obecny volume $VOLUME_NAME ==="
 run docker volume rm "$VOLUME_NAME"
 
-# ---- Krok 6: bump wersji dbservera i backup-runnera ---------------------
+# ---- Krok 7: bump wersji dbservera i backup-runnera ---------------------
 echo
-echo "=== [6/9] Bumpuje DJANGO_BPP_DBSERVER_PG_VERSION w $APP_ENV ==="
+echo "=== [7/10] Bumpuje DJANGO_BPP_DBSERVER_PG_VERSION w $APP_ENV ==="
 run set_env_var DJANGO_BPP_DBSERVER_PG_VERSION "$NEW_DBSERVER_PG_VERSION" "$APP_ENV"
 echo "DJANGO_BPP_DBSERVER_PG_VERSION: $CURRENT_DBSERVER_PG_VERSION -> $NEW_DBSERVER_PG_VERSION"
 
@@ -363,10 +376,10 @@ else
     echo "UWAGA: DJANGO_BPP_POSTGRESQL_DB_VERSION=$CURRENT_BACKUP_RUNNER_MAJOR nie jest liczba - nie ruszam."
 fi
 
-# ---- Krok 7: pull + up dbserver -----------------------------------------
+# ---- Krok 8: start dbserver ----------------------------------------------
+# Obraz jest juz pulled w kroku 1, wiec `up` jest offline-safe.
 echo
-echo "=== [7/9] Pull i start nowego dbserver ==="
-run docker compose pull dbserver
+echo "=== [8/10] Start nowego dbserver ==="
 run docker compose up -d dbserver
 
 echo "Czekam az dbserver bedzie healthy (max 180s)..."
@@ -394,9 +407,9 @@ if [ "$NEW_PG_MAJOR" != "$EXPECTED_MAJOR" ]; then
     exit 1
 fi
 
-# ---- Krok 8: pg_restore -------------------------------------------------
+# ---- Krok 9: pg_restore -------------------------------------------------
 echo
-echo "=== [8/9] pg_restore z $TARBALL_NAME ==="
+echo "=== [9/10] pg_restore z $TARBALL_NAME ==="
 # Tarball jest juz w /backup (bind-mount) - rozpakuj wewnatrz kontenera.
 run docker compose exec -T dbserver tar xzf "/backup/$TARBALL_NAME" -C /backup
 run docker compose exec -T \
@@ -417,9 +430,9 @@ run docker compose exec -T dbserver rm -rf "/backup/$DUMP_DIRNAME"
 # Od tego momentu nowy cluster jest funkcjonalny - blad nie wymaga juz duzego bannera.
 CRITICAL_STAGE_REACHED=0
 
-# ---- Krok 9: migrate + up + smoke ---------------------------------------
+# ---- Krok 10: migrate + up + smoke --------------------------------------
 echo
-echo "=== [9/9] make migrate + make up ==="
+echo "=== [10/10] make migrate + make up ==="
 run make migrate
 run make up
 
