@@ -218,8 +218,10 @@ Procedura wykona:
   1. Pull nowego obrazu dbservera (fail-fast - zanim cokolwiek destrukcyjnego;
      jesli siec padnie lub tag nie istnieje, dowiemy sie TERAZ a nie po
      skasowaniu volume)
-  2. pg_dump aktualnego clustra (przez 'make db-backup')
-  3. Zatrzyma dependent services (app, workers, beat, denorm-queue, flower, authserver)
+  2. Zatrzyma serwisy konsumujace baze (appserver, authserver, workery,
+     celerybeat, denorm-queue, flower, postgres-exporter, ofelia, backup-runner)
+     - po dodatkowym prompcie, zeby bylo jasne co pada
+  3. pg_dump aktualnego clustra (przez 'make db-backup') - bez concurrent writes
   4. Zatrzyma i usunie kontener dbserver
   5. Skopiuje obecny volume $VOLUME_NAME do volume backupowego
      (wymaga ~rozmiar_PGDATA wolnego miejsca w docker volumes)
@@ -283,7 +285,7 @@ on_error() {
 #   - Stary volume zachowany jako: $BACKUP_VOLUME
 #   - Aktualny volume:              $VOLUME_NAME (moze byc pusty lub czesciowo
 #                                                  zapelniony nowym clustrem)
-#   - Tarball pg_dump:              $TARBALL (jesli krok 2 sie udal)
+#   - Tarball pg_dump:              $TARBALL (jesli krok 3 sie udal)
 #   - Plik rollback:                $ROLLBACK_FILE
 #
 # ROLLBACK do starego clustra:
@@ -355,9 +357,50 @@ echo "=== [1/10] Pull nowego obrazu dbserver (pre-flight, fail-fast) ==="
 NEW_DBSERVER_IMAGE="iplweb/bpp_dbserver:psql-${NEW_POSTGRESQL_VERSION}"
 run docker pull "$NEW_DBSERVER_IMAGE"
 
-# ---- Krok 2: dump ---------------------------------------------------------
+# ---- Krok 2: stop dependent services ------------------------------------
+# WAZNE: stop PRZED db-backupem - zeby pg_dump dostal czysty snapshot bez
+# concurrent writes od appservera/workerow i bez interferencji postgres-exportera
+# (ktory zrzuca co 15s `pg_stat_*`). ofelia stop = nie wystartuje swojego cronu
+# (migrate, denorm-rebuild) w trakcie upgrade'u. backup-runner stop = nie
+# wystartuje wlasnego pg_dumpa rownolegle z naszym.
 echo
-echo "=== [2/10] Dump aktualnej bazy (make db-backup) ==="
+echo "=== [2/10] Zatrzymuje serwisy konsumujace baze ==="
+cat <<EOF
+
+Za chwile zatrzymam nastepujace serwisy zeby uzyskac spojny backup i
+uniknac konfliktow w trakcie upgrade'u:
+
+  appserver              - aplikacja Django (odetnie uzytkownikow)
+  authserver             - serwis autoryzacji (nie bedzie mozna sie logowac)
+  workerserver-general   - workery Celery (bieace taski)
+  workerserver-denorm    - workery denormalizacji (czekamy az queue sie oprozni)
+  celerybeat             - scheduler Celery
+  denorm-queue           - LISTEN/NOTIFY bridge
+  flower                 - monitoring Celery
+  postgres-exporter      - Prometheus metrics (zeby nie kolidowal z pg_dump)
+  ofelia                 - Docker cron (zeby nie triggerowal taskow w trakcie)
+  backup-runner          - daily backup (zeby nie uruchomil wlasnego pg_dumpa)
+
+Dbserver zostanie uruchomiony - pg_dump musi miec dostep do zywej bazy.
+Zatrzymane serwisy wroca same po 'make up' w kroku 10.
+
+EOF
+if ! confirm "Zatrzymac powyzsze serwisy i kontynuowac z backupem?"; then
+    echo "Anulowano. Stack pozostaje nienaruszony."
+    exit 0
+fi
+
+# Denorm-queue + workerserver-* + celerybeat maja dedykowany target (wspolny
+# z 'make migrate') - docker compose wysle SIGTERM i poczeka na graceful stop.
+run make stop-denorm-celery
+# Reszta konsumentow bazy + postgres-exporter + ofelia + backup-runner.
+run docker compose stop \
+    appserver authserver flower \
+    postgres-exporter ofelia backup-runner
+
+# ---- Krok 3: dump --------------------------------------------------------
+echo
+echo "=== [3/10] Dump aktualnej bazy (make db-backup) ==="
 run make db-backup
 
 # Znajdz najswiezszy tarball - sortowanie po nazwie dziala bo timestamp jest w nazwie.
@@ -369,14 +412,6 @@ fi
 TARBALL_NAME="$(basename "$TARBALL")"
 DUMP_DIRNAME="${TARBALL_NAME%.tar.gz}"
 echo "Tarball: $TARBALL"
-
-# ---- Krok 3: stop dependent services -------------------------------------
-echo
-echo "=== [3/10] Zatrzymuje dependent services ==="
-# Workery denorm sa zatrzymywane przez dedykowany target (czeka az queue sie oprozni).
-run make stop-denorm-celery
-# Reszta - bez niczego oczekiwania, te serwisy nie maja persistent state poza baza.
-run docker compose stop appserver authserver workerserver-general celerybeat denorm-queue flower
 
 # ---- Krok 4: stop+rm dbserver --------------------------------------------
 echo
