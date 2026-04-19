@@ -1,0 +1,7 @@
+# Local overrides for macOS — disables services incompatible with Docker Desktop.
+# This file is copied to repo root by init-configs on macOS.
+# It is gitignored — each developer gets their own copy.
+services:
+  node-exporter:
+    deploy:
+      replicas: 0
