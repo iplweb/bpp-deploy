@@ -15,9 +15,11 @@ ERRORS=""
 green()  { printf "\033[32m%s\033[0m\n" "$*"; }
 red()    { printf "\033[31m%s\033[0m\n" "$*"; }
 yellow() { printf "\033[33m%s\033[0m\n" "$*"; }
+cyan()   { printf "\033[36m%s\033[0m\n" "$*"; }
 
 pass() { green "  PASS: $1"; PASS=$((PASS + 1)); }
 fail() { red "  FAIL: $1"; FAIL=$((FAIL + 1)); ERRORS="${ERRORS}\n  - ${1}"; }
+skip() { cyan "  SKIP: $1"; }
 
 assert_file_exists()    { if [ -f "$2" ]; then pass "$1"; else fail "$1 ($2 not found)"; fi; }
 assert_dir_exists()     { if [ -d "$2" ]; then pass "$1"; else fail "$1 ($2 not found)"; fi; }
@@ -42,6 +44,11 @@ cleanup_temp() { rm -rf "$WORK_DIR"; }
 test_first_run_setup() {
     yellow "=== Test 1: First-run setup tworzy .env i konfigurację ==="
 
+    if ! command -v docker >/dev/null 2>&1; then
+        skip "docker niedostepny — pomijam setup-path (wymaga 'docker' i 'docker compose')"
+        return
+    fi
+
     setup_temp
 
     # Uruchom setup z podaną ścieżką przez stdin
@@ -60,6 +67,11 @@ test_first_run_setup() {
 
 test_first_run_empty_env() {
     yellow "=== Test 2: Pusty BPP_CONFIGS_DIR triggers setup ==="
+
+    if ! command -v docker >/dev/null 2>&1; then
+        skip "docker niedostepny — pomijam setup-path (wymaga 'docker' i 'docker compose')"
+        return
+    fi
 
     setup_temp
     echo "BPP_CONFIGS_DIR=" > "$REPO_COPY/.env"
