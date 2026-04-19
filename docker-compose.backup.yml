@@ -1,3 +1,9 @@
+x-logging: &default-logging
+  driver: "local"
+  options:
+    max-size: "${LOG_MAX_SIZE:-150m}"
+    max-file: "${LOG_MAX_FILE:-5}"
+
 services:
 
   # Zunifikowany backup worker - obsluguje CALY cykl backupu:
@@ -17,6 +23,7 @@ services:
     # w 2026-04-18). Default 17 jesli .env nie ma zadnej z nich.
     image: postgres:${DJANGO_BPP_POSTGRESQL_VERSION_MAJOR:-${DJANGO_BPP_POSTGRESQL_DB_VERSION:-17}}-alpine
     restart: always
+    logging: *default-logging
     env_file: ${BPP_CONFIGS_DIR}/.env
     environment:
       PGPASSWORD: ${DJANGO_BPP_DB_PASSWORD}

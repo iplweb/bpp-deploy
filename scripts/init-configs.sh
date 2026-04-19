@@ -133,6 +133,7 @@ echo ""
 mkdir -p "$ABS_CONFIG/ssl"
 mkdir -p "$ABS_CONFIG/rclone"
 mkdir -p "$ABS_CONFIG/alloy"
+mkdir -p "$ABS_CONFIG/loki"
 mkdir -p "$ABS_CONFIG/prometheus"
 mkdir -p "$ABS_CONFIG/rabbitmq"
 mkdir -p "$ABS_CONFIG/grafana/provisioning/datasources"
@@ -148,6 +149,7 @@ copy_if_missing() {
 }
 
 copy_if_missing "$CONFIG_DEFAULTS_DIR/alloy/config.alloy" "$ABS_CONFIG/alloy/config.alloy"
+copy_if_missing "$CONFIG_DEFAULTS_DIR/loki/local-config.yaml" "$ABS_CONFIG/loki/local-config.yaml"
 copy_if_missing "$CONFIG_DEFAULTS_DIR/prometheus/prometheus.yml" "$ABS_CONFIG/prometheus/prometheus.yml"
 copy_if_missing "$CONFIG_DEFAULTS_DIR/rabbitmq/enabled_plugins" "$ABS_CONFIG/rabbitmq/enabled_plugins"
 
@@ -388,6 +390,14 @@ DJANGO_BPP_RCLONE_REMOTE=backup_enc:
 # Gdy puste, backup-cycle.sh pomija powiadomienia. Uzyj tokena typu
 # "post_server_item" z https://rollbar.com/<project>/settings/access_tokens/
 ROLLBAR_ACCESS_TOKEN=
+
+# === Docker logging (driver "local", binarny, skompresowany zstd) ===
+# Rotacja na poziomie hosta. Czasowa retencja zyje w Loki
+# (\$BPP_CONFIGS_DIR/loki/local-config.yaml). Te wartosci sa tylko buforem,
+# zeby lokalne logi kontenera nie zapelnily dysku zanim Alloy zdazy je wyslac.
+# LOG_MAX_SIZE * LOG_MAX_FILE = maksymalny rozmiar logow per kontener.
+LOG_MAX_SIZE=150m
+LOG_MAX_FILE=5
 EOF
 
     if [ -n "$EXT_PG_VERSION" ]; then
@@ -559,6 +569,11 @@ else
     ensure_env_var "ROLLBAR_ACCESS_TOKEN" "" \
         "Rollbar access token (post_server_item, opcjonalny, Enter = pomin)" \
         "Rollbar (notyfikacje backup-cycle)"
+
+    ensure_env_var "LOG_MAX_SIZE" "150m" "" \
+        "Docker log rotation - rozmiar jednego pliku (log driver=local, zstd)"
+    ensure_env_var "LOG_MAX_FILE" "5" "" \
+        "Docker log rotation - liczba trzymanych plikow per kontener"
 
     # Migracja: DJANGO_BPP_EXTERNAL_POSTGRESQL_DB_VERSION -> DJANGO_BPP_POSTGRESQL_DB_VERSION.
     # (Historyczny rename - zmienna dotyczyla tylko external, po rozszerzeniu na

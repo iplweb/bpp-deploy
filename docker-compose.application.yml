@@ -1,9 +1,16 @@
+x-logging: &default-logging
+  driver: "local"
+  options:
+    max-size: "${LOG_MAX_SIZE:-150m}"
+    max-file: "${LOG_MAX_FILE:-5}"
+
 services:
 
   # Ofelia to taki cron...
   ofelia:
     image: mcuadros/ofelia:0.3.21
     restart: always
+    logging: *default-logging
     env_file: ${BPP_CONFIGS_DIR}/.env
     depends_on:
       - appserver
@@ -21,6 +28,7 @@ services:
     # Used by nginx auth_request for Grafana, Dozzle, etc.
     image: iplweb/bpp_authserver:${DOCKER_VERSION:-latest}
     restart: always
+    logging: *default-logging
     environment:
       - DJANGO_SETTINGS_MODULE=django_bpp.settings.auth_server
     env_file: ${BPP_CONFIGS_DIR}/.env
@@ -39,6 +47,7 @@ services:
   appserver:
     image: iplweb/bpp_appserver:${DOCKER_VERSION:-latest}
     restart: always
+    logging: *default-logging
     env_file: ${BPP_CONFIGS_DIR}/.env
     environment:
       DJANGO_BPP_ENABLE_PROMETHEUS: true

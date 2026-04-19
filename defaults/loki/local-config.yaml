@@ -1,0 +1,81 @@
+# Loki configuration for BPP deployment.
+#
+# Retention strategy (per-stream via `service` label wstawiany przez Alloy
+# z `com.docker.compose.service`):
+#   - appserver, dbserver  -> 90 dni
+#   - webserver            -> 180 dni
+#   - wszystko inne        -> 30 dni (default)
+#
+# Compactor dziala w tle, usuwa chunki starsze niz retention_period.
+# Bez compactor.retention_enabled = true chunki zostaja w volume
+# na zawsze - limits_config samo nie kasuje.
+
+auth_enabled: false
+
+server:
+  http_listen_port: 3100
+  grpc_listen_port: 9096
+  log_level: warn
+
+common:
+  instance_addr: 127.0.0.1
+  path_prefix: /loki
+  storage:
+    filesystem:
+      chunks_directory: /loki/chunks
+      rules_directory: /loki/rules
+  replication_factor: 1
+  ring:
+    kvstore:
+      store: inmemory
+
+query_range:
+  results_cache:
+    cache:
+      embedded_cache:
+        enabled: true
+        max_size_mb: 100
+
+schema_config:
+  configs:
+    - from: 2024-01-01
+      store: tsdb
+      object_store: filesystem
+      schema: v13
+      index:
+        prefix: index_
+        period: 24h
+
+limits_config:
+  # Default retention dla wszystkich strumieni bez dopasowania ponizej.
+  retention_period: 720h  # 30 dni
+
+  # Per-stream overrides. Priority = kolejnosc dopasowania (wyzszy wygrywa).
+  # Selector uzywa labela `service` ustawianego przez Alloy z
+  # com.docker.compose.service (zob. defaults/alloy/config.alloy).
+  retention_stream:
+    - selector: '{service="appserver"}'
+      priority: 1
+      period: 2160h   # 90 dni - logi aplikacji Django dla debugowania incydentow
+
+    - selector: '{service="dbserver"}'
+      priority: 1
+      period: 2160h   # 90 dni - logi Postgresa dla analizy wolnych zapytan / blokad
+
+    - selector: '{service="webserver"}'
+      priority: 1
+      period: 4320h   # 180 dni - access log nginx, compliance / traffic analysis
+
+compactor:
+  working_directory: /loki/compactor
+  compaction_interval: 10m
+  retention_enabled: true
+  retention_delete_delay: 2h
+  retention_delete_worker_count: 150
+  delete_request_store: filesystem
+
+ruler:
+  alertmanager_url: http://localhost:9093
+
+analytics:
+  reporting_enabled: false

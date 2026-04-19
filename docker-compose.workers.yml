@@ -1,7 +1,14 @@
+x-logging: &default-logging
+  driver: "local"
+  options:
+    max-size: "${LOG_MAX_SIZE:-150m}"
+    max-file: "${LOG_MAX_FILE:-5}"
+
 services:
 
   workerserver-general:
     image: iplweb/bpp_workerserver:${DOCKER_VERSION:-latest}
+    logging: *default-logging
     env_file: ${BPP_CONFIGS_DIR}/.env
     volumes:
       - staticfiles:/staticroot
@@ -19,6 +26,7 @@ services:
 
   workerserver-denorm:
     image: iplweb/bpp_workerserver:${DOCKER_VERSION:-latest}
+    logging: *default-logging
     env_file: ${BPP_CONFIGS_DIR}/.env
     environment:
       CELERY_QUEUE: "denorm"
@@ -40,6 +48,7 @@ services:
     # run only SINGLE service, this is only a mechanism to pass
     # PostgreSQL LISTEN to Celery queue
     image: iplweb/bpp_denorm_queue:${DOCKER_VERSION:-latest}
+    logging: *default-logging
     env_file: ${BPP_CONFIGS_DIR}/.env
     # entrypoint: ["uv", "run", "src/manage.py", "denorm_queue"]
     # healthcheck:
@@ -55,6 +64,7 @@ services:
 
   workerserver-status:
     image: iplweb/bpp_workerserver:${DOCKER_VERSION:-latest}
+    logging: *default-logging
     env_file: ${BPP_CONFIGS_DIR}/.env
     entrypoint: uv run celery -A django_bpp.celery_tasks status
     depends_on:
@@ -66,6 +76,7 @@ services:
 
   celerybeat:
     image: iplweb/bpp_beatserver:${DOCKER_VERSION:-latest}
+    logging: *default-logging
     env_file: ${BPP_CONFIGS_DIR}/.env
     restart: always
     volumes:
@@ -82,6 +93,7 @@ services:
   flower:
     image: mher/flower:2.0.1
     restart: always
+    logging: *default-logging
     environment:
       - CELERY_BROKER_URL=amqp://${DJANGO_BPP_RABBITMQ_USER:-bpp}:${DJANGO_BPP_RABBITMQ_PASS:-bpp}@rabbitmq:${DJANGO_BPP_RABBITMQ_PORT:-5672}//
       - FLOWER_PORT=5555
@@ -91,8 +103,3 @@ services:
         condition: service_healthy
     expose:
       - 5555
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"

@@ -1,6 +1,18 @@
+# Wspolny blok logging - Docker "local" driver (binarny, skompresowany zstd).
+# Retencja czasowa zyje w Loki (defaults/loki/local-config.yaml); te wartosci
+# to tylko "nie zapelniaj dysku hosta zanim Alloy nie zdazy wyslac logow".
+# LOG_MAX_SIZE/LOG_MAX_FILE mozna zmienic w $BPP_CONFIGS_DIR/.env.
+# Anchory nie przechodza przez granice include - kazdy compose file ma wlasny.
+x-logging: &default-logging
+  driver: "local"
+  options:
+    max-size: "${LOG_MAX_SIZE:-150m}"
+    max-file: "${LOG_MAX_FILE:-5}"
+
 services:
 
   dbserver:
+    logging: *default-logging
     # Tag iplweb/bpp_dbserver:psql-<MAJOR.MINOR> wybierany przez
     # DJANGO_BPP_POSTGRESQL_VERSION w $BPP_CONFIGS_DIR/.env. Dwuwarstwowy
     # fallback: nowa nazwa -> stara (DJANGO_BPP_DBSERVER_PG_VERSION, sprzed

@@ -180,7 +180,38 @@ Healthchecks are defined either in Docker Compose files or in Docker images (Doc
 - RabbitMQ: Error-level logging for connections, channels, mirroring
 - Alloy: `level = "warn"`
 
-**Flower Logs**: JSON driver with rotation (max 10MB, 3 files) to prevent disk filling.
+#### Docker log driver — rotacja lokalna
+
+Wszystkie serwisy stacka używają drivera `local` (binarny, skompresowany zstd, ~2–4× mniejszy niż `json-file`). Konfiguracja jest zdefiniowana przez wspólny YAML anchor `x-logging` na górze każdego z compose'ów:
+
+```yaml
+x-logging: &default-logging
+  driver: "local"
+  options:
+    max-size: "${LOG_MAX_SIZE:-150m}"
+    max-file: "${LOG_MAX_FILE:-5}"
+```
+
+**Dlaczego per-plik a nie globalnie**: YAML anchors **nie przechodzą przez granice `include:`** — każdy z siedmiu `docker-compose.*.yml` musi mieć własną definicję anchora. Koszt: 5 linii duplikatu × 7 plików. Korzyść: zero grzebania w `/etc/docker/daemon.json` na hoście, żadnego sudo, wszystko wersjonowane, zero wpływu na inne kontenery na hoście.
+
+**Tuning**: `LOG_MAX_SIZE` / `LOG_MAX_FILE` w `$BPP_CONFIGS_DIR/.env` (default 150m × 5 = max 750MB per kontener). Sufit dla ~20 kontenerów ≈ 3–4GB na dysku hosta (zstd kompresja realnie obniża o 2–4×) — to tylko **bufor do czasu aż Alloy wyśle logi do Loki**, nie retencja czasowa.
+
+**Gotcha**: Dodając nowy serwis do compose'a, dodaj `logging: *default-logging` — inaczej Docker użyje defaultowego `json-file` bez rotacji i log może puchnąć bez ograniczeń.
+
+#### Loki — retencja czasowa per-serwis
+
+Retencja **czasowa** (w dniach) żyje w Loki, nie w Docker logging driverze. Konfiguracja: `defaults/loki/local-config.yaml` (bind-mount do `loki:/etc/loki/local-config.yaml`). Compactor włączony, retencja aktywna przez `limits_config.retention_stream` + label `service` ustawiany przez Alloy z `com.docker.compose.service`:
+
+| Serwis | Retencja | Uzasadnienie |
+|--------|----------|--------------|
+| `appserver` | 90 dni | logi Django dla debug incydentów |
+| `dbserver` | 90 dni | logi Postgresa (slow query, locks) |
+| `webserver` | 180 dni | access log nginx, compliance/traffic analysis |
+| (default) | 30 dni | wszystko pozostałe (workery, infrastruktura, monitoring) |
+
+**Tuning retencji**: edytuj `$BPP_CONFIGS_DIR/loki/local-config.yaml` i `docker compose restart loki`. Selektory używają `{service="<compose-service-name>"}` — zmiana nazwy serwisu w compose wymaga aktualizacji selektora.
+
+**Prometheus**: osobna retencja 30d / 4GB (metryki, nie logi) — zob. `docker-compose.monitoring.yml`.
 
 ## Available Make Targets
 

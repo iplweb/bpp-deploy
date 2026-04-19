@@ -1,9 +1,16 @@
+x-logging: &default-logging
+  driver: "local"
+  options:
+    max-size: "${LOG_MAX_SIZE:-150m}"
+    max-file: "${LOG_MAX_FILE:-5}"
+
 services:
 
   # Logging and monitoring stack
   dozzle:
     image: amir20/dozzle:v10.2.1
     restart: always
+    logging: *default-logging
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     environment:
@@ -17,9 +24,13 @@ services:
   loki:
     image: grafana/loki:3.7.1
     restart: always
+    logging: *default-logging
     command: -config.file=/etc/loki/local-config.yaml -log.level=warn
     volumes:
       - loki_data:/loki
+      # Bind-mount tylko samego pliku config (nie calego /etc/loki) - w obrazie
+      # moga byc inne pliki tam, ktorych nie chcemy nadpisac.
+      - ${BPP_CONFIGS_DIR}/loki/local-config.yaml:/etc/loki/local-config.yaml:ro
     deploy:
       resources:
         limits:
@@ -29,6 +40,7 @@ services:
   grafana:
     image: grafana/grafana:12.4.2
     restart: always
+    logging: *default-logging
     environment:
       - GF_SERVER_ROOT_URL=%(protocol)s://%(domain)s/grafana/
       - GF_SECURITY_ADMIN_USER=admin
@@ -55,6 +67,7 @@ services:
   alloy:
     image: grafana/alloy:v1.15.0
     restart: always
+    logging: *default-logging
     command: >
       run /etc/alloy/config.alloy
       --server.http.listen-addr=0.0.0.0:12345
@@ -67,6 +80,7 @@ services:
   prometheus:
     image: prom/prometheus:v3.11.0
     restart: always
+    logging: *default-logging
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'
       - '--storage.tsdb.path=/prometheus'
@@ -88,6 +102,7 @@ services:
   postgres-exporter:
     image: quay.io/prometheuscommunity/postgres-exporter:v0.19.1
     restart: always
+    logging: *default-logging
     environment:
       DATA_SOURCE_URI: "${DJANGO_BPP_DB_HOST}:${DJANGO_BPP_DB_PORT}/${DJANGO_BPP_DB_NAME}?sslmode=disable"
       DATA_SOURCE_USER: "${DJANGO_BPP_DB_USER}"
@@ -99,6 +114,7 @@ services:
   node-exporter:
     image: quay.io/prometheus/node-exporter:v1.11.0
     restart: always
+    logging: *default-logging
     command:
       - '--path.rootfs=/host'
       - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'

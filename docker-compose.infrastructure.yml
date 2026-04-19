@@ -1,8 +1,15 @@
+x-logging: &default-logging
+  driver: "local"
+  options:
+    max-size: "${LOG_MAX_SIZE:-150m}"
+    max-file: "${LOG_MAX_FILE:-5}"
+
 services:
 
   webserver:
     image: nginx:1.29.7
     restart: always
+    logging: *default-logging
     env_file: ${BPP_CONFIGS_DIR}/.env
     environment:
       NGINX_ENVSUBST_FILTER: "DJANGO_BPP_"
@@ -27,6 +34,7 @@ services:
   redis:
     image: redis:8.6.2
     restart: always
+    logging: *default-logging
     # --maxmemory + allkeys-lru: Redis sam ewiktuje klucze gdy zbliza sie
     # do wlasnego limitu, zamiast czekac az Docker zabije caly kontener.
     # Wewnetrzny limit musi byc mniejszy niz zewnetrzny, zeby eviction
@@ -54,6 +62,7 @@ services:
   rabbitmq:
     image: rabbitmq:4.2.5-management-alpine
     restart: always
+    logging: *default-logging
     env_file: ${BPP_CONFIGS_DIR}/.env
     #ports:
     #  - 5672:5672   # AMQP protocol port

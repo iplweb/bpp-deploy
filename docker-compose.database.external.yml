@@ -21,9 +21,16 @@
 # się BEZPOŚREDNIO z zewnętrzną bazą przez DJANGO_BPP_DB_HOST z .env -
 # sentinel nie jest pośrednikiem, tylko wartownikiem.
 
+x-logging: &default-logging
+  driver: "local"
+  options:
+    max-size: "${LOG_MAX_SIZE:-150m}"
+    max-file: "${LOG_MAX_FILE:-5}"
+
 services:
 
   dbserver:
+    logging: *default-logging
     # Major Postgresa: DJANGO_BPP_POSTGRESQL_VERSION_MAJOR (nowa nazwa) z
     # fallbackiem na DJANGO_BPP_POSTGRESQL_DB_VERSION (stara, sprzed rename
     # w 2026-04-18). Default 17 jesli .env nie ma zadnej z nich.
