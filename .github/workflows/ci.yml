@@ -44,6 +44,16 @@ jobs:
         shell: bash
         run: ./tests/test_makefile.sh
 
+  test-macos:
+    name: Testy Makefile (macOS)
+    runs-on: macos-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Uruchom testy
+        run: ./tests/test_makefile.sh
+
   yaml-lint:
     name: Walidacja docker-compose
     runs-on: ubuntu-latest

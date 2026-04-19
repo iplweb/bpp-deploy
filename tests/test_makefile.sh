@@ -148,18 +148,18 @@ test_init_configs_generates_env() {
 }
 
 # ============================================================
-# TEST 6: init-configs generuje DJANGO_BPP_BACKUP_DIR w .env
+# TEST 6: init-configs generuje DJANGO_BPP_HOST_BACKUP_DIR w .env
 # ============================================================
 
 test_init_configs_generates_backup_dir() {
-    yellow "=== Test 6: init-configs generuje DJANGO_BPP_BACKUP_DIR w .env ==="
+    yellow "=== Test 6: init-configs generuje DJANGO_BPP_HOST_BACKUP_DIR w .env ==="
 
     setup_temp
     mkdir -p "$CONFIG_DIR"
 
     make -C "$REPO_COPY" init-configs BPP_CONFIGS_DIR="$CONFIG_DIR" >/dev/null 2>&1
 
-    assert_file_contains "DJANGO_BPP_BACKUP_DIR in .env" "DJANGO_BPP_BACKUP_DIR=" "$CONFIG_DIR/.env"
+    assert_file_contains "DJANGO_BPP_HOST_BACKUP_DIR in .env" "DJANGO_BPP_HOST_BACKUP_DIR=" "$CONFIG_DIR/.env"
 
     cleanup_temp
 }
