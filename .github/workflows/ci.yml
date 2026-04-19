@@ -51,6 +51,28 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Diagnostyka srodowiska
+        run: |
+          echo "=== OS ==="
+          sw_vers
+          echo "=== bash ==="
+          bash --version | head -1
+          /bin/bash --version | head -1
+          echo "=== make ==="
+          make --version | head -3
+          which make
+          echo "=== docker ==="
+          command -v docker || echo "docker: BRAK"
+          echo "=== test make init-configs ==="
+          set +e
+          TMPD=$(mktemp -d)
+          cp -r . "$TMPD/bpp-deploy"
+          rm -f "$TMPD/bpp-deploy/.env"
+          mkdir -p "$TMPD/test-instance"
+          (cd "$TMPD/bpp-deploy" && make init-configs BPP_CONFIGS_DIR="$TMPD/test-instance" </dev/null)
+          echo "EXIT=$?"
+          rm -rf "$TMPD"
+
       - name: Uruchom testy
         run: ./tests/test_makefile.sh
 
