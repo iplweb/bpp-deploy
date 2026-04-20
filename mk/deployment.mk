@@ -73,4 +73,4 @@ repull:
 check-quic:
 	@bash scripts/check-quic-port.sh $(HOST)
 
-run: pull build update-configs up test-email
+run: pull build update-configs up test-email invalidate
