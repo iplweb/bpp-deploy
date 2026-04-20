@@ -305,7 +305,40 @@ make rclone-check             # List files in cloud backup
 ### Misc
 ```bash
 make wait                     # Wait for GitHub Actions Docker build, then refresh
+make release                  # Wypuść nowy release (tag + push)
+make version                  # Pokaż obecną wersję z git-tagow
 ```
+
+## Release Process
+
+Releasy są kalendarzowe: `YYYY.MM.DD` (pierwszy tego dnia) lub `YYYY.MM.DD.N` (kolejne - suffix auto-inkrementowany od 0). Np. `2026.04.19`, `2026.04.19.0`, `2026.04.19.1`.
+
+**Workflow (`make release` → `scripts/release.sh`)**:
+
+1. Wyliczenie kolejnej wersji z dzisiejszej daty + istniejących tagów.
+2. `sed` w `README.md` podmienia badge `version-X.Y.Z-blue` na nową wersję.
+3. `git add README.md && git commit -m "release: $VERSION"`.
+4. `git tag $VERSION`.
+5. `git push origin main --tags` (commity + tag w jednym rzucie).
+
+**Normalny flow release'u feature'a**:
+
+```bash
+# 1. Commit merytoryczny (fix/feat/refactor) - osobno
+git add <pliki> && git commit -m "<scope>: ..."
+
+# 2. Opcjonalnie push samego commita (albo pominąć - release.sh i tak push-nie)
+git push origin main
+
+# 3. Release - sam zrobi kolejny commit (badge bump) + tag + push --tags
+make release
+```
+
+**Uwagi**:
+- Skrypt `scripts/release.sh` zakłada że working tree jest czyste (poza `README.md` który sam zmodyfikuje). Niezacommitowane zmiany w innych plikach zostaną w tree - commit release'u tego nie ruszy, ale warto mieć clean state.
+- Wersja jest pobierana w Makefile przez `git describe --tags --abbrev=0` (pokazuje się w `make help`).
+- Brak `CHANGELOG.md` - historia releasów to `git log --grep='^release:'`. Opis zmian w wiadomościach commitów feature'owych między tagami.
+- Wersjonowanie **kalendarzowe, nie semver** - nie wymaga decyzji major/minor/patch. Breaking changes sygnalizujemy w wiadomości commita + README, nie w numerze wersji.
 
 ## Architecture Overview
 
