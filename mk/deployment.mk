@@ -6,7 +6,7 @@ restart: update-configs
 	docker compose down
 	docker compose up -d
 
-refresh: prune-orphan-volumes update-configs
+refresh: prune-orphan-volumes ensure-config-files update-configs
 	docker system prune -f
 	docker compose pull
 	docker compose stop
@@ -26,7 +26,7 @@ pull:
 build:
 	docker compose build
 
-up: update-configs
+up: ensure-config-files update-configs
 	docker compose up -d --wait --force-recreate --remove-orphans
 	@if [ "$(DJANGO_BPP_ENABLE_HTML2DOCX_IMAGE)" = "true" ]; then \
 		docker pull iplweb/html2docx:latest; \
@@ -44,7 +44,7 @@ rmrf:
 	@read -p "Are you sure? [y/N] " confirm && [ "$$confirm" = "y" ] || (echo "Aborted."; exit 1)
 	docker compose rm -f
 
-up-quick: pull
+up-quick: ensure-config-files pull
 	docker compose up -d --wait
 
 up-webserver:

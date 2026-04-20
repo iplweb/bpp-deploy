@@ -124,40 +124,21 @@ if [ -d "$ABS_CONFIG" ] && [ -f "$ABS_CONFIG/.env" ]; then
     echo ""
 fi
 
-# --- 5. Utwórz strukturę katalogów ---
+# --- 5+6. Utworz strukture katalogow i skopiuj brakujace pliki z defaults/ ---
+#
+# Logika jest wspoldzielona ze skryptem ensure-config-files.sh, ktory jest
+# wolany non-interactive przed kazdym `make up` - tutaj korzystamy z niego
+# zeby miec jedno zrodlo prawdy o tym, jakie pliki sa wymagane.
 
 echo "=== Inicjalizacja katalogu konfiguracyjnego ==="
 echo "Katalog: $ABS_CONFIG"
 echo ""
 
-mkdir -p "$ABS_CONFIG/ssl"
-mkdir -p "$ABS_CONFIG/rclone"
-mkdir -p "$ABS_CONFIG/alloy"
-mkdir -p "$ABS_CONFIG/loki"
-mkdir -p "$ABS_CONFIG/prometheus"
-mkdir -p "$ABS_CONFIG/rabbitmq"
-mkdir -p "$ABS_CONFIG/grafana/provisioning/datasources"
-mkdir -p "$ABS_CONFIG/grafana/provisioning/dashboards"
+# Katalog moze nie istniec jeszcze (pierwsze uruchomienie); ensure-config-files
+# wymaga zeby byl, wiec tworzymy go teraz.
+mkdir -p "$ABS_CONFIG"
 
-# --- 6. Kopiuj szablony (nie nadpisuj istniejących) ---
-
-copy_if_missing() {
-    local src="$1" dest="$2"
-    if [ ! -f "$dest" ]; then
-        cp "$src" "$dest"
-    fi
-}
-
-copy_if_missing "$CONFIG_DEFAULTS_DIR/alloy/config.alloy" "$ABS_CONFIG/alloy/config.alloy"
-copy_if_missing "$CONFIG_DEFAULTS_DIR/loki/local-config.yaml" "$ABS_CONFIG/loki/local-config.yaml"
-copy_if_missing "$CONFIG_DEFAULTS_DIR/prometheus/prometheus.yml" "$ABS_CONFIG/prometheus/prometheus.yml"
-copy_if_missing "$CONFIG_DEFAULTS_DIR/rabbitmq/enabled_plugins" "$ABS_CONFIG/rabbitmq/enabled_plugins"
-
-while IFS= read -r -d '' f; do
-    rel="${f#"$CONFIG_DEFAULTS_DIR/grafana/provisioning/"}"
-    dest="$ABS_CONFIG/grafana/provisioning/$rel"
-    copy_if_missing "$f" "$dest"
-done < <(find "$CONFIG_DEFAULTS_DIR/grafana/provisioning" -type f -print0)
+BPP_CONFIGS_DIR="$ABS_CONFIG" "$REPO_DIR/scripts/ensure-config-files.sh"
 
 # --- 7. Generuj lub uzupełnij .env ---
 

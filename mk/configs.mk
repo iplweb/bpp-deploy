@@ -1,4 +1,10 @@
-.PHONY: update-ssl-certs generate-grafana-datasources update-configs configure-resources
+.PHONY: update-ssl-certs generate-grafana-datasources update-configs configure-resources ensure-config-files
+
+# Non-interactive guard przed `make up`: dokopiowuje brakujace pliki z defaults/
+# do $BPP_CONFIGS_DIR (np. gdy nowy release dodaje kolejny bind-mount, a user
+# nie uruchomil `make init-configs` po git pullu).
+ensure-config-files:
+	@bash scripts/ensure-config-files.sh
 
 update-ssl-certs:
 	@if docker compose ps webserver 2>/dev/null | grep -q "Up"; then \
