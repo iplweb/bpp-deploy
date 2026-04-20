@@ -6,6 +6,7 @@ changepassword:
 
 invalidate:
 	docker compose exec appserver uv run src/manage.py invalidate all
+	docker compose exec redis redis-cli FLUSHDB
 
 schowaj-jezyki-dyscypliny:
 	docker compose exec appserver uv run src/manage.py ukryj_nieuzywane_dyscypliny
