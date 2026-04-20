@@ -379,6 +379,13 @@ ROLLBAR_ACCESS_TOKEN=
 # LOG_MAX_SIZE * LOG_MAX_FILE = maksymalny rozmiar logow per kontener.
 LOG_MAX_SIZE=150m
 LOG_MAX_FILE=5
+
+# === html2docx (opcjonalny fallback dla eksportu HTML -> DOCX) ===
+# Gdy true, "make pull"/"up" dociaga obraz iplweb/html2docx:latest.
+# Domyslnie false - wiekszosc instalacji uzywa pandoca z obrazu appservera
+# i html2docx jest zbedny. Wlacz tylko jesli pandoc zawodzi na Twoich
+# dokumentach (np. skomplikowane tabele HTML).
+DJANGO_BPP_ENABLE_HTML2DOCX_IMAGE=false
 EOF
 
     if [ -n "$EXT_PG_VERSION" ]; then
@@ -555,6 +562,9 @@ else
         "Docker log rotation - rozmiar jednego pliku (log driver=local, zstd)"
     ensure_env_var "LOG_MAX_FILE" "5" "" \
         "Docker log rotation - liczba trzymanych plikow per kontener"
+
+    ensure_env_var "DJANGO_BPP_ENABLE_HTML2DOCX_IMAGE" "false" "" \
+        "html2docx fallback (true = \`make pull/up\` dociaga iplweb/html2docx:latest; wlacz tylko gdy pandoc zawodzi)"
 
     # Migracja: DJANGO_BPP_EXTERNAL_POSTGRESQL_DB_VERSION -> DJANGO_BPP_POSTGRESQL_DB_VERSION.
     # (Historyczny rename - zmienna dotyczyla tylko external, po rozszerzeniu na

@@ -611,6 +611,10 @@ Osiem high-risk serwisów ma limity pamięci i CPU sparametryzowane przez env va
 
 Małe daemony (authserver, exportery, webserver, ofelia, celerybeat, denorm-queue, grafana, backup-runner, alloy, dozzle) **nie mają limitów** — cost/benefit się nie spina, każdy z nich trzyma się poniżej 100 MB i nie ma tendencji do growu.
 
+### Optional Feature Flags
+
+**`DJANGO_BPP_ENABLE_HTML2DOCX_IMAGE`** (default: `false`) — gdy `true`, `make pull` / `make up` dociaga obraz `iplweb/html2docx:latest`. To opcjonalny fallback dla eksportu HTML → DOCX: większość instalacji korzysta z pandoca dostępnego w obrazie `appserver` i nie potrzebuje html2docx. Włączaj tylko dla instalacji, gdzie pandoc zawodzi (np. nietypowe tabele HTML). Flaga żyje tylko po stronie deploymentu (Makefile) — nie jest propagowana do Django, kontroluje wyłącznie `docker pull`.
+
 ### Backwards Compatibility and `.env` Migrations — CRITICAL
 
 **Reguła:** nowa wersja `bpp-deploy` musi dać się uruchomić na **starym** `$BPP_CONFIGS_DIR/.env`, bez wymagania od użytkownika ręcznych edycji pliku. Deploymenty produkcyjne są aktualizowane przez `git pull && make up` i każdy obowiązkowy krok ręczny jest potencjalnym powodem do awarii. Dotyczy to w szczególności:

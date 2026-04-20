@@ -14,7 +14,7 @@ refresh: prune-orphan-volumes ensure-config-files update-configs
 	docker compose up -d --remove-orphans
 	docker system prune -f
 
-DJANGO_BPP_ENABLE_HTML2DOCX_IMAGE ?= true
+DJANGO_BPP_ENABLE_HTML2DOCX_IMAGE ?= false
 
 pull:
 	docker compose pull
