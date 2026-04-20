@@ -144,6 +144,25 @@ Named volumes are used for **data only** (not configuration). Config files are b
 
 **Cross-file References**: Services in `workers.yml` reference `staticfiles` and `media` volumes defined in `application.yml`. Docker Compose merges all volume definitions before resolving references.
 
+#### Staticfiles volume — kontrakt z obrazem appservera
+
+Volume `staticfiles` jest wypełniany przez `appserver` (mount `/staticroot`) i serwowany przez `webserver/nginx` (mount `/var/www/html/staticroot`, alias w `defaults/webserver/default.conf.template`). Źródłem jest **pre-populowany katalog w obrazie** — `collectstatic` odpala się przy buildzie obrazu `iplweb/bpp_appserver` (nie na starcie kontenera), wynik ląduje w `/app/staticroot.baked/` wewnątrz obrazu.
+
+Jak to wpada do named volume (gdzie bpp-deploy każe Django pisać przez `STATIC_ROOT=/staticroot/`):
+
+1. **Entrypoint appservera** (`docker/appserver/entrypoint-appserver.sh` w repo `bpp`) przy starcie Phase 2 robi `cp -ru /app/staticroot.baked/. "$STATIC_ROOT/"`.
+2. `cp -ru` seeduje świeży (pusty) volume pełnym zestawem plików **i** przy upgrade obrazu dopisuje nowsze pliki bez kasowania istniejących. Docker auto-populate named volume działa tylko przy pierwszym uruchomieniu — ten cp to jego generalizacja.
+3. **Runtime nie uruchamia `collectstatic`** — `.baked` to dokładnie ten sam wynik (collectstatic na buildzie ma dostęp do `node_modules`, runtime już nie), więc cp wystarcza. Fallback uruchamia collectstatic tylko przy obrazach sprzed wprowadzenia `.baked`.
+
+**Co to dla deploymentu znaczy**:
+- `STATIC_ROOT=/staticroot/` w `.env` (ustawiane przez `init-configs.sh`) — override image default `/app/staticroot`. Entrypoint honoruje `$STATIC_ROOT` i tam kopiuje `.baked`.
+- `staticfiles:/staticroot` mount w `docker-compose.application.yml` i `docker-compose.workers.yml` — pusty volume przy pierwszym `make up`, dopełniony przez entrypoint.
+- `staticfiles:/var/www/html/staticroot` mount w `docker-compose.infrastructure.yml` (webserver) — nginx widzi ten sam volume pod inną ścieżką i serwuje.
+- **Po `make refresh`** (docker compose pull + recreate): volume zostaje, entrypoint robi `cp -ru` → dociąga nowe pliki z nowego obrazu.
+- **Po `make prune-orphan-volumes`** lub świeży setup: volume pusty → entrypoint wypełnia od zera z `.baked`.
+
+**Gotcha**: jeśli w starym obrazie (sprzed tej zmiany) pliki leżały w `/app/staticroot` zamiast `.baked`, a nowy entrypoint szuka `.baked` — ochrania nas `if [ -d /app/staticroot.baked ]` w entrypoincie (backward-compat dla obrazów pre-contract). Wersje obrazów bpp i bpp-deploy muszą być bumpowane razem, ale brak `.baked` nie wywala appservera — tylko zostawia volume niepopulowany (trzeba wtedy ręcznie odpalić `collectstatic`).
+
 ### Authentication and Security Patterns
 
 #### Grafana Auth Proxy
