@@ -345,6 +345,97 @@ test_no_scp_in_configs() {
 }
 
 # ============================================================
+# TEST 14: nginx config template jest syntaktycznie poprawny
+# ============================================================
+# Spina oficjalny obraz nginx:1.29.7, wykonuje envsubst na templatce
+# (tak samo jak robi to entrypoint nginx:alpine/debian), generuje
+# dummy self-signed cert i uruchamia `nginx -t`. Bez dockera test SKIP.
+# ============================================================
+
+test_nginx_config_valid() {
+    yellow "=== Test 14: nginx -t na default.conf.template ==="
+
+    if ! command -v docker >/dev/null 2>&1; then
+        skip "docker niedostepny — pomijam nginx -t"
+        return
+    fi
+
+    if ! docker info >/dev/null 2>&1; then
+        skip "docker daemon niedostepny — pomijam nginx -t"
+        return
+    fi
+
+    local ngx_dir
+    ngx_dir=$(mktemp -d)
+    mkdir -p "$ngx_dir/templates" "$ngx_dir/conf.d" "$ngx_dir/ssl" "$ngx_dir/html"
+
+    cp "$REPO_DIR/defaults/webserver/default.conf.template" "$ngx_dir/templates/"
+    cp "$REPO_DIR/defaults/webserver/security-headers.conf" "$ngx_dir/conf.d/"
+    cp "$REPO_DIR/defaults/webserver/maintenance.html" "$ngx_dir/html/"
+
+    # Dummy self-signed cert - nginx -t parsuje plik, wiec musi byc prawidlowy x509.
+    # Generujemy w kontenerze, zeby nie wymagac openssl na hoscie (Windows CI).
+    docker run --rm \
+        -v "$ngx_dir/ssl:/ssl" \
+        nginx:1.29.7 \
+        sh -c "apt-get update >/dev/null 2>&1 && apt-get install -y openssl >/dev/null 2>&1 && \
+               openssl req -x509 -newkey rsa:2048 -nodes -days 1 \
+                   -keyout /ssl/key.pem -out /ssl/cert.pem \
+                   -subj '/CN=test.example.org' >/dev/null 2>&1" || {
+        fail "dummy SSL cert generation"
+        rm -rf "$ngx_dir"
+        return
+    }
+
+    # Uruchom envsubst (jak oficjalny entrypoint nginx) + nginx -t.
+    # NGINX_ENVSUBST_FILTER=DJANGO_BPP_ ogranicza substytucje do naszych zmiennych,
+    # zeby nie podmieniac np. $host, $uri uzywanych w konfigu.
+    local out
+    out=$(docker run --rm \
+        -e DJANGO_BPP_HOSTNAME=test.example.org \
+        -e NGINX_ENVSUBST_FILTER=DJANGO_BPP_ \
+        -v "$ngx_dir/templates:/etc/nginx/templates:ro" \
+        -v "$ngx_dir/conf.d/security-headers.conf:/etc/nginx/conf.d/security-headers.conf:ro" \
+        -v "$ngx_dir/ssl:/etc/ssl/private:ro" \
+        -v "$ngx_dir/html/maintenance.html:/usr/share/nginx/html/maintenance.html:ro" \
+        --entrypoint sh \
+        nginx:1.29.7 \
+        -c '/docker-entrypoint.d/20-envsubst-on-templates.sh && nginx -t' 2>&1) || {
+        fail "nginx -t na default.conf.template"
+        printf '    %s\n' "${out//$'\n'/$'\n    '}"
+        rm -rf "$ngx_dir"
+        return
+    }
+
+    pass "nginx -t na default.conf.template"
+
+    # Dodatkowo: sprawdz czy kluczowe dyrektywy performance sa obecne w
+    # wyrenderowanej konfiguracji (zeby regresja nie wywalila optymalizacji).
+    local rendered="$ngx_dir/rendered.conf"
+    docker run --rm \
+        -e DJANGO_BPP_HOSTNAME=test.example.org \
+        -e NGINX_ENVSUBST_FILTER=DJANGO_BPP_ \
+        -v "$ngx_dir/templates:/etc/nginx/templates:ro" \
+        -v "$ngx_dir:/out" \
+        --entrypoint sh \
+        nginx:1.29.7 \
+        -c '/docker-entrypoint.d/20-envsubst-on-templates.sh && cp /etc/nginx/conf.d/default.conf /out/rendered.conf' >/dev/null 2>&1 || true
+
+    if [ -f "$rendered" ]; then
+        assert_file_contains "gzip on" "gzip on" "$rendered"
+        assert_file_contains "gzip_comp_level ustawiony" "gzip_comp_level" "$rendered"
+        assert_file_contains "gzip_vary on" "gzip_vary on" "$rendered"
+        assert_file_contains "proxy_buffers wiekszy niz 8x4k" "proxy_buffers 16" "$rendered"
+        assert_file_contains "HTTP/2 on" "http2 on" "$rendered"
+        assert_file_contains "HTTP/3 QUIC" "listen 443 quic" "$rendered"
+    else
+        fail "wyrenderowana konfiguracja niedostepna do sprawdzenia dyrektyw"
+    fi
+
+    rm -rf "$ngx_dir"
+}
+
+# ============================================================
 # Run
 # ============================================================
 
@@ -368,6 +459,7 @@ test_normal_path_targets
 test_compose_bind_mounts
 test_env_sample
 test_no_scp_in_configs
+test_nginx_config_valid
 
 echo ""
 echo "========================================"

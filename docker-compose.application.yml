@@ -17,6 +17,11 @@ services:
     command: daemon --docker
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
+    deploy:
+      resources:
+        limits:
+          memory: ${OFELIA_MEM_LIMIT:-64m}
+          cpus: "${OFELIA_CPU_LIMIT:-0.25}"
     labels:
       ofelia.email-to: "${DJANGO_BPP_ADMIN_EMAIL}"
       ofelia.email-from: "Ofelia @ ${DJANGO_BPP_HOSTNAME} <${DJANGO_BPP_ADMIN_EMAIL}>"
@@ -43,6 +48,11 @@ services:
       timeout: 3s
       start_period: 10s
       retries: 3
+    deploy:
+      resources:
+        limits:
+          memory: ${AUTHSERVER_MEM_LIMIT:-320m}
+          cpus: "${AUTHSERVER_CPU_LIMIT:-1.0}"
 
   appserver:
     image: iplweb/bpp_appserver:${DOCKER_VERSION:-latest}
@@ -90,6 +100,15 @@ services:
 
       ofelia.job-exec.pbn_integrator.schedule: "0 30 21 * * 6"
       ofelia.job-exec.pbn_integrator.command: "uv run src/manage.py tee pbn_integrator --enable-all --disable-multiprocessing"
+
+      # Nocny restart zbija skumulowany memory leak gunicorna (appserver potrafi puchnac
+      # do kilkunastu GiB po kilku dniach uptime). kill 1 -> SIGTERM do PID 1 ->
+      # graceful shutdown gunicorna -> Docker restart:always wskrzesza kontener.
+      # Staggered wzgledem workerow (05:05, 05:10, 05:15, 05:20, 05:25) zeby nie
+      # zrestartowac calego stacka naraz. Okno 05:00 jest puste - po backup (02:30),
+      # rebuild_kolejnosc (03:30), rebuild_autor_jednostka (04:30), przed godzinami pracy.
+      ofelia.job-exec.restart_self.schedule: "0 0 5 * * *"
+      ofelia.job-exec.restart_self.command: "kill 1"
 
 volumes:
   staticfiles:

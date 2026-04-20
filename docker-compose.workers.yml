@@ -8,6 +8,7 @@ services:
 
   workerserver-general:
     image: iplweb/bpp_workerserver:${DOCKER_VERSION:-latest}
+    restart: always
     logging: *default-logging
     env_file: ${BPP_CONFIGS_DIR}/.env
     volumes:
@@ -23,9 +24,16 @@ services:
         limits:
           memory: ${WORKER_GENERAL_MEM_LIMIT:-1g}
           cpus: "${WORKER_GENERAL_CPU_LIMIT:-2.0}"
+    labels:
+      ofelia.enabled: "true"
+      # Nocny restart zbija skumulowany memory leak Celery workera (Python long-running).
+      # kill 1 -> SIGTERM do PID 1 -> graceful shutdown -> restart:always wskrzesza.
+      ofelia.job-exec.restart_self.schedule: "0 5 5 * * *"
+      ofelia.job-exec.restart_self.command: "kill 1"
 
   workerserver-denorm:
     image: iplweb/bpp_workerserver:${DOCKER_VERSION:-latest}
+    restart: always
     logging: *default-logging
     env_file: ${BPP_CONFIGS_DIR}/.env
     environment:
@@ -43,6 +51,10 @@ services:
         limits:
           memory: ${WORKER_DENORM_MEM_LIMIT:-1g}
           cpus: "${WORKER_DENORM_CPU_LIMIT:-1.0}"
+    labels:
+      ofelia.enabled: "true"
+      ofelia.job-exec.restart_self.schedule: "0 10 5 * * *"
+      ofelia.job-exec.restart_self.command: "kill 1"
 
   denorm-queue:
     # run only SINGLE service, this is only a mechanism to pass
@@ -61,6 +73,17 @@ services:
     depends_on:
       workerserver-denorm:
         condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: ${DENORM_QUEUE_MEM_LIMIT:-320m}
+          cpus: "${DENORM_QUEUE_CPU_LIMIT:-1.0}"
+    labels:
+      ofelia.enabled: "true"
+      # Restart najpozniej w staggered secie - po wszystkich pozostalych, zeby NOTIFY
+      # ze swiezo podniesionych worker-denormow mialy do czego trafic.
+      ofelia.job-exec.restart_self.schedule: "0 25 5 * * *"
+      ofelia.job-exec.restart_self.command: "kill 1"
 
   workerserver-status:
     image: iplweb/bpp_workerserver:${DOCKER_VERSION:-latest}
@@ -89,6 +112,15 @@ services:
         condition: service_healthy
       appserver:
         condition: service_started
+    deploy:
+      resources:
+        limits:
+          memory: ${CELERYBEAT_MEM_LIMIT:-320m}
+          cpus: "${CELERYBEAT_CPU_LIMIT:-0.25}"
+    labels:
+      ofelia.enabled: "true"
+      ofelia.job-exec.restart_self.schedule: "0 20 5 * * *"
+      ofelia.job-exec.restart_self.command: "kill 1"
 
   flower:
     image: mher/flower:2.0.1
@@ -103,3 +135,16 @@ services:
         condition: service_healthy
     expose:
       - 5555
+    deploy:
+      resources:
+        limits:
+          memory: ${FLOWER_MEM_LIMIT:-768m}
+          cpus: "${FLOWER_CPU_LIMIT:-0.5}"
+    labels:
+      ofelia.enabled: "true"
+      # Flower akumuluje historie zadan Celery; nocny restart zbija konsumpcje pamieci.
+      # mher/flower 2.0.1 opiera sie na python:3.11-slim - ma /bin/kill z procps,
+      # ale Docker exec uruchamia go jako root przez PID namespace kontenera,
+      # wiec "kill 1" wysyla SIGTERM do PID 1 bezposrednio (bez shell-a).
+      ofelia.job-exec.restart_self.schedule: "0 15 5 * * *"
+      ofelia.job-exec.restart_self.command: "kill 1"

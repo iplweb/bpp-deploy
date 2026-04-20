@@ -20,6 +20,11 @@ services:
       DOZZLE_AUTH_HEADER_EMAIL: X-WEBAUTH-EMAIL
       DOZZLE_AUTH_HEADER_NAME: X-WEBAUTH-NAME
       # DOZZLE_ENABLE_SHELL: true
+    deploy:
+      resources:
+        limits:
+          memory: ${DOZZLE_MEM_LIMIT:-64m}
+          cpus: "${DOZZLE_CPU_LIMIT:-0.25}"
 
   loki:
     image: grafana/loki:3.7.1
@@ -63,6 +68,11 @@ services:
       timeout: 10s
       retries: 3
       start_period: 60s
+    deploy:
+      resources:
+        limits:
+          memory: ${GRAFANA_MEM_LIMIT:-192m}
+          cpus: "${GRAFANA_CPU_LIMIT:-1.0}"
 
   alloy:
     image: grafana/alloy:v1.15.0
@@ -76,6 +86,11 @@ services:
       - ${BPP_CONFIGS_DIR}/alloy:/etc/alloy:ro
     depends_on:
       - loki
+    deploy:
+      resources:
+        limits:
+          memory: ${ALLOY_MEM_LIMIT:-384m}
+          cpus: "${ALLOY_CPU_LIMIT:-0.5}"
 
   prometheus:
     image: prom/prometheus:v3.11.0
@@ -110,6 +125,11 @@ services:
     depends_on:
       dbserver:
         condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: ${PG_EXPORTER_MEM_LIMIT:-64m}
+          cpus: "${PG_EXPORTER_CPU_LIMIT:-0.25}"
 
   node-exporter:
     image: quay.io/prometheus/node-exporter:v1.11.0
@@ -121,6 +141,11 @@ services:
     pid: host
     volumes:
       - '/:/host:ro,rslave'
+    deploy:
+      resources:
+        limits:
+          memory: ${NODE_EXPORTER_MEM_LIMIT:-64m}
+          cpus: "${NODE_EXPORTER_CPU_LIMIT:-0.25}"
 
 volumes:
   grafana_data:

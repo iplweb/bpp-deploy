@@ -127,11 +127,15 @@ server {
         proxy_send_timeout 300s;
         proxy_read_timeout 300s;
 
-        # Buffer settings for optimal performance
+        # Buffer settings for optimal performance.
+        # 16 x 16k = 256 KB mieści typowe strony Django BPP (listy publikacji,
+        # szczegóły autora — zwykle 50-200 KB HTML) w RAM. Za małe bufory
+        # powodują spill response'a do /var/cache/nginx (proxy_temp_path),
+        # co zabija throughput na dużych listach.
         proxy_buffering on;
-        proxy_buffer_size 4k;
-        proxy_buffers 8 4k;
-        proxy_busy_buffers_size 8k;
+        proxy_buffer_size 16k;
+        proxy_buffers 16 16k;
+        proxy_busy_buffers_size 32k;
 
         proxy_redirect off;
     }
@@ -424,10 +428,28 @@ server {
     # ============================================================================
     # COMPRESSION CONFIGURATION
     # ============================================================================
-    # Gzip compression for better performance
+    # Gzip compression for better performance.
+    # gzip_comp_level 5 — sweet spot: ~65% redukcji HTML/JSON przy pomijalnym
+    # narzucie CPU vs default level 1 (~45%). Level 6+ to 2x CPU za <2% zysku.
+    # gzip_vary on — dodaje header Vary: Accept-Encoding, umozliwia poprawne
+    # cache'owanie w CDN/proxy ktore widza rozne response'y dla gzip i plain.
+    # text/html NIE moze byc w gzip_types — nginx hardcoduje go, wypluwa warning.
     gzip on;
     gzip_static on;
+    gzip_vary on;
+    gzip_comp_level 5;
     gzip_min_length 1000;
     gzip_proxied expired no-cache no-store private auth;
-    gzip_types text/plain text/css application/json application/x-javascript application/javascript text/xml application/xml application/xml+rss text/javascript;
+    gzip_types
+        text/plain
+        text/css
+        text/xml
+        text/javascript
+        application/json
+        application/javascript
+        application/x-javascript
+        application/xml
+        application/xml+rss
+        application/manifest+json
+        image/svg+xml;
 }

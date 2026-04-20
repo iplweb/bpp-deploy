@@ -30,6 +30,14 @@ services:
       - ./defaults/webserver/default.conf.template:/etc/nginx/templates/default.conf.template:ro
       - ./defaults/webserver/security-headers.conf:/etc/nginx/conf.d/security-headers.conf:ro
       - ./defaults/webserver/maintenance.html:/usr/share/nginx/html/maintenance.html:ro
+    deploy:
+      resources:
+        limits:
+          # Obserwowane idle ~32 MiB, ale proxy_buffers 16x16k = 256 KB/connection
+          # przy buforowaniu HTML-a z Django. Przy 500 concurrent requests to realnie
+          # +110 MB RAM. 256m daje headroom pod burst + HTTP/3 QUIC + duze uploady.
+          memory: ${WEBSERVER_MEM_LIMIT:-256m}
+          cpus: "${WEBSERVER_CPU_LIMIT:-2.0}"
 
   redis:
     image: redis:8.6.2

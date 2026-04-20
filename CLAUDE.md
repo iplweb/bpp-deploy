@@ -594,22 +594,53 @@ Config files are bind-mounted directly — editing files in `$BPP_CONFIGS_DIR` t
 
 ### Resource Limits (`deploy.resources.limits`)
 
-Osiem high-risk serwisów ma limity pamięci i CPU sparametryzowane przez env vars, żeby runaway container (memory leak, heavy query) nie mógł zjeść całego hosta:
+Wszystkie serwisy stacka (poza `backup-runner` — odpala się raz dziennie na 10 minut) mają limity pamięci i CPU sparametryzowane przez env vars, żeby runaway container (memory leak, heavy query, burst pod obciążeniem) nie mógł zjeść całego hosta:
 
-- `dbserver` — `DBSERVER_MEM_LIMIT` / `DBSERVER_CPU_LIMIT`
-- `appserver` — `APPSERVER_MEM_LIMIT` / `APPSERVER_CPU_LIMIT`
-- `workerserver-general` — `WORKER_GENERAL_MEM_LIMIT` / `WORKER_GENERAL_CPU_LIMIT`
-- `workerserver-denorm` — `WORKER_DENORM_MEM_LIMIT` / `WORKER_DENORM_CPU_LIMIT`
-- `rabbitmq` — `RABBITMQ_MEM_LIMIT` / `RABBITMQ_CPU_LIMIT`
-- `redis` — `REDIS_MEM_LIMIT` / `REDIS_CPU_LIMIT` + wewnętrzny `REDIS_MAXMEMORY` (z `allkeys-lru` eviction policy, musi być mniejszy od Docker limit żeby ewiktowanie działało zanim Docker zabije kontener)
-- `loki` — `LOKI_MEM_LIMIT` / `LOKI_CPU_LIMIT`
-- `prometheus` — `PROMETHEUS_MEM_LIMIT` / `PROMETHEUS_CPU_LIMIT`
+**High-risk (core workload)**:
+- `dbserver` — `DBSERVER_MEM_LIMIT` / `DBSERVER_CPU_LIMIT` (default 2g / 2.0)
+- `appserver` — `APPSERVER_MEM_LIMIT` / `APPSERVER_CPU_LIMIT` (default 1g / 2.0)
+- `workerserver-general` — `WORKER_GENERAL_MEM_LIMIT` / `WORKER_GENERAL_CPU_LIMIT` (default 1g / 2.0)
+- `workerserver-denorm` — `WORKER_DENORM_MEM_LIMIT` / `WORKER_DENORM_CPU_LIMIT` (default 1g / 1.0)
+- `rabbitmq` — `RABBITMQ_MEM_LIMIT` / `RABBITMQ_CPU_LIMIT` (default 512m / 1.0)
+- `redis` — `REDIS_MEM_LIMIT` / `REDIS_CPU_LIMIT` + wewnętrzny `REDIS_MAXMEMORY` (z `allkeys-lru` eviction policy, musi być mniejszy od Docker limit żeby ewiktowanie działało zanim Docker zabije kontener; default 256m / 0.5)
+- `loki` — `LOKI_MEM_LIMIT` / `LOKI_CPU_LIMIT` (default 256m / 0.5)
+- `prometheus` — `PROMETHEUS_MEM_LIMIT` / `PROMETHEUS_CPU_LIMIT` (default 512m / 1.0)
 
-**Domyślne wartości** w compose'ach są skrojone pod host 8 GB (najmniejszy rozsądny deployment), więc stack startuje out-of-the-box po `git pull && make up` bez żadnej akcji użytkownika.
+**Monitoring & support daemons** (small, ale z limitami jako defense-in-depth):
+- `flower` — `FLOWER_MEM_LIMIT` / `FLOWER_CPU_LIMIT` (default 768m / 0.5 — akumuluje historię zadań Celery)
+- `alloy` — `ALLOY_MEM_LIMIT` / `ALLOY_CPU_LIMIT` (default 384m / 0.5)
+- `denorm-queue` — `DENORM_QUEUE_MEM_LIMIT` / `DENORM_QUEUE_CPU_LIMIT` (default 320m / 1.0)
+- `celerybeat` — `CELERYBEAT_MEM_LIMIT` / `CELERYBEAT_CPU_LIMIT` (default 320m / 0.25)
+- `authserver` — `AUTHSERVER_MEM_LIMIT` / `AUTHSERVER_CPU_LIMIT` (default 320m / 1.0)
+- `grafana` — `GRAFANA_MEM_LIMIT` / `GRAFANA_CPU_LIMIT` (default 192m / 1.0)
+- `webserver` (nginx) — `WEBSERVER_MEM_LIMIT` / `WEBSERVER_CPU_LIMIT` (default 256m / 2.0 — proxy_buffers 16x16k = 256 KB/conn przy HTML buforowaniu, burst 500 concurrent = +110 MB; plus HTTP/3 QUIC per-packet TLS)
+- `postgres-exporter` — `PG_EXPORTER_MEM_LIMIT` / `PG_EXPORTER_CPU_LIMIT` (default 64m / 0.25)
+- `node-exporter` — `NODE_EXPORTER_MEM_LIMIT` / `NODE_EXPORTER_CPU_LIMIT` (default 64m / 0.25)
+- `dozzle` — `DOZZLE_MEM_LIMIT` / `DOZZLE_CPU_LIMIT` (default 64m / 0.25)
+- `ofelia` — `OFELIA_MEM_LIMIT` / `OFELIA_CPU_LIMIT` (default 64m / 0.25)
 
-**Tuning pod większy host**: `make configure-resources` wykrywa RAM i CPU (Linux `/proc/meminfo` + `nproc`, macOS `sysctl`), proponuje proporcjonalny podział (30% RAM dla Postgresa, 15% dla Django/workerów itd.) i interaktywnie pyta o akceptację każdego serwisu. Wynik ląduje w `$BPP_CONFIGS_DIR/.env` i jest odczytywany przez compose przy następnym `make up`.
+**Domyślne wartości** w compose'ach są skrojone pod host 8 GB (najmniejszy rozsądny deployment), więc stack startuje out-of-the-box po `git pull && make up` bez żadnej akcji użytkownika. Defaulty dla małych daemonów są bliskie ~1.5× obserwowanej realnej konsumpcji, z podłogą 64m dla najlżejszych procesów.
 
-Małe daemony (authserver, exportery, webserver, ofelia, celerybeat, denorm-queue, grafana, backup-runner, alloy, dozzle) **nie mają limitów** — cost/benefit się nie spina, każdy z nich trzyma się poniżej 100 MB i nie ma tendencji do growu.
+**Tuning pod większy host**: `make configure-resources` wykrywa RAM i CPU (Linux `/proc/meminfo` + `nproc`, macOS `sysctl`), proponuje proporcjonalny podział (30% RAM dla Postgresa, 15% dla Django/workerów itd.) i interaktywnie pyta o akceptację każdego serwisu. Wynik ląduje w `$BPP_CONFIGS_DIR/.env` i jest odczytywany przez compose przy następnym `make up`. (Skrypt pokrywa obecnie tylko serwisy high-risk; tuning małych daemonów rób ręcznie w `.env` jeśli defaulty się nie sprawdzają.)
+
+**Bez limitu**: `backup-runner` (ephemeral, ~10 min/dobę), `workerserver-status` (profile=manual, ad-hoc).
+
+### Nightly Restarts (memory leak mitigation)
+
+Python-owe procesy long-running (gunicorn, Celery) puchną z czasem niezależnie od limitów — to real memory leak, nie burst. Zamiast podbijać limity, **restartujemy je nocą** przez Ofelię, staggered w oknie 05:00–05:25 (po backup 02:30, rebuild_autor_jednostka 04:30, przed godzinami pracy):
+
+| Czas | Serwis |
+|---|---|
+| 05:00 | appserver |
+| 05:05 | workerserver-general |
+| 05:10 | workerserver-denorm |
+| 05:15 | flower |
+| 05:20 | celerybeat |
+| 05:25 | denorm-queue |
+
+Mechanizm: `ofelia.job-exec.restart_self.command: "kill 1"` — Ofelia przez docker.sock (ro) wykonuje `docker exec <container> kill 1`, PID 1 dostaje SIGTERM, graceful shutdown, `restart: always` wskrzesza kontener. Żadnych nowych serwisów, socket pozostaje read-only. Restart ~10s na serwis, uptime SLO nie cierpi.
+
+**Wylaczanie restartu**: wszystkie etykiety ofelia zyja w compose'ach - zeby wylaczyc restart np. appservera, zakomentuj `ofelia.job-exec.restart_self.*` labels w `docker-compose.application.yml`. Brak env-var toggle'a (restart to gwarancja, nie opcja).
 
 ### Optional Feature Flags
 
