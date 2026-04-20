@@ -30,7 +30,9 @@ assert_file_not_empty() { if [ -s "$2" ]; then pass "$1"; else fail "$1 ($2 is e
 setup_temp() {
     WORK_DIR=$(mktemp -d)
     REPO_COPY="$WORK_DIR/bpp-deploy"
-    cp -r "$REPO_DIR" "$REPO_COPY"
+    # -L dereferencuje symlinki (np. AGENTS.md -> CLAUDE.md) — na Windows Git
+    # Bash bez Developer Mode tworzenie symlinkow zawodzi.
+    cp -rL "$REPO_DIR" "$REPO_COPY"
     rm -f "$REPO_COPY/.env"
     CONFIG_DIR="$WORK_DIR/test-instance"
 }
