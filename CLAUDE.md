@@ -345,7 +345,7 @@ make release
 ### Microservices Architecture
 
 **Core Services:**
-- `appserver` - Main Django application + migrations (uses **uv** package manager)
+- `appserver` - Main Django application + migrations
 - `authserver` - Lightweight Django auth service for nginx authentication (no migrations/collectstatic)
 - `dbserver` - PostgreSQL with custom denormalization system
 - `webserver` - Nginx reverse proxy + static file serving
@@ -397,11 +397,11 @@ make release
 - `authserver` is a lightweight service that starts quickly (seconds) - no migrations or collectstatic
 - `celerybeat` uses `service_started` for appserver (not `service_healthy`) to allow faster startup
 
-### Python Package Management
-The project uses **uv** (ultra-fast Python package manager) instead of pip:
-- Commands: `uv run src/manage.py <command>` instead of `python manage.py <command>`
-- Used in: appserver, denorm-queue, all Ofelia scheduled jobs
-- Example: `uv run src/manage.py denorm_rebuild --no-flush`
+### Running Commands In Containers
+Komendy Django/Celery wywolujemy natywnym `python` / `celery` (obrazy sa odchudzone, `uv` juz sie tam nie znajduje):
+- Django management: `python src/manage.py <command>` (CWD w obrazie to katalog nad `src/`)
+- Celery: `celery -A django_bpp.celery_tasks <command>` (console script w PATH)
+- Przyklad: `python src/manage.py denorm_rebuild --no-flush`
 
 ### Safe Migration Process
 ```bash
@@ -697,5 +697,5 @@ Pomocnicze funkcje w `init-configs.sh`: `env_has_var`, `get_env_var` (strip-uje 
 Since this is a deployment repo, Django source code is inside containers:
 ```bash
 make shell  # Access container with Django code at /src/
-# Inside container: uv run src/manage.py <command>
+# Inside container: python src/manage.py <command>
 ```

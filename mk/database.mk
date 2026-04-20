@@ -33,7 +33,7 @@ MEDIA_BACKUP_FULL_PATH := $(DJANGO_BPP_HOST_BACKUP_DIR)/$(MEDIA_BACKUP_TAR)
 PARALLEL_JOBS ?= 4
 
 do-migrate:
-	docker compose exec appserver uv run src/manage.py migrate
+	docker compose exec appserver python src/manage.py migrate
 
 stop-denorm-celery:
 	docker compose stop denorm-queue workerserver-general workerserver-denorm celerybeat
@@ -82,7 +82,7 @@ media-backup:
 	@echo "Restore: tar xzf $(MEDIA_BACKUP_TAR) -C /mediaroot/"
 
 dbshell:
-	docker compose exec appserver uv run src/manage.py dbshell
+	docker compose exec appserver python src/manage.py dbshell
 
 dbshell-psql:
 	docker compose exec -e PGPASSWORD=$(DJANGO_BPP_DB_PASSWORD) dbserver \

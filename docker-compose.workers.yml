@@ -62,7 +62,7 @@ services:
     image: iplweb/bpp_denorm_queue:${DOCKER_VERSION:-latest}
     logging: *default-logging
     env_file: ${BPP_CONFIGS_DIR}/.env
-    # entrypoint: ["uv", "run", "src/manage.py", "denorm_queue"]
+    # entrypoint: ["python", "src/manage.py", "denorm_queue"]
     # healthcheck:
     #   test: ["CMD-SHELL", "pgrep -f 'denorm_queue' > /dev/null"]
     #   start_period: 10s
@@ -89,7 +89,7 @@ services:
     image: iplweb/bpp_workerserver:${DOCKER_VERSION:-latest}
     logging: *default-logging
     env_file: ${BPP_CONFIGS_DIR}/.env
-    entrypoint: uv run celery -A django_bpp.celery_tasks status
+    entrypoint: celery -A django_bpp.celery_tasks status
     depends_on:
       workerserver-general:
         condition: service_healthy

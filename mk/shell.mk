@@ -12,7 +12,7 @@ shell-dbserver:
 	docker compose exec dbserver /bin/bash
 
 shell-python:
-	docker compose exec appserver uv run src/manage.py shell
+	docker compose exec appserver python src/manage.py shell
 
 shell-plus:
-	docker compose exec appserver uv run src/manage.py shell_plus
+	docker compose exec appserver python src/manage.py shell_plus

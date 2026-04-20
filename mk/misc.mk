@@ -7,4 +7,4 @@ wait:
 	@bash scripts/wait-for-build.sh
 
 debug-show-current-settings:
-	docker compose exec appserver uv run src/manage.py debug_setup_initial_data --show-current
+	docker compose exec appserver python src/manage.py debug_setup_initial_data --show-current
