@@ -360,8 +360,17 @@ test_nginx_config_valid() {
         return
     fi
 
-    if ! docker info >/dev/null 2>&1; then
+    local docker_os
+    docker_os=$(docker info --format '{{.OSType}}' 2>/dev/null) || true
+    if [ -z "$docker_os" ]; then
         skip "docker daemon niedostepny — pomijam nginx -t"
+        return
+    fi
+    # Windows runner GH Actions ma Dockera w trybie Windows containers
+    # (default na windows-latest). nginx:1.29.7 to obraz linux,
+    # `docker run` wywala "no matching manifest for windows/amd64".
+    if [ "$docker_os" != "linux" ]; then
+        skip "docker daemon w trybie '$docker_os' (nie linux) — pomijam nginx -t"
         return
     fi
 

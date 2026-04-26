@@ -12,7 +12,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Uruchom testy
         run: ./tests/test_makefile.sh
@@ -22,20 +22,34 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
 
-      - uses: pre-commit/action@v3.0.1
+      # Inline pre-commit/action@v3.0.1: ten action wewnatrz uzywa
+      # actions/cache@v4 (Node 20, deprecated), a v3.0.1 to ostatni
+      # release pre-commit/action - nie ma wersji na Node 24.
+      # Inline-ujemy logike z actions/cache@v5 zeby usunac warning.
+      - name: Cache pre-commit envs
+        uses: actions/cache@v5
+        with:
+          path: ~/.cache/pre-commit
+          key: pre-commit-3|${{ env.pythonLocation }}|${{ hashFiles('.pre-commit-config.yaml') }}
+
+      - name: Run pre-commit
+        run: |
+          python -m pip install pre-commit
+          python -m pip freeze --local
+          pre-commit run --all-files --show-diff-on-failure --color=always
 
   test-windows:
     name: Testy Makefile (Windows)
     runs-on: windows-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Instalacja GNU Make
         run: choco install make -y
@@ -49,7 +63,7 @@ jobs:
     runs-on: macos-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Uruchom testy
         run: ./tests/test_makefile.sh
@@ -59,7 +73,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Walidacja składni docker-compose
         run: |
