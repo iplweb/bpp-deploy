@@ -173,7 +173,7 @@ output="$(run_validator --fix 2>&1)"
 rc=$?
 set -e
 assert_exit 0 "$rc" "fix zwraca 0"
-assert_contains "$output" "3 wartosci stripped" "raportuje liczbe stripnietych wartosci"
+assert_contains "$output" "3 naruszen naprawionych" "raportuje liczbe naprawionych naruszen"
 assert_contains "$output" ".env.bak." "raportuje sciezke backupu"
 
 EXPECTED_AFTER_FIX="# Komentarz na gorze
@@ -201,7 +201,7 @@ output="$(run_validator --fix 2>&1)"
 rc=$?
 set -e
 assert_exit 0 "$rc" "drugi run --fix zwraca 0"
-assert_contains "$output" "brak cudzyslowow do strip-niecia" "drugi run nie tworzy backupu"
+assert_contains "$output" "brak naruszen do naprawy" "drugi run nie tworzy backupu"
 
 # === Test 7: walidator po fix-ie zwraca 0 ===
 echo "=== Test 7: walidacja po fix-ie ==="
@@ -293,6 +293,98 @@ run_validator --foo >/dev/null 2>&1
 rc=$?
 set -e
 assert_exit 2 "$rc" "nieznany flag zwraca 2"
+
+# === Test 13: nieuciekniete `$X` w wartosci -> exit 1 ===
+echo "=== Test 13: wykrywa nieuciekniete \$X ==="
+reset_env
+cat > "$TEST_CONFIGS/.env" <<'EOF'
+DJANGO_BPP_DB_PASSWORD=abc$xyz
+ESCAPED_OK=abc$$xyz
+PLAIN=abc
+WITH_BRACE=foo${var}bar
+EOF
+set +e
+output="$(run_validator 2>&1)"
+rc=$?
+set -e
+assert_exit 1 "$rc" "validator zwraca 1 gdy sa nieuciekniete \$X"
+assert_contains "$output" "[DOLLAR] " "raport oznacza naruszenie typem DOLLAR"
+assert_contains "$output" "DJANGO_BPP_DB_PASSWORD=abc\$xyz" "raport pokazuje linie z \$X"
+assert_contains "$output" "WITH_BRACE=foo\${var}bar" "raport pokazuje linie z \${VAR}"
+# Negative: poprawnie escape-owane $$ NIE powinno byc flagowane.
+case "$output" in
+    *"ESCAPED_OK="*)
+        echo "  FAIL: ESCAPED_OK (z \$\$) zostal flagowany jako naruszenie"
+        FAIL_COUNT=$((FAIL_COUNT + 1))
+        ;;
+    *)
+        echo "  PASS: ESCAPED_OK (z \$\$) nie jest flagowany"
+        PASS_COUNT=$((PASS_COUNT + 1))
+        ;;
+esac
+
+# === Test 14: --fix escape-uje `$X` -> `$$X` ===
+echo "=== Test 14: --fix escape-uje \$X ==="
+reset_env
+cat > "$TEST_CONFIGS/.env" <<'EOF'
+DJANGO_BPP_DB_PASSWORD=abc$xyz
+ESCAPED_OK=abc$$xyz
+PLAIN=abc
+WITH_BRACE=foo${var}bar
+LEADING=$start
+EOF
+set +e
+output="$(run_validator --fix 2>&1)"
+rc=$?
+set -e
+assert_exit 0 "$rc" "fix zwraca 0 dla \$X naruszen"
+EXPECTED_AFTER_DOLLAR_FIX="DJANGO_BPP_DB_PASSWORD=abc\$\$xyz
+ESCAPED_OK=abc\$\$xyz
+PLAIN=abc
+WITH_BRACE=foo\$\${var}bar
+LEADING=\$\$start"
+assert_file_eq "$TEST_CONFIGS/.env" "$EXPECTED_AFTER_DOLLAR_FIX" "po fix-ie wszystkie \$X sa escape-owane do \$\$X"
+
+# === Test 15: --fix idempotentny dla `$X` ===
+echo "=== Test 15: --fix idempotentny dla \$X ==="
+set +e
+output="$(run_validator --fix 2>&1)"
+rc=$?
+set -e
+assert_exit 0 "$rc" "drugi run --fix zwraca 0"
+assert_contains "$output" "brak naruszen do naprawy" "drugi run nie zmienia juz-escape-owanej wartosci"
+
+# === Test 16: strip cudzyslowow + escape `$` w jednym przebiegu ===
+echo "=== Test 16: strip + escape razem ==="
+reset_env
+cat > "$TEST_CONFIGS/.env" <<'EOF'
+PASS_SQ='abc$xyz'
+PASS_DQ="abc$xyz"
+PORT="5672"
+EOF
+set +e
+run_validator --fix >/dev/null 2>&1
+rc=$?
+set -e
+assert_exit 0 "$rc" "fix zwraca 0 dla mieszanki"
+EXPECTED_MIXED="PASS_SQ=abc\$\$xyz
+PASS_DQ=abc\$\$xyz
+PORT=5672"
+assert_file_eq "$TEST_CONFIGS/.env" "$EXPECTED_MIXED" "cudzyslowy stripnięte + \$ escape-owane"
+
+# === Test 17: `$` przed znakiem nie-identyfikatora zostawiony ===
+echo "=== Test 17: \$ przed nie-identyfikatorem nie jest escape-owany ==="
+reset_env
+cat > "$TEST_CONFIGS/.env" <<'EOF'
+KEY1=abc$
+KEY2=abc$ xyz
+KEY3=abc$1xyz
+EOF
+set +e
+run_validator >/dev/null 2>&1
+rc=$?
+set -e
+assert_exit 0 "$rc" "\$ przed end-of-string/space/digit nie jest naruszeniem (Compose tego nie interpoluje)"
 
 # === Podsumowanie ===
 echo ""

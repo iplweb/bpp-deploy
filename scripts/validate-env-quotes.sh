@@ -1,18 +1,22 @@
 #!/usr/bin/env bash
 #
-# Wykrywa wartosci w .env zapisane z otaczajacymi cudzyslowami i opcjonalnie
-# strip-uje je in-place.
+# Walidator wartosci w .env pod katem dwoch problemow z Docker Compose:
 #
-# Docker Compose nie obcina cudzyslowow z .env (inaczej niz `bash source`),
-# wiec interpolacja ${VAR} w YAML i injekcja przez env_file: dawalyby literalne
-# znaki " lub ' w wartosciach przekazywanych do kontenerow. Psuje to m.in.:
-#   - POSTGRES_USER  (psql CREATE USER traktuje "bpp" jako rzeczywista nazwe roli)
-#   - RABBITMQ_PORT  (Kombu: cannot cast to integer "5672")
-#   - DOCKER_VERSION (image tag iplweb/bpp_appserver:"latest" - 404)
+# 1. Otaczajace cudzyslowy (" lub '). Compose przekazuje je literalnie do
+#    kontenerow, co psuje m.in.:
+#      - POSTGRES_USER  (psql CREATE USER traktuje "bpp" jako rzeczywista nazwe roli)
+#      - RABBITMQ_PORT  (Kombu: cannot cast to integer "5672")
+#      - DOCKER_VERSION (image tag iplweb/bpp_appserver:"latest" - 404)
+#
+# 2. Nieuciekniete `$X` w wartosciach (gdzie X to litera/_/{). Compose interpretuje
+#    je jako referencje do zmiennych i zastepuje pusta wartoscia (z warningiem
+#    `The "x" variable is not set. Defaulting to a blank string.`). Dotyczy
+#    haseł i sekretow ktore zawieraja literalny `$`. Compose escape: `$$`.
 #
 # Uzycie:
-#   validate-env-quotes.sh           # walidacja, exit 1 jezeli sa cudzyslowy
-#   validate-env-quotes.sh --fix     # auto-strip in-place z backupem .bak.<ts>
+#   validate-env-quotes.sh           # walidacja, exit 1 jezeli sa naruszenia
+#   validate-env-quotes.sh --fix     # auto-strip cudzyslowow + escape $ in-place,
+#                                    # backup .bak.<ts>
 #
 # Sprawdza dwa pliki (gdy istnieja):
 #   - $REPO_DIR/.env              (BPP_CONFIGS_DIR, COMPOSE_PROJECT_NAME, ...)
@@ -51,9 +55,26 @@ if [ ${#FILES[@]} -eq 0 ]; then
 fi
 
 # Wykrywa naruszenia w plikach podanych jako argumenty. Wypisuje na stdout
-# linie w formacie "<plik>:<numer-linii>:<surowa-linia>".
+# linie w formacie "<plik>:<numer-linii>:<typ>:<surowa-linia>" gdzie typ to
+# QUOTE (otaczajace cudzyslowy) lub DOLLAR (nieuciekniete $X).
 detect_violations() {
     awk '
+        # Czy wartosc zawiera nieuciekniety `$` przed znakiem identyfikatora.
+        # Przyklad pasujacy: abc$xyz, abc${xyz}, $X. Niepasujacy: abc$$xyz.
+        function has_unescaped_dollar(v,    i, c, n, prev, len) {
+            len = length(v)
+            prev = ""
+            for (i = 1; i <= len; i++) {
+                c = substr(v, i, 1)
+                n = (i < len) ? substr(v, i + 1, 1) : ""
+                if (c == "$" && prev != "$" && n ~ /[A-Za-z_{]/) {
+                    return 1
+                }
+                prev = c
+            }
+            return 0
+        }
+
         /^[[:space:]]*(#|$)/ { next }
         !/^[A-Za-z_][A-Za-z0-9_]*=/ { next }
         {
@@ -62,7 +83,11 @@ detect_violations() {
             val = line
             sub(/^[^=]*=/, "", val)
             if (val ~ /^".*"$/ || val ~ /^'\''.*'\''$/) {
-                print FILENAME ":" NR ":" line
+                print FILENAME ":" NR ":QUOTE:" line
+                next
+            }
+            if (has_unescaped_dollar(val)) {
+                print FILENAME ":" NR ":DOLLAR:" line
             }
         }
     ' "$@"
@@ -73,35 +98,49 @@ if [ "$MODE" = "check" ]; then
     if [ -z "$violations" ]; then
         exit 0
     fi
-    cat >&2 <<'EOF'
 
-=== BLAD: cudzyslowy w wartosciach .env ===
+    has_quote="$(printf '%s\n' "$violations" | awk -F: '$3 == "QUOTE"' | head -1)"
+    has_dollar="$(printf '%s\n' "$violations" | awk -F: '$3 == "DOLLAR"' | head -1)"
 
+    {
+        echo ""
+        echo "=== BLAD: niepoprawne wartosci w .env ==="
+        echo ""
+        if [ -n "$has_quote" ]; then
+            cat <<'EOF'
+[QUOTE] Otaczajace cudzyslowy w wartosciach .env.
 Docker Compose przekazuje wartosci LITERALNIE (z cudzyslowami) do kontenerow.
-To psuje m.in.:
-  - POSTGRES_USER  (psql CREATE USER traktuje "bpp" jako rzeczywista nazwe roli)
-  - RABBITMQ_PORT  (Kombu: cannot cast to integer "5672")
-  - DOCKER_VERSION (image tag iplweb/bpp_appserver:"latest" - 404)
-  - kazdy inny consumer expecting plain value
-
-Naruszenia:
+Psuje m.in. POSTGRES_USER, RABBITMQ_PORT, DOCKER_VERSION.
 
 EOF
-    # Format "plik:linia:tresc" -> "  plik:linia: tresc". Tresc moze zawierac ":".
-    echo "$violations" | awk -F: '
-        { printf "  %s:%s:", $1, $2
-          for (i = 3; i <= NF; i++) printf "%s%s", (i == 3 ? " " : ":"), $i
-          print "" }' >&2
-    cat >&2 <<'EOF'
+        fi
+        if [ -n "$has_dollar" ]; then
+            cat <<'EOF'
+[DOLLAR] Nieuciekniete `$X` w wartosciach .env.
+Docker Compose interpretuje `$X` jako referencje do zmiennej i zastepuje pusta
+wartoscia (warning: `The "x" variable is not set. Defaulting to a blank string.`).
+Aby zachowac literalny `$`, uzyj `$$` (np. haslo `pa$$word`).
+
+EOF
+        fi
+        echo "Naruszenia:"
+        echo ""
+        # Format "plik:linia:typ:tresc" -> "  [TYP] plik:linia: tresc".
+        echo "$violations" | awk -F: '
+            { printf "  [%s] %s:%s:", $3, $1, $2
+              for (i = 4; i <= NF; i++) printf "%s%s", (i == 4 ? " " : ":"), $i
+              print "" }'
+        cat <<'EOF'
 
 Auto-fix:
 
   make fix-env-quotes
 
-(zapisze backupy .env.bak.<timestamp>, strip-uje cudzyslowy in-place,
-potem retry "make <target>".)
+(zapisze backupy .env.bak.<timestamp>, strip-uje cudzyslowy i escape-uje `$`
+in-place, potem retry "make <target>".)
 
 EOF
+    } >&2
     exit 1
 fi
 
@@ -112,17 +151,34 @@ fixed_total=0
 for f in "${FILES[@]}"; do
     fixed_in_file="$(detect_violations "$f" | wc -l | tr -d ' ')"
     if [ "$fixed_in_file" = "0" ]; then
-        echo "$f: brak cudzyslowow do strip-niecia"
+        echo "$f: brak naruszen do naprawy"
         continue
     fi
 
     backup="$f.bak.$TIMESTAMP"
     cp "$f" "$backup"
 
-    # Strip jednej warstwy otaczajacych " lub '. Zachowuje komentarze, puste
-    # linie i trailing whitespace. Nie tyka linii ktore nie pasuja do
-    # KEY=value (gdzie value otoczone " lub ').
+    # Strip jednej warstwy otaczajacych " lub ', a nastepnie escape `$X` ->
+    # `$$X` (gdzie X to litera/_/{). Zachowuje komentarze, puste linie i
+    # trailing whitespace. Nie tyka linii ktore nie pasuja do KEY=value.
     awk '
+        function escape_dollars(v,    out, i, c, n, prev, len) {
+            out = ""
+            prev = ""
+            len = length(v)
+            for (i = 1; i <= len; i++) {
+                c = substr(v, i, 1)
+                n = (i < len) ? substr(v, i + 1, 1) : ""
+                if (c == "$" && prev != "$" && n ~ /[A-Za-z_{]/) {
+                    out = out "$$"
+                } else {
+                    out = out c
+                }
+                prev = c
+            }
+            return out
+        }
+
         /^[[:space:]]*(#|$)/ { print; next }
         !/^[A-Za-z_][A-Za-z0-9_]*=/ { print; next }
         {
@@ -138,15 +194,16 @@ for f in "${FILES[@]}"; do
             } else if (val ~ /^'\''.*'\''$/) {
                 val = substr(val, 2, length(val) - 2)
             }
+            val = escape_dollars(val)
             print key "=" val trail
         }
     ' "$f" > "$f.tmp.$$" && mv "$f.tmp.$$" "$f"
 
-    echo "$f: $fixed_in_file wartosci stripped, backup -> $backup"
+    echo "$f: $fixed_in_file naruszen naprawionych, backup -> $backup"
     fixed_total=$((fixed_total + fixed_in_file))
 done
 
 if [ "$fixed_total" -eq 0 ]; then
-    echo "Brak cudzyslowow do strip-niecia w zadnym .env. Nic do zrobienia."
+    echo "Brak naruszen w zadnym .env. Nic do zrobienia."
 fi
 exit 0
