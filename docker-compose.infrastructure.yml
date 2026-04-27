@@ -87,8 +87,17 @@ services:
       # healthcheck). Stary healthcheck uzywal `rabbitmqctl await_startup`,
       # ktory z definicji BLOKUJE az do gotowosci - antywzorzec, marnowal
       # timeout zamiast zwracac szybkie "jeszcze nie".
+      #
+      # start_period 180s: cold start Erlang VM + mnesia recovery + plugin load
+      # na obserwowanym hostcie zajmuje ~35-40s (logi: "Starting broker...
+      # completed" ~36s po starcie kontenera). Pod CPU contention (appserver
+      # robi migracje, workery startuja rownolegle) potrafi przekroczyc 60s.
+      # Krotki grace (5s) sprawial ze `compose up --wait` flagowal rabbitmq
+      # jako unhealthy zanim broker skonczyl boot - wszystkie zalezne uslugi
+      # (workery, beat, flower) odmawialy startu mimo ze za chwile broker
+      # i tak stawal sie healthy.
       test: ["CMD", "rabbitmq-diagnostics", "-q", "check_running"]
-      start_period: 5s
+      start_period: 180s
       interval: 5s
       timeout: 10s
       retries: 5
@@ -100,6 +109,14 @@ services:
         limits:
           memory: ${RABBITMQ_MEM_LIMIT:-512m}
           cpus: "${RABBITMQ_CPU_LIMIT:-1.0}"
+    labels:
+      # Sidecar autoheal restartuje rabbitmq gdy `check_running` zglosi
+      # unhealthy w runtime - typowo gdy Erlang VM zyje, ale aplikacja 'rabbit'
+      # jest wedged (np. po OOM event w mnesia, deadlock w supervisorze).
+      # `restart: always` reaguje tylko na exit procesu, autoheal wypelnia
+      # luke. Restart brokera zmusza klientow (workery, beat) do reconnectu,
+      # ale jest mniej szkodliwy niz wisznie broker z ktorym nikt nie gada.
+      autoheal: "true"
 
 volumes:
   redis:
