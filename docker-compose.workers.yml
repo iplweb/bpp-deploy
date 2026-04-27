@@ -133,12 +133,26 @@ services:
         condition: service_healthy
       appserver:
         condition: service_started
+    healthcheck:
+      # Image healthcheck (start_period 40s) flaguje unhealthy podczas cold startu
+      # Django w celerybeat - import django_bpp.celery_tasks + AMQP connect potrafi
+      # zajac > 70s gdy appserver zaraz obok zjada CPU migracjami. Wydluzamy grace
+      # zeby `compose up --wait` nie wywalal sie zanim broker probe sie ustabilizuje.
+      test: ["CMD", "python", "/app/healthcheck_broker.py"]
+      interval: 10s
+      timeout: 10s
+      start_period: 300s
+      retries: 3
     deploy:
       resources:
         limits:
           memory: ${CELERYBEAT_MEM_LIMIT:-320m}
           cpus: "${CELERYBEAT_CPU_LIMIT:-0.25}"
     labels:
+      # Sidecar autoheal restartuje celerybeat gdy broker probe zglosi unhealthy
+      # (np. po zerwaniu polaczenia z RabbitMQ w runtime - beat zyje, ale przestaje
+      # publikowac taski).
+      autoheal: "true"
       ofelia.enabled: "true"
       ofelia.job-exec.restart_self.schedule: "0 20 5 * * *"
       ofelia.job-exec.restart_self.command: "kill 1"
