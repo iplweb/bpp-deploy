@@ -22,6 +22,7 @@ refresh: validate-env-quotes prune-orphan-volumes ensure-config-files update-con
 	docker compose rm -f
 	docker compose up -d --remove-orphans
 	docker system prune -f
+	$(MAKE) invalidate
 
 DJANGO_BPP_ENABLE_HTML2DOCX_IMAGE ?= false
 
@@ -40,6 +41,7 @@ up: validate-env-quotes ensure-config-files update-configs
 	@if [ "$(DJANGO_BPP_ENABLE_HTML2DOCX_IMAGE)" = "true" ]; then \
 		docker pull iplweb/html2docx:latest; \
 	fi
+	$(MAKE) invalidate
 
 up-appserver: validate-env-quotes pull
 	docker compose up --wait --force-recreate -d appserver
@@ -55,6 +57,7 @@ rmrf:
 
 up-quick: validate-env-quotes ensure-config-files pull
 	docker compose up -d --wait
+	$(MAKE) invalidate
 
 up-webserver: validate-env-quotes
 	docker compose up -d webserver
@@ -75,4 +78,4 @@ health:
 check-quic:
 	@bash scripts/check-quic-port.sh $(HOST)
 
-run: pull build update-configs up test-email invalidate
+run: pull build update-configs up test-email
