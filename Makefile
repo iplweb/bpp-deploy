@@ -143,6 +143,7 @@ help:
 	@echo "  Docker maintenance:"
 	@echo "    docker-clean         - Clean unused Docker resources"
 	@echo "    prune-orphan-volumes - Remove orphan volumes"
+	@echo "    remove-rabbitmq-volume - Wipe RabbitMQ volume + restart (destroys queues!)"
 	@echo "    open-docker-volume   - Open Docker volume in shell"
 	@echo "    rmrf                 - Remove all containers (dangerous!)"
 	@echo ""
