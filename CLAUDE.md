@@ -183,10 +183,10 @@ Healthchecks are defined either in Docker Compose files or in Docker images (Doc
 **Image-level healthchecks** (defined in Dockerfile, not in compose):
 - **dbserver**: PostgreSQL ready check
 - **appserver**: HTTP health endpoint
-- **workerserver-general**, **workerserver-denorm**: Celery ping
+- **workerserver-general**, **workerserver-denorm**: Celery ping (`celery -A django_bpp.celery_tasks inspect ping --destination celery@$HOSTNAME` — idzie przez RabbitMQ broker, więc faluje gdy AMQP connection jest zerwany)
+- **denorm-queue**: `pgrep -f denorm_queue` (image-level, w `bpp/docker/denorm-queue/Dockerfile`)
 
-**No healthcheck:**
-- **denorm-queue**: healthcheck commented out in compose (was `pgrep -f denorm_queue`)
+**Reactive restart on unhealthy** (sidecar `autoheal`): Standardowo Docker NIE restartuje kontenera na podstawie failed healthcheck — `restart: always` reaguje tylko na exit procesu. Sidecar `willfarrell/autoheal:1.2.0` (zdefiniowany w `docker-compose.application.yml` obok ofeli) monitoruje kontenery z labelką `autoheal=true` przez Docker API i restartuje je gdy `Health.Status` zmieni się na `unhealthy`. Obecnie pilnowane: `workerserver-general`, `workerserver-denorm`, `denorm-queue` — bez tego sidecara stuck Celery worker (zerwane AMQP connection, kombu w reconnect loop) byłby `unhealthy` ale Docker by go nie podniósł (proces nadal żyje). Tuning: `AUTOHEAL_MEM_LIMIT` / `AUTOHEAL_CPU_LIMIT` (default 32m / 0.1).
 
 **Important**: Double-dollar escaping (e.g. `$$RABBITMQ_DEFAULT_USER`) is required in Docker Compose healthcheck commands to prevent premature variable expansion by Compose.
 
@@ -637,6 +637,7 @@ Wszystkie serwisy stacka (poza `backup-runner` — odpala się raz dziennie na 1
 - `node-exporter` — `NODE_EXPORTER_MEM_LIMIT` / `NODE_EXPORTER_CPU_LIMIT` (default 64m / 0.25)
 - `dozzle` — `DOZZLE_MEM_LIMIT` / `DOZZLE_CPU_LIMIT` (default 64m / 0.25)
 - `ofelia` — `OFELIA_MEM_LIMIT` / `OFELIA_CPU_LIMIT` (default 64m / 0.25)
+- `autoheal` — `AUTOHEAL_MEM_LIMIT` / `AUTOHEAL_CPU_LIMIT` (default 32m / 0.1 — bash polluje Docker API, minimalna powierzchnia)
 
 **Domyślne wartości** w compose'ach są skrojone pod host 8 GB (najmniejszy rozsądny deployment), więc stack startuje out-of-the-box po `git pull && make up` bez żadnej akcji użytkownika. Defaulty dla małych daemonów są bliskie ~1.5× obserwowanej realnej konsumpcji, z podłogą 64m dla najlżejszych procesów.
 

@@ -19,12 +19,24 @@ services:
       # Czy nawet w ogóle ją buduje...
       appserver:
         condition: service_healthy
+      # Twardy gating na broker i result backend - eliminuje startup race przy
+      # `up --force-recreate` (wszystkie kontenery recreate'owane jednoczesnie:
+      # worker startowal zanim RabbitMQ skonczyl handshake AMQP, dostawal RST
+      # i zostawal w stanie unhealthy bez wyjscia procesu).
+      rabbitmq:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     deploy:
       resources:
         limits:
           memory: ${WORKER_GENERAL_MEM_LIMIT:-1g}
           cpus: "${WORKER_GENERAL_CPU_LIMIT:-2.0}"
     labels:
+      # Sidecar autoheal restartuje ten kontener gdy image-level healthcheck
+      # (`celery inspect ping`) zglosi unhealthy - typowo gdy proces zyje, ale
+      # kombu wisi w reconnect loop po zerwanym connection AMQP.
+      autoheal: "true"
       ofelia.enabled: "true"
       # Nocny restart zbija skumulowany memory leak Celery workera (Python long-running).
       # kill 1 -> SIGTERM do PID 1 -> graceful shutdown -> restart:always wskrzesza.
@@ -46,12 +58,18 @@ services:
       # Czy nawet w ogóle ją buduje...
       appserver:
         condition: service_healthy
+      # Patrz workerserver-general - to samo uzasadnienie startup race.
+      rabbitmq:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     deploy:
       resources:
         limits:
           memory: ${WORKER_DENORM_MEM_LIMIT:-1g}
           cpus: "${WORKER_DENORM_CPU_LIMIT:-1.0}"
     labels:
+      autoheal: "true"
       ofelia.enabled: "true"
       ofelia.job-exec.restart_self.schedule: "0 10 5 * * *"
       ofelia.job-exec.restart_self.command: "kill 1"
@@ -79,6 +97,9 @@ services:
           memory: ${DENORM_QUEUE_MEM_LIMIT:-320m}
           cpus: "${DENORM_QUEUE_CPU_LIMIT:-1.0}"
     labels:
+      # Image healthcheck `pgrep -f denorm_queue` (Dockerfile w bpp/docker/denorm-queue/)
+      # wykryje martwy proces; autoheal sidecar wtedy zrestartuje kontener.
+      autoheal: "true"
       ofelia.enabled: "true"
       # Restart najpozniej w staggered secie - po wszystkich pozostalych, zeby NOTIFY
       # ze swiezo podniesionych worker-denormow mialy do czego trafic.
