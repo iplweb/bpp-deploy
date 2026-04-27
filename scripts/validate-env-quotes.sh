@@ -5,7 +5,7 @@
 # 1. Otaczajace cudzyslowy (" lub '). Compose przekazuje je literalnie do
 #    kontenerow, co psuje m.in.:
 #      - POSTGRES_USER  (psql CREATE USER traktuje "bpp" jako rzeczywista nazwe roli)
-#      - RABBITMQ_PORT  (Kombu: cannot cast to integer "5672")
+#      - DJANGO_BPP_REDIS_PORT  (kombu: cannot cast to integer "6379")
 #      - DOCKER_VERSION (image tag iplweb/bpp_appserver:"latest" - 404)
 #
 # 2. Nieuciekniete `$X` w wartosciach (gdzie X to litera/_/{). Compose interpretuje
@@ -110,7 +110,7 @@ if [ "$MODE" = "check" ]; then
             cat <<'EOF'
 [QUOTE] Otaczajace cudzyslowy w wartosciach .env.
 Docker Compose przekazuje wartosci LITERALNIE (z cudzyslowami) do kontenerow.
-Psuje m.in. POSTGRES_USER, RABBITMQ_PORT, DOCKER_VERSION.
+Psuje m.in. POSTGRES_USER, DJANGO_BPP_REDIS_PORT, DOCKER_VERSION.
 
 EOF
         fi

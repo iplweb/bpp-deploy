@@ -6,7 +6,7 @@ Guidance for Claude Code working in this repository.
 
 **Django-based academic publication management system (BPP — Bibliografia Publikacji Pracowników)**, deployment configuration only. Django source code lives at `/src/` **inside the Docker containers** — this repo contains Docker Compose orchestration and deployment scripts.
 
-**Stack**: Django + PostgreSQL, Celery + RabbitMQ, Nginx, Redis, Ofelia (cron), Prometheus + Loki + Grafana + Alloy, custom `iplweb/*` images.
+**Stack**: Django + PostgreSQL, Celery + Redis (broker + result backend), Nginx, Ofelia (cron), Prometheus + Loki + Grafana + Alloy, custom `iplweb/*` images.
 
 ## Configuration Architecture
 
@@ -16,7 +16,7 @@ Guidance for Claude Code working in this repository.
 docker-compose.yml              # Main orchestration
 ├── docker-compose.monitoring.yml     # Prometheus, Loki, Grafana, Alloy, exporters
 ├── docker-compose.database.yml       # PostgreSQL + postgresql_data volume
-├── docker-compose.infrastructure.yml # Nginx, Redis, RabbitMQ
+├── docker-compose.infrastructure.yml # Nginx, Redis
 ├── docker-compose.application.yml    # appserver, authserver, ofelia, autoheal + staticfiles/media volumes
 ├── docker-compose.workers.yml        # Celery (general, denorm, beat, flower, denorm-queue)
 └── docker-compose.backup.yml         # backup-runner
@@ -28,7 +28,7 @@ Each `include:` entry has `env_file: ${BPP_CONFIGS_DIR}/.env` so `${VAR}` interp
 
 ### Configuration Directory (`BPP_CONFIGS_DIR`)
 
-Configuration lives **outside the repository** (e.g. `~/publikacje-uczelnia/`). Created on first `make` run by `init-configs`. Contents: `.env`, `ssl/`, `rclone/`, `alloy/`, `prometheus/`, `rabbitmq/`, `grafana/provisioning/{datasources,dashboards}/`. Bind-mounted directly into containers.
+Configuration lives **outside the repository** (e.g. `~/publikacje-uczelnia/`). Created on first `make` run by `init-configs`. Contents: `.env`, `ssl/`, `rclone/`, `alloy/`, `prometheus/`, `grafana/provisioning/{datasources,dashboards}/`. Bind-mounted directly into containers.
 
 Repo's `defaults/` holds template configs copied in by `init-configs` (without overwriting existing).
 
@@ -65,17 +65,17 @@ Grafana uses auth proxy mode behind nginx + authserver (Django). Headers: `X-WEB
 
 ### Healthchecks
 
-**Compose-level**: `authserver` (HTTP `/health/`), `redis` (`redis-cli ping`), `rabbitmq` (`rabbitmqctl authenticate_user`), `grafana` (HTTP `/api/health`).
+**Compose-level**: `authserver` (HTTP `/health/`), `redis` (`redis-cli ping`), `grafana` (HTTP `/api/health`).
 
-**Image-level** (Dockerfile `HEALTHCHECK`): `dbserver` (pg_isready), `appserver` (HTTP), `workerserver-general`/`workerserver-denorm` (`celery inspect ping` via RabbitMQ — flaps when AMQP connection breaks), `denorm-queue` (`pgrep -f denorm_queue`).
+**Image-level** (Dockerfile `HEALTHCHECK`): `dbserver` (pg_isready), `appserver` (HTTP), `workerserver-general`/`workerserver-denorm` (`celery inspect ping` via Redis broker — flaps when broker connection breaks), `denorm-queue` (`pgrep -f denorm_queue`).
 
-**Reactive restart on unhealthy** (sidecar `autoheal`): Docker does NOT restart containers based on failed healthchecks (`restart: always` only reacts to process exit). `willfarrell/autoheal:1.2.0` (in `application.yml`) monitors containers labeled `autoheal=true` via Docker API and restarts them on `Health.Status=unhealthy`. Currently watched: `workerserver-general`, `workerserver-denorm`, `denorm-queue` — without this, a stuck Celery worker (broken AMQP, kombu reconnect loop) would stay unhealthy forever because the process is still alive.
+**Reactive restart on unhealthy** (sidecar `autoheal`): Docker does NOT restart containers based on failed healthchecks (`restart: always` only reacts to process exit). `willfarrell/autoheal:1.2.0` (in `application.yml`) monitors containers labeled `autoheal=true` via Docker API and restarts them on `Health.Status=unhealthy`. Currently watched: `workerserver-general`, `workerserver-denorm`, `denorm-queue` — without this, a stuck Celery worker (broken broker connection, kombu reconnect loop) would stay unhealthy forever because the process is still alive.
 
-**Important**: Double-dollar escaping (e.g. `$$RABBITMQ_DEFAULT_USER`) in healthcheck commands prevents premature variable expansion by Compose.
+**Important**: Double-dollar escaping (e.g. `$$DJANGO_BPP_DB_USER`) in healthcheck commands prevents premature variable expansion by Compose.
 
 ### Logging
 
-**Reduced verbosity**: Prometheus/Loki/Grafana/Alloy/RabbitMQ all set to `warn` or `error`.
+**Reduced verbosity**: Prometheus/Loki/Grafana/Alloy all set to `warn` or `error`.
 
 **Docker log driver — local rotation**: All services use the `local` driver (binary, zstd-compressed, ~2–4× smaller than `json-file`) via shared `x-logging` YAML anchor at the top of each compose file:
 
@@ -209,7 +209,7 @@ To disable for a specific service: comment out `ofelia.job-exec.restart_self.*` 
 
 All services (except `backup-runner` — ephemeral, ~10 min/day) have `*_MEM_LIMIT` / `*_CPU_LIMIT` env vars so a runaway container can't eat the host. Defaults are sized for an **8 GB host** (smallest reasonable deployment) — stack works out-of-the-box after `git pull && make up`.
 
-**High-risk** (defaults): `dbserver` 2g/2.0, `appserver` 1g/2.0, `workerserver-general` 1g/2.0, `workerserver-denorm` 1g/1.0, `rabbitmq` 512m/1.0, `redis` 256m/0.5 (+ internal `REDIS_MAXMEMORY` with `allkeys-lru`, must be < Docker limit so eviction beats OOM kill), `loki` 256m/0.5, `prometheus` 512m/1.0.
+**High-risk** (defaults): `dbserver` 2g/2.0, `appserver` 1g/2.0, `workerserver-general` 1g/2.0, `workerserver-denorm` 1g/1.0, `redis` 768m/1.5 (broker + cache + result backend; internal `REDIS_MAXMEMORY` with `allkeys-lru`, must be < Docker limit so eviction beats OOM kill), `loki` 256m/0.5, `prometheus` 512m/1.0.
 
 **Daemons**: `flower` 768m/0.5 (accumulates Celery task history), `alloy` 384m/0.5, `denorm-queue` 320m/1.0, `celerybeat` 320m/0.25, `authserver` 320m/1.0, `webserver` 256m/2.0 (proxy_buffers 16×16k = 256 KB/conn, +HTTP/3 QUIC TLS), `grafana` 192m/1.0, exporters/dozzle/ofelia 64m/0.25, `autoheal` 32m/0.1.
 

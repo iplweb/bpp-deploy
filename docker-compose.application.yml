@@ -31,9 +31,9 @@ services:
     # Restartuje kontenery z labelka `autoheal=true` gdy ich healthcheck zglasza
     # status `unhealthy`. Standardowo Docker NIE restartuje na podstawie failed
     # healthcheck (`restart: always` reaguje tylko na exit) - autoheal wypelnia te luke.
-    # Krytyczne dla workerow Celery, ktore moga utknac w reconnect loop kombu po
-    # zerwanym connection do RabbitMQ (proces zyje, healthcheck `celery inspect ping`
-    # falluje - bez autohealu czeka na rece administratora).
+    # Krytyczne dla workerow Celery, ktore moga utknac w reconnect loop po
+    # zerwanym connection do brokera (proces zyje, healthcheck `celery inspect
+    # ping` falluje - bez autohealu czeka na rece administratora).
     image: willfarrell/autoheal:1.2.0
     restart: always
     logging: *default-logging
@@ -92,8 +92,6 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     depends_on:
       redis:
-        condition: service_healthy
-      rabbitmq:
         condition: service_healthy
       dbserver:
         condition: service_healthy

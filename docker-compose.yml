@@ -4,7 +4,7 @@
 #
 # Named volumes (data only) distributed across included files:
 # - database.yml: postgresql_data
-# - infrastructure.yml: redis, rabbitmq_data
+# - infrastructure.yml: redis
 # - application.yml: staticfiles, media (shared with workers)
 # - monitoring.yml: grafana_data, prometheus_data, loki_data
 # - backup.yml: backup

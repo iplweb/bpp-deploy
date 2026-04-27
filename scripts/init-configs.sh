@@ -252,8 +252,6 @@ if [ ! -f "$ENV_FILE" ]; then
     printf "Google Verification Code (opcjonalny, Enter = pomin): "
     read -r GA_VERIFICATION_CODE || true
 
-    RMQ_PASS="$(openssl rand -base64 24 | tr -d '/+=' | head -c 32)"
-    RMQ_COOKIE="$(openssl rand -base64 24 | tr -d '/+=' | head -c 32)"
     SECRET_KEY="$(openssl rand -base64 48 | head -c 50)"
 
     if [ "$BPP_EXTERNAL_DB" = "yes" ]; then
@@ -332,13 +330,7 @@ DJANGO_BPP_DB_PORT=$DB_PORT
 
 # === Redis ===
 DJANGO_BPP_REDIS_HOST=redis
-
-# === RabbitMQ ===
-DJANGO_BPP_RABBITMQ_HOST=rabbitmq
-DJANGO_BPP_RABBITMQ_USER=bpp
-DJANGO_BPP_RABBITMQ_PASS=$RMQ_PASS
-DJANGO_BPP_RABBITMQ_PORT=5672
-RABBITMQ_ERLANG_COOKIE=$RMQ_COOKIE
+DJANGO_BPP_REDIS_DB_BROKER=1
 
 # === Aplikacja ===
 DJANGO_BPP_HOSTNAME=$BPP_HOSTNAME
@@ -495,14 +487,7 @@ else
     ensure_env_var "DJANGO_BPP_DB_PORT" "5432" "" "Baza danych"
 
     ensure_env_var "DJANGO_BPP_REDIS_HOST" "redis" "" "Redis"
-
-    ensure_env_var "DJANGO_BPP_RABBITMQ_HOST" "rabbitmq" "" "RabbitMQ"
-    ensure_env_var "DJANGO_BPP_RABBITMQ_USER" "bpp" "" "RabbitMQ"
-    ensure_env_var "DJANGO_BPP_RABBITMQ_PASS" \
-        "$(openssl rand -base64 24 | tr -d '/+=' | head -c 32)" "" "RabbitMQ"
-    ensure_env_var "DJANGO_BPP_RABBITMQ_PORT" "5672" "" "RabbitMQ"
-    ensure_env_var "RABBITMQ_ERLANG_COOKIE" \
-        "$(openssl rand -base64 24 | tr -d '/+=' | head -c 32)" "" "RabbitMQ"
+    ensure_env_var "DJANGO_BPP_REDIS_DB_BROKER" "1" "" "Redis (Celery broker)"
 
     ensure_env_var "DJANGO_BPP_HOSTNAME" "$DEFAULT_HOSTNAME" \
         "Podaj nazwe hosta dla aplikacji" "Aplikacja"

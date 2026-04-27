@@ -1,4 +1,4 @@
-.PHONY: docker-clean prune-orphan-volumes remove-rabbitmq-volume open-docker-volume open-all-docker-volumes \
+.PHONY: docker-clean prune-orphan-volumes open-docker-volume open-all-docker-volumes \
        find-stale-compose-containers docker-compose-stop-rm-purge
 
 docker-clean:
@@ -7,9 +7,6 @@ docker-clean:
 
 prune-orphan-volumes:
 	docker volume prune -f
-
-remove-rabbitmq-volume:
-	@bash scripts/remove-rabbitmq-volume.sh
 
 open-docker-volume: prune-orphan-volumes
 	@VOLUME=$$(docker volume ls --format '{{.Name}}' | fzf --prompt="Select volume: ") && \

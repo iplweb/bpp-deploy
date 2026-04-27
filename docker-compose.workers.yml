@@ -19,12 +19,10 @@ services:
       # Czy nawet w ogóle ją buduje...
       appserver:
         condition: service_healthy
-      # Twardy gating na broker i result backend - eliminuje startup race przy
-      # `up --force-recreate` (wszystkie kontenery recreate'owane jednoczesnie:
-      # worker startowal zanim RabbitMQ skonczyl handshake AMQP, dostawal RST
-      # i zostawal w stanie unhealthy bez wyjscia procesu).
-      rabbitmq:
-        condition: service_healthy
+      # Twardy gating na broker (Redis pelni role brokera + result backend) -
+      # eliminuje startup race przy `up --force-recreate` (worker startowal
+      # zanim broker skonczyl handshake, dostawal RST i zostawal w stanie
+      # unhealthy bez wyjscia procesu).
       redis:
         condition: service_healthy
     deploy:
@@ -35,7 +33,7 @@ services:
     labels:
       # Sidecar autoheal restartuje ten kontener gdy image-level healthcheck
       # (`celery inspect ping`) zglosi unhealthy - typowo gdy proces zyje, ale
-      # kombu wisi w reconnect loop po zerwanym connection AMQP.
+      # kombu wisi w reconnect loop po zerwanym connection do brokera.
       autoheal: "true"
       ofelia.enabled: "true"
       # Nocny restart zbija skumulowany memory leak Celery workera (Python long-running).
@@ -59,8 +57,6 @@ services:
       appserver:
         condition: service_healthy
       # Patrz workerserver-general - to samo uzasadnienie startup race.
-      rabbitmq:
-        condition: service_healthy
       redis:
         condition: service_healthy
     deploy:
@@ -129,13 +125,11 @@ services:
     depends_on:
       redis:
         condition: service_healthy
-      rabbitmq:
-        condition: service_healthy
       appserver:
         condition: service_started
     healthcheck:
       # Image healthcheck (start_period 40s) flaguje unhealthy podczas cold startu
-      # Django w celerybeat - import django_bpp.celery_tasks + AMQP connect potrafi
+      # Django w celerybeat - import django_bpp.celery_tasks + broker connect potrafi
       # zajac > 70s gdy appserver zaraz obok zjada CPU migracjami. Wydluzamy grace
       # zeby `compose up --wait` nie wywalal sie zanim broker probe sie ustabilizuje.
       test: ["CMD", "python", "/app/healthcheck_broker.py"]
@@ -150,7 +144,7 @@ services:
           cpus: "${CELERYBEAT_CPU_LIMIT:-0.25}"
     labels:
       # Sidecar autoheal restartuje celerybeat gdy broker probe zglosi unhealthy
-      # (np. po zerwaniu polaczenia z RabbitMQ w runtime - beat zyje, ale przestaje
+      # (np. po zerwaniu polaczenia z brokerem w runtime - beat zyje, ale przestaje
       # publikowac taski).
       autoheal: "true"
       ofelia.enabled: "true"
@@ -161,12 +155,13 @@ services:
     image: mher/flower:2.0.1
     restart: always
     logging: *default-logging
+    env_file: ${BPP_CONFIGS_DIR}/.env
     environment:
-      - CELERY_BROKER_URL=amqp://${DJANGO_BPP_RABBITMQ_USER:-bpp}:${DJANGO_BPP_RABBITMQ_PASS:-bpp}@rabbitmq:${DJANGO_BPP_RABBITMQ_PORT:-5672}//
+      - CELERY_BROKER_URL=redis://redis:6379/${DJANGO_BPP_REDIS_DB_BROKER:-1}
       - FLOWER_PORT=5555
       - FLOWER_URL_PREFIX=/flower
     depends_on:
-      rabbitmq:
+      redis:
         condition: service_healthy
     expose:
       - 5555

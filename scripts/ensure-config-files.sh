@@ -33,7 +33,6 @@ mkdir -p "$BPP_CONFIGS_DIR/rclone"
 mkdir -p "$BPP_CONFIGS_DIR/alloy"
 mkdir -p "$BPP_CONFIGS_DIR/loki"
 mkdir -p "$BPP_CONFIGS_DIR/prometheus"
-mkdir -p "$BPP_CONFIGS_DIR/rabbitmq"
 mkdir -p "$BPP_CONFIGS_DIR/grafana/provisioning/datasources"
 mkdir -p "$BPP_CONFIGS_DIR/grafana/provisioning/dashboards"
 
@@ -63,7 +62,6 @@ copy_if_missing() {
 copy_if_missing "$DEFAULTS_DIR/alloy/config.alloy" "$BPP_CONFIGS_DIR/alloy/config.alloy"
 copy_if_missing "$DEFAULTS_DIR/loki/local-config.yaml" "$BPP_CONFIGS_DIR/loki/local-config.yaml"
 copy_if_missing "$DEFAULTS_DIR/prometheus/prometheus.yml" "$BPP_CONFIGS_DIR/prometheus/prometheus.yml"
-copy_if_missing "$DEFAULTS_DIR/rabbitmq/enabled_plugins" "$BPP_CONFIGS_DIR/rabbitmq/enabled_plugins"
 
 while IFS= read -r -d '' f; do
     rel="${f#"$DEFAULTS_DIR/grafana/provisioning/"}"

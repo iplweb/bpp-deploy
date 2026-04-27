@@ -104,8 +104,7 @@ SERVICES=(
     "appserver:15:25"
     "workerserver-general:15:25"
     "workerserver-denorm:15:12.5"
-    "rabbitmq:8:5"
-    "redis:5:2.5"
+    "redis:13:7.5"
     "loki:5:2.5"
     "prometheus:7:5"
 )
@@ -325,7 +324,6 @@ var_prefix_for() {
         appserver)              echo "APPSERVER" ;;
         workerserver-general)   echo "WORKER_GENERAL" ;;
         workerserver-denorm)    echo "WORKER_DENORM" ;;
-        rabbitmq)               echo "RABBITMQ" ;;
         redis)                  echo "REDIS" ;;
         loki)                   echo "LOKI" ;;
         prometheus)             echo "PROMETHEUS" ;;

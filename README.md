@@ -169,7 +169,7 @@ Sciezka: /home/deploy/moja-instancja
 `make` automatycznie:
 - utworzy strukturę katalogów konfiguracyjnych,
 - skopiuje szablonowe pliki z `defaults/`,
-- wygeneruje losowe hasła do bazy danych i RabbitMQ,
+- wygeneruje losowe hasła do bazy danych,
 - utworzy plik `.env` z konfiguracją.
 
 ### 2. Sprawdź i dostosuj konfigurację
@@ -224,7 +224,6 @@ Dodatkowe narzędzia administracyjne i monitoring nie są wystawiane jako osobne
 - `https://<hostname>/grafana/`
 - `https://<hostname>/flower/`
 - `https://<hostname>/dozzle/`
-- `https://<hostname>/rabbitmq/`
 
 ## Struktura katalogów
 
@@ -244,7 +243,6 @@ Dodatkowe narzędzia administracyjne i monitoring nie są wystawiane jako osobne
 │   ├── alloy/                      # Konfiguracja Grafana Alloy
 │   ├── prometheus/                 # Konfiguracja Prometheus
 │   ├── grafana/provisioning/       # Dashboardy i datasources Grafana
-│   ├── rabbitmq/                   # Pluginy RabbitMQ
 │   ├── rclone/                     # Konfiguracja backupów
 │   └── dozzle/                     # Użytkownicy Dozzle
 │
@@ -295,7 +293,7 @@ make generate-snakeoil-certs  # Wygeneruj samopodpisane certyfikaty SSL
 
 #### Limity zasobów (`make configure-resources`)
 
-Podczas pierwszego uruchomienia `make` skrypt `configure-resources` jest odpalany automatycznie — wykrywa RAM i liczbę rdzeni hosta, proponuje proporcjonalny podział budżetu między 8 serwisów wysokiego ryzyka (dbserver, appserver, workerserver-general/denorm, rabbitmq, redis, loki, prometheus) i pyta użytkownika o akceptację każdej wartości. Jeżeli odstąpisz od zaproponowanego defaultu dla któregoś serwisu, pozostałe mają swój budżet proporcjonalnie powiększony lub zmniejszony.
+Podczas pierwszego uruchomienia `make` skrypt `configure-resources` jest odpalany automatycznie — wykrywa RAM i liczbę rdzeni hosta, proponuje proporcjonalny podział budżetu między 7 serwisów wysokiego ryzyka (dbserver, appserver, workerserver-general/denorm, redis, loki, prometheus) i pyta użytkownika o akceptację każdej wartości. Jeżeli odstąpisz od zaproponowanego defaultu dla któregoś serwisu, pozostałe mają swój budżet proporcjonalnie powiększony lub zmniejszony.
 
 Docker traktuje limit RAM jako **twardy** (przekroczenie → OOM kill), a CPU jako **miękki** (throttling bez zabijania). RAM ustawiaj z zapasem.
 
@@ -370,8 +368,7 @@ make install-docker            # Instalacja Dockera na hoście
 | **authserver** | Serwer uwierzytelniania dla nginx |
 | **dbserver** | PostgreSQL |
 | **webserver** | Nginx (reverse proxy + static files) |
-| **redis** | Cache i broker Celery |
-| **rabbitmq** | Broker wiadomości |
+| **redis** | Cache, broker Celery i result backend |
 | **workerserver-general** | Ogólne zadania Celery |
 | **workerserver-denorm** | Zadania denormalizacji |
 | **denorm-queue** | Bridge PostgreSQL LISTEN → Celery (single instance!) |

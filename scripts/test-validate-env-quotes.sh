@@ -103,7 +103,7 @@ reset_env
 cat > "$TEST_CONFIGS/.env" <<'EOF'
 DJANGO_BPP_DB_USER=bpp
 DJANGO_BPP_DB_NAME=bpp
-DJANGO_BPP_RABBITMQ_PORT=5672
+DJANGO_BPP_REDIS_PORT=6379
 DOCKER_VERSION=latest
 EOF
 set +e
@@ -164,7 +164,7 @@ cat > "$TEST_CONFIGS/.env" <<'EOF'
 DJANGO_BPP_DB_USER="bpp"
 DJANGO_BPP_DB_NAME='bpp'
 DJANGO_BPP_DB_PASSWORD=plain_pass
-DJANGO_BPP_RABBITMQ_PORT="5672"
+DJANGO_BPP_REDIS_PORT="6379"
 
 # Pusty wiersz nizej zostaje
 EOF
@@ -180,7 +180,7 @@ EXPECTED_AFTER_FIX="# Komentarz na gorze
 DJANGO_BPP_DB_USER=bpp
 DJANGO_BPP_DB_NAME=bpp
 DJANGO_BPP_DB_PASSWORD=plain_pass
-DJANGO_BPP_RABBITMQ_PORT=5672
+DJANGO_BPP_REDIS_PORT=6379
 
 # Pusty wiersz nizej zostaje"
 assert_file_eq "$TEST_CONFIGS/.env" "$EXPECTED_AFTER_FIX" "po fix-ie cudzyslowy znikly, komentarze zostaly"

@@ -103,7 +103,6 @@ test_init_configs_creates_structure() {
     assert_dir_exists "rclone" "$CONFIG_DIR/rclone"
     assert_dir_exists "alloy" "$CONFIG_DIR/alloy"
     assert_dir_exists "prometheus" "$CONFIG_DIR/prometheus"
-    assert_dir_exists "rabbitmq" "$CONFIG_DIR/rabbitmq"
     assert_dir_exists "grafana datasources" "$CONFIG_DIR/grafana/provisioning/datasources"
     assert_dir_exists "grafana dashboards" "$CONFIG_DIR/grafana/provisioning/dashboards"
 
@@ -124,7 +123,6 @@ test_init_configs_copies_templates() {
 
     assert_file_exists "alloy config" "$CONFIG_DIR/alloy/config.alloy"
     assert_file_exists "prometheus config" "$CONFIG_DIR/prometheus/prometheus.yml"
-    assert_file_exists "rabbitmq plugins" "$CONFIG_DIR/rabbitmq/enabled_plugins"
     assert_file_exists "grafana dashboards.yaml" "$CONFIG_DIR/grafana/provisioning/dashboards/dashboards.yaml"
     assert_file_exists "grafana datasources.yaml.tpl" "$CONFIG_DIR/grafana/provisioning/datasources/datasources.yaml.tpl"
 
@@ -146,16 +144,13 @@ test_init_configs_generates_env() {
     assert_file_exists ".env" "$CONFIG_DIR/.env"
     assert_file_not_empty ".env" "$CONFIG_DIR/.env"
     assert_file_contains "DB password" "DJANGO_BPP_DB_PASSWORD=" "$CONFIG_DIR/.env"
-    assert_file_contains "RMQ password" "DJANGO_BPP_RABBITMQ_PASS=" "$CONFIG_DIR/.env"
     assert_file_contains "DB name" "DJANGO_BPP_DB_NAME=bpp" "$CONFIG_DIR/.env"
     assert_file_contains "Hostname" "DJANGO_BPP_HOSTNAME=" "$CONFIG_DIR/.env"
 
-    local db_pass rmq_pass
+    local db_pass
     db_pass=$(grep 'DJANGO_BPP_DB_PASSWORD=' "$CONFIG_DIR/.env" | cut -d= -f2)
-    rmq_pass=$(grep 'DJANGO_BPP_RABBITMQ_PASS=' "$CONFIG_DIR/.env" | cut -d= -f2)
 
     if [ -n "$db_pass" ]; then pass "DB password non-empty"; else fail "DB password non-empty"; fi
-    if [ -n "$rmq_pass" ]; then pass "RMQ password non-empty"; else fail "RMQ password non-empty"; fi
     if [ ${#db_pass} -ge 16 ]; then pass "DB password >= 16 chars (${#db_pass})"; else fail "DB password >= 16 chars (${#db_pass})"; fi
 
     cleanup_temp
@@ -197,7 +192,6 @@ test_init_configs_no_overwrite() {
     # Zmodyfikuj szablonowe pliki, żeby sprawdzić czy nie zostaną nadpisane
     echo "# custom alloy config" > "$CONFIG_DIR/alloy/config.alloy"
     echo "# custom prometheus config" > "$CONFIG_DIR/prometheus/prometheus.yml"
-    echo "# custom rabbitmq plugins" > "$CONFIG_DIR/rabbitmq/enabled_plugins"
 
     # Drugie uruchomienie — nie powinno nadpisać
     make -C "$REPO_COPY" init-configs BPP_CONFIGS_DIR="$CONFIG_DIR" >/dev/null 2>&1
@@ -214,7 +208,6 @@ test_init_configs_no_overwrite() {
     # Sprawdź szablonowe pliki konfiguracyjne
     assert_file_contains "alloy config preserved" "# custom alloy config" "$CONFIG_DIR/alloy/config.alloy"
     assert_file_contains "prometheus config preserved" "# custom prometheus config" "$CONFIG_DIR/prometheus/prometheus.yml"
-    assert_file_contains "rabbitmq plugins preserved" "# custom rabbitmq plugins" "$CONFIG_DIR/rabbitmq/enabled_plugins"
 
     cleanup_temp
 }
