@@ -78,9 +78,11 @@ services:
     environment:
       RABBITMQ_DEFAULT_USER: ${DJANGO_BPP_RABBITMQ_USER:-bpp}
       RABBITMQ_DEFAULT_PASS: ${DJANGO_BPP_RABBITMQ_PASS:-bpp}
-      RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS: >-
-        -rabbit log_levels [{connection,error},{channel,error},{mirroring,error},{federation,error},{upgrade,error}]
-        log [{console,[{level,error}]}]
+      # DIAGNOSTYKA: wyciszanie logow czasowo wylaczone aby zobaczyc fazy bootu.
+      # Po zebraniu logow przywroc te 3 linie:
+      # RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS: >-
+      #   -rabbit log_levels [{connection,error},{channel,error},{mirroring,error},{federation,error},{upgrade,error}]
+      #   log [{console,[{level,error}]}]
     healthcheck:
       # rabbitmq-diagnostics check_running zwraca natychmiast gdy aplikacja
       # 'rabbit' jest fully booted (oficjalna rekomendacja RabbitMQ na
