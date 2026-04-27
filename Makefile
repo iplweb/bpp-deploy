@@ -133,6 +133,8 @@ help:
 	@echo "    init-configs         - Re-initialize config directory structure"
 	@echo "    configure-resources  - Tune Docker memory/CPU limits for this host"
 	@echo "    generate-snakeoil-certs - Generate self-signed SSL certificates"
+	@echo "    validate-env-quotes  - Sprawdz czy .env nie zawiera wartosci w cudzyslowach"
+	@echo "    fix-env-quotes       - Auto-strip cudzyslowy z .env (z backupem .bak.<ts>)"
 	@echo ""
 	@echo "  Host management:"
 	@echo "    base-host-update-upgrade - Update system packages"
