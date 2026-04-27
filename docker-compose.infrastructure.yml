@@ -82,14 +82,16 @@ services:
         -rabbit log_levels [{connection,error},{channel,error},{mirroring,error},{federation,error},{upgrade,error}]
         log [{console,[{level,error}]}]
     healthcheck:
-      # rabbitmqctl authenticate_user na zywym brokerze odpowiada <1s.
-      # Krotszy timeout + krotszy interval = szybsze "ready" w cold-startcie
-      # appservera, ktory czeka na rabbitmq: service_healthy.
-      test: ["CMD-SHELL", "rabbitmqctl await_startup && rabbitmqctl authenticate_user \"$$RABBITMQ_DEFAULT_USER\" \"$$RABBITMQ_DEFAULT_PASS\""]
-      start_period: 15s
+      # rabbitmq-diagnostics check_running zwraca natychmiast gdy aplikacja
+      # 'rabbit' jest fully booted (oficjalna rekomendacja RabbitMQ na
+      # healthcheck). Stary healthcheck uzywal `rabbitmqctl await_startup`,
+      # ktory z definicji BLOKUJE az do gotowosci - antywzorzec, marnowal
+      # timeout zamiast zwracac szybkie "jeszcze nie".
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "check_running"]
+      start_period: 5s
       interval: 5s
-      timeout: 5s
-      retries: 10
+      timeout: 10s
+      retries: 5
     volumes:
       - rabbitmq_data:/var/lib/rabbitmq/mnesia
       - ${BPP_CONFIGS_DIR}/rabbitmq:/etc/rabbitmq:ro
