@@ -25,7 +25,7 @@ while true; do
         *)
             echo "Workflow completed."
             sleep 15
-            make repull
+            make pull
             make restart
             break
             ;;
