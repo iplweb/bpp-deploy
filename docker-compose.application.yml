@@ -98,8 +98,11 @@ services:
       dbserver:
         condition: service_healthy
     healthcheck:
+      # interval: 10s zeby workery (depends_on appserver: service_healthy)
+      # ruszyly szybciej po faktycznym ready gunicorna. start_period 1800s
+      # zostaje - to grace dla Phase 1 (migracje).
       test: ["CMD", "curl", "-f", "http://127.0.0.1:8000/health/"]
-      interval: 30s
+      interval: 10s
       timeout: 5s
       start_period: 1800s
       retries: 3
