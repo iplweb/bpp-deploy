@@ -334,6 +334,12 @@ DJANGO_BPP_REDIS_DB_BROKER=1
 
 # === Aplikacja ===
 DJANGO_BPP_HOSTNAME=$BPP_HOSTNAME
+# Multi-host (opcjonalne): CSV nazw obslugiwanych przez ten sam serwer Django.
+# Gdy ustawione, ma pierwszenstwo nad DJANGO_BPP_HOSTNAME powyzej i nginx
+# generuje server bloki dla wszystkich. Per-host certyfikat oczekiwany w
+# \$BPP_CONFIGS_DIR/ssl/<host>/{cert,key}.pem (fallback do ssl/{cert,key}.pem).
+# Pamietaj o aktualizacji DJANGO_BPP_CSRF_EXTRA_ORIGINS dla wszystkich hostow.
+# DJANGO_BPP_HOSTNAMES=bpp.uczelnia-a.pl,bpp.uczelnia-b.pl
 DOCKER_VERSION=latest
 DJANGO_BPP_CSRF_EXTRA_ORIGINS=https://$BPP_HOSTNAME
 STATIC_ROOT=/staticroot/

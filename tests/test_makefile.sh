@@ -338,15 +338,51 @@ test_no_scp_in_configs() {
 }
 
 # ============================================================
-# TEST 14: nginx config template jest syntaktycznie poprawny
+# TEST 14: nginx config (legacy single-host + multi-host)
 # ============================================================
-# Spina oficjalny obraz nginx:1.29.7, wykonuje envsubst na templatce
-# (tak samo jak robi to entrypoint nginx:alpine/debian), generuje
-# dummy self-signed cert i uruchamia `nginx -t`. Bez dockera test SKIP.
+# Spina oficjalny obraz nginx:1.29.7, mountuje pelen stack templatow
+# (default + vhost + locations + entrypoint script renderujacy vhosty),
+# uruchamia caly entrypoint chain (10/15/20/30) i wywoluje nginx -t.
+# Test sprawdza dwa tryby: legacy single-host (DJANGO_BPP_HOSTNAME +
+# legacy ssl/cert.pem) oraz multi-host (DJANGO_BPP_HOSTNAMES + per-host
+# certy w ssl/<host>/). Bez dockera SKIP.
 # ============================================================
 
+# Wewnetrzny helper: odpala nginx -t z pelnym entrypoint chain dla danego
+# zestawu zmiennych srodowiskowych i layoutu ssl/. Drukuje stdout/stderr
+# i ustawia $? = exit code nginx -t.
+_run_nginx_t() {
+    local ngx_dir="$1"
+    shift
+    docker run --rm \
+        -v "$ngx_dir/templates/default.conf.template:/etc/nginx/templates/default.conf.template:ro" \
+        -v "$ngx_dir/conf.d/security-headers.conf:/etc/nginx/conf.d/security-headers.conf:ro" \
+        -v "$ngx_dir/bpp-templates/_bpp-locations.conf:/etc/nginx/bpp-templates/_bpp-locations.conf:ro" \
+        -v "$ngx_dir/bpp-templates/vhost.conf.template:/etc/nginx/bpp-templates/vhost.conf.template:ro" \
+        -v "$ngx_dir/entrypoint/30-render-bpp-vhosts.sh:/docker-entrypoint.d/30-render-bpp-vhosts.sh:ro" \
+        -v "$ngx_dir/ssl:/etc/ssl/private:ro" \
+        -v "$ngx_dir/html/maintenance.html:/usr/share/nginx/html/maintenance.html:ro" \
+        -e NGINX_ENVSUBST_FILTER=DJANGO_BPP_ \
+        "$@" \
+        --entrypoint sh \
+        nginx:1.29.7 \
+        -c '
+            for f in /docker-entrypoint.d/*.sh; do
+                [ -x "$f" ] || continue
+                "$f" >&2
+            done
+            # Skopiuj zrenderowane pliki na bind-mountowany /out aby host mogl je
+            # zassertowac po wyjsciu z kontenera.
+            cp /etc/nginx/conf.d/default.conf /out/rendered-default.conf 2>/dev/null || true
+            for vh in /etc/nginx/conf.d/vhost-*.conf; do
+                [ -f "$vh" ] && cp "$vh" /out/ 2>/dev/null || true
+            done
+            nginx -t
+        ' 2>&1
+}
+
 test_nginx_config_valid() {
-    yellow "=== Test 14: nginx -t na default.conf.template ==="
+    yellow "=== Test 14: nginx -t (legacy single-host + multi-host) ==="
 
     if ! command -v docker >/dev/null 2>&1; then
         skip "docker niedostepny — pomijam nginx -t"
@@ -359,9 +395,6 @@ test_nginx_config_valid() {
         skip "docker daemon niedostepny — pomijam nginx -t"
         return
     fi
-    # Windows runner GH Actions ma Dockera w trybie Windows containers
-    # (default na windows-latest). nginx:1.29.7 to obraz linux,
-    # `docker run` wywala "no matching manifest for windows/amd64".
     if [ "$docker_os" != "linux" ]; then
         skip "docker daemon w trybie '$docker_os' (nie linux) — pomijam nginx -t"
         return
@@ -369,72 +402,310 @@ test_nginx_config_valid() {
 
     local ngx_dir
     ngx_dir=$(mktemp -d)
-    mkdir -p "$ngx_dir/templates" "$ngx_dir/conf.d" "$ngx_dir/ssl" "$ngx_dir/html"
+    mkdir -p "$ngx_dir/templates" "$ngx_dir/conf.d" \
+             "$ngx_dir/bpp-templates" "$ngx_dir/entrypoint" \
+             "$ngx_dir/ssl" "$ngx_dir/html"
 
     cp "$REPO_DIR/defaults/webserver/default.conf.template" "$ngx_dir/templates/"
     cp "$REPO_DIR/defaults/webserver/security-headers.conf" "$ngx_dir/conf.d/"
-    cp "$REPO_DIR/defaults/webserver/maintenance.html" "$ngx_dir/html/"
+    cp "$REPO_DIR/defaults/webserver/_bpp-locations.conf"   "$ngx_dir/bpp-templates/"
+    cp "$REPO_DIR/defaults/webserver/vhost.conf.template"   "$ngx_dir/bpp-templates/"
+    cp "$REPO_DIR/defaults/webserver/30-render-bpp-vhosts.sh" "$ngx_dir/entrypoint/"
+    cp "$REPO_DIR/defaults/webserver/maintenance.html"      "$ngx_dir/html/"
+    chmod +x "$ngx_dir/entrypoint/30-render-bpp-vhosts.sh"
 
     # Dummy self-signed cert - nginx -t parsuje plik, wiec musi byc prawidlowy x509.
     # Generujemy w kontenerze, zeby nie wymagac openssl na hoscie (Windows CI).
+    # Generujemy zarowno legacy ssl/{cert,key}.pem (test 14a) jak i
+    # ssl/<host>/{cert,key}.pem dla 3 hostow (test 14b).
     docker run --rm \
         -v "$ngx_dir/ssl:/ssl" \
+        --entrypoint sh \
         nginx:1.29.7 \
-        sh -c "apt-get update >/dev/null 2>&1 && apt-get install -y openssl >/dev/null 2>&1 && \
-               openssl req -x509 -newkey rsa:2048 -nodes -days 1 \
-                   -keyout /ssl/key.pem -out /ssl/cert.pem \
-                   -subj '/CN=test.example.org' >/dev/null 2>&1" || {
+        -c "apt-get update >/dev/null 2>&1 && apt-get install -y openssl >/dev/null 2>&1 && \
+            openssl req -x509 -newkey rsa:2048 -nodes -days 1 \
+                -keyout /ssl/key.pem -out /ssl/cert.pem \
+                -subj '/CN=legacy.example.org' >/dev/null 2>&1 && \
+            for h in bpp.federacja.pl bpp.wizja.pl bpp.ufam.pl; do
+                mkdir -p /ssl/\$h
+                openssl req -x509 -newkey rsa:2048 -nodes -days 1 \
+                    -keyout /ssl/\$h/key.pem -out /ssl/\$h/cert.pem \
+                    -subj \"/CN=\$h\" >/dev/null 2>&1
+            done" || {
         fail "dummy SSL cert generation"
         rm -rf "$ngx_dir"
         return
     }
 
-    # Uruchom envsubst (jak oficjalny entrypoint nginx) + nginx -t.
-    # NGINX_ENVSUBST_FILTER=DJANGO_BPP_ ogranicza substytucje do naszych zmiennych,
-    # zeby nie podmieniac np. $host, $uri uzywanych w konfigu.
-    local out
-    out=$(docker run --rm \
-        -e DJANGO_BPP_HOSTNAME=test.example.org \
-        -e NGINX_ENVSUBST_FILTER=DJANGO_BPP_ \
-        -v "$ngx_dir/templates:/etc/nginx/templates:ro" \
-        -v "$ngx_dir/conf.d/security-headers.conf:/etc/nginx/conf.d/security-headers.conf:ro" \
-        -v "$ngx_dir/ssl:/etc/ssl/private:ro" \
-        -v "$ngx_dir/html/maintenance.html:/usr/share/nginx/html/maintenance.html:ro" \
-        --entrypoint sh \
-        nginx:1.29.7 \
-        -c '/docker-entrypoint.d/20-envsubst-on-templates.sh && nginx -t' 2>&1) || {
-        fail "nginx -t na default.conf.template"
-        printf '    %s\n' "${out//$'\n'/$'\n    '}"
-        rm -rf "$ngx_dir"
-        return
-    }
+    # Bind-mount dla wyrzucenia zrenderowanych plikow z kontenera.
+    mkdir -p "$ngx_dir/out"
 
-    pass "nginx -t na default.conf.template"
-
-    # Dodatkowo: sprawdz czy kluczowe dyrektywy performance sa obecne w
-    # wyrenderowanej konfiguracji (zeby regresja nie wywalila optymalizacji).
-    local rendered="$ngx_dir/rendered.conf"
-    docker run --rm \
-        -e DJANGO_BPP_HOSTNAME=test.example.org \
-        -e NGINX_ENVSUBST_FILTER=DJANGO_BPP_ \
-        -v "$ngx_dir/templates:/etc/nginx/templates:ro" \
-        -v "$ngx_dir:/out" \
-        --entrypoint sh \
-        nginx:1.29.7 \
-        -c '/docker-entrypoint.d/20-envsubst-on-templates.sh && cp /etc/nginx/conf.d/default.conf /out/rendered.conf' >/dev/null 2>&1 || true
-
-    if [ -f "$rendered" ]; then
-        assert_file_contains "gzip on" "gzip on" "$rendered"
-        assert_file_contains "gzip_comp_level ustawiony" "gzip_comp_level" "$rendered"
-        assert_file_contains "gzip_vary on" "gzip_vary on" "$rendered"
-        assert_file_contains "proxy_buffers wiekszy niz 8x4k" "proxy_buffers 16" "$rendered"
-        assert_file_contains "HTTP/2 on" "http2 on" "$rendered"
-        assert_file_contains "HTTP/3 QUIC" "listen 443 quic" "$rendered"
+    # --- Test 14a: legacy single-host (DJANGO_BPP_HOSTNAME, brak HOSTNAMES) ---
+    local out_a
+    out_a=$(_run_nginx_t "$ngx_dir" \
+        -e DJANGO_BPP_HOSTNAME=legacy.example.org \
+        -v "$ngx_dir/out:/out" 2>&1 || true)
+    if echo "$out_a" | grep -q "syntax is ok" && echo "$out_a" | grep -q "test is successful"; then
+        pass "nginx -t (legacy single-host)"
+        assert_file_exists "vhost-legacy.example.org.conf wygenerowany" \
+            "$ngx_dir/out/vhost-legacy.example.org.conf"
     else
-        fail "wyrenderowana konfiguracja niedostepna do sprawdzenia dyrektyw"
+        fail "nginx -t (legacy single-host)"
+        printf '    %s\n' "${out_a//$'\n'/$'\n    '}"
     fi
 
+    # Wyczysc zrenderowane vhost-y miedzy testami.
+    rm -f "$ngx_dir/out"/vhost-*.conf "$ngx_dir/out/rendered-default.conf"
+
+    # --- Test 14b: multi-host (DJANGO_BPP_HOSTNAMES) ---
+    local out_b
+    out_b=$(_run_nginx_t "$ngx_dir" \
+        -e DJANGO_BPP_HOSTNAMES="bpp.federacja.pl,bpp.wizja.pl,bpp.ufam.pl" \
+        -v "$ngx_dir/out:/out" 2>&1 || true)
+    if echo "$out_b" | grep -q "syntax is ok" && echo "$out_b" | grep -q "test is successful"; then
+        pass "nginx -t (multi-host)"
+        assert_file_exists "vhost-bpp.federacja.pl.conf"  "$ngx_dir/out/vhost-bpp.federacja.pl.conf"
+        assert_file_exists "vhost-bpp.wizja.pl.conf"      "$ngx_dir/out/vhost-bpp.wizja.pl.conf"
+        assert_file_exists "vhost-bpp.ufam.pl.conf"       "$ngx_dir/out/vhost-bpp.ufam.pl.conf"
+    else
+        fail "nginx -t (multi-host)"
+        printf '    %s\n' "${out_b//$'\n'/$'\n    '}"
+    fi
+
+    # --- Asercje na strukture: kluczowe dyrektywy musza nadal istniec gdzies ---
+    # Po refactorze gzip/proxy_buffers zyja w _bpp-locations.conf, http2/quic
+    # w default.conf (catch-all) i w kazdym vhost-*.conf.
+    local locations="$REPO_DIR/defaults/webserver/_bpp-locations.conf"
+    local vhost_tpl="$REPO_DIR/defaults/webserver/vhost.conf.template"
+    assert_file_contains "gzip on (locations)"          "gzip on"        "$locations"
+    assert_file_contains "gzip_comp_level (locations)"  "gzip_comp_level" "$locations"
+    assert_file_contains "gzip_vary on (locations)"     "gzip_vary on"   "$locations"
+    assert_file_contains "proxy_buffers 16 (locations)" "proxy_buffers 16" "$locations"
+    assert_file_contains "HTTP/2 on (vhost)"            "http2 on"       "$vhost_tpl"
+    assert_file_contains "HTTP/3 QUIC (vhost)"          "listen 443 quic" "$vhost_tpl"
+
     rm -rf "$ngx_dir"
+}
+
+# ============================================================
+# TEST 15: nginx runtime — startuje, nasluchuje, proxuje do appservera
+# ============================================================
+# Stawia siec docker, fake-appserver (Python http.server echoujacy Host header)
+# i prawdziwego nginx-a z naszym configiem. Sprawdza dwa scenariusze:
+#   15a) single-host legacy: DJANGO_BPP_HOSTNAME=legacy.example.org + ssl/cert.pem
+#   15b) multi-host:        DJANGO_BPP_HOSTNAMES=3 hosty + ssl/<host>/cert.pem
+# Curl-em weryfikuje:
+#   - HTTP /healthz catch-all (200)
+#   - HTTP znany host -> 301 redirect
+#   - HTTP nieznany host -> 444 (drop)
+#   - HTTPS znany SNI -> proxy do appservera (body zawiera Host header)
+#   - HTTPS nieznany SNI -> ssl_reject_handshake
+# ============================================================
+
+test_nginx_runtime() {
+    yellow "=== Test 15: nginx runtime — start, listen, proxy ==="
+
+    if ! command -v docker >/dev/null 2>&1; then
+        skip "docker niedostepny — pomijam runtime"
+        return
+    fi
+    local docker_os
+    docker_os=$(docker info --format '{{.OSType}}' 2>/dev/null || true)
+    if [ -z "$docker_os" ]; then
+        skip "docker daemon niedostepny — pomijam runtime"
+        return
+    fi
+    if [ "$docker_os" != "linux" ]; then
+        skip "docker daemon w trybie '$docker_os' (nie linux) — pomijam runtime"
+        return
+    fi
+    if ! command -v curl >/dev/null 2>&1; then
+        skip "curl niedostepny — pomijam runtime"
+        return
+    fi
+
+    local ngx_dir net_name nginx_cid app_cid
+    ngx_dir=$(mktemp -d)
+    net_name="bpp-test-net-$$"
+    nginx_cid=""
+    app_cid=""
+
+    _runtime_cleanup() {
+        if [ -n "$nginx_cid" ]; then
+            docker stop -t 1 "$nginx_cid" >/dev/null 2>&1 || true
+        fi
+        if [ -n "$app_cid" ]; then
+            docker stop -t 1 "$app_cid" >/dev/null 2>&1 || true
+        fi
+        docker network rm "$net_name" >/dev/null 2>&1 || true
+        rm -rf "$ngx_dir"
+    }
+    trap _runtime_cleanup RETURN
+
+    # Setup mountow webservera
+    mkdir -p "$ngx_dir/templates" "$ngx_dir/conf.d" "$ngx_dir/bpp-templates" \
+             "$ngx_dir/entrypoint" "$ngx_dir/ssl" "$ngx_dir/html"
+    cp "$REPO_DIR/defaults/webserver/default.conf.template"   "$ngx_dir/templates/"
+    cp "$REPO_DIR/defaults/webserver/security-headers.conf"   "$ngx_dir/conf.d/"
+    cp "$REPO_DIR/defaults/webserver/_bpp-locations.conf"     "$ngx_dir/bpp-templates/"
+    cp "$REPO_DIR/defaults/webserver/vhost.conf.template"     "$ngx_dir/bpp-templates/"
+    cp "$REPO_DIR/defaults/webserver/30-render-bpp-vhosts.sh" "$ngx_dir/entrypoint/"
+    cp "$REPO_DIR/defaults/webserver/maintenance.html"        "$ngx_dir/html/"
+    chmod +x "$ngx_dir/entrypoint/30-render-bpp-vhosts.sh"
+
+    # Generuj certy: legacy ssl/{cert,key}.pem + per-host ssl/<h>/{cert,key}.pem
+    docker run --rm -v "$ngx_dir/ssl:/ssl" --entrypoint sh nginx:1.29.7 -c '
+        apt-get update >/dev/null 2>&1 && apt-get install -y openssl >/dev/null 2>&1
+        openssl req -x509 -newkey rsa:2048 -nodes -days 1 \
+            -keyout /ssl/key.pem -out /ssl/cert.pem \
+            -subj "/CN=legacy.example.org" >/dev/null 2>&1
+        for h in bpp.federacja.pl bpp.wizja.pl bpp.ufam.pl; do
+            mkdir -p /ssl/$h
+            openssl req -x509 -newkey rsa:2048 -nodes -days 1 \
+                -keyout /ssl/$h/key.pem -out /ssl/$h/cert.pem \
+                -subj "/CN=$h" >/dev/null 2>&1
+        done
+    ' || { fail "cert generation"; return; }
+
+    docker network create "$net_name" >/dev/null
+
+    # Fake appserver: Python http.server echo-ujacy Host/X-Forwarded-Host/Path.
+    # network-alias=appserver pozwala nginx-owi dosiegnac kontener pod nazwa
+    # zgodna z naszym configiem (set $upstream_appserver appserver;).
+    local pyscript
+    pyscript=$(cat <<'PYEOF'
+from http.server import BaseHTTPRequestHandler, HTTPServer
+class H(BaseHTTPRequestHandler):
+    def do_GET(self):
+        body = ("OK\n"
+                + "Host: " + self.headers.get("Host","?") + "\n"
+                + "XFH: " + self.headers.get("X-Forwarded-Host","?") + "\n"
+                + "Path: " + self.path + "\n").encode()
+        self.send_response(200)
+        self.send_header("Content-Type","text/plain")
+        self.send_header("Content-Length",str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+    def log_message(self, *a, **k): pass
+HTTPServer(("0.0.0.0",8000),H).serve_forever()
+PYEOF
+)
+    app_cid=$(docker run -d --rm \
+        --network "$net_name" --network-alias appserver \
+        --name "fake-appserver-$$" \
+        python:3-alpine python -c "$pyscript")
+    sleep 2
+
+    # Helper: startuje nginx-a, czeka na healthz, drukuje "cid port_80 port_443" na
+    # stdout. Caller parsuje przez `read`. Konieczne bo `$(_runtime_start_nginx)`
+    # uruchamia subshell — zmiana globalnej $nginx_cid w funkcji nie propagowalaby
+    # sie do parenta. Explicit `-p` (a nie -P) bo nginx image EXPOSE-uje tylko 80.
+    _runtime_start_nginx() {
+        local hostnames="$1" single_host="$2"
+        local cid p80 p443
+        cid=$(docker run -d --rm --network "$net_name" \
+            -p "127.0.0.1:0:80/tcp" \
+            -p "127.0.0.1:0:443/tcp" \
+            -v "$ngx_dir/templates/default.conf.template:/etc/nginx/templates/default.conf.template:ro" \
+            -v "$ngx_dir/conf.d/security-headers.conf:/etc/nginx/conf.d/security-headers.conf:ro" \
+            -v "$ngx_dir/bpp-templates/_bpp-locations.conf:/etc/nginx/bpp-templates/_bpp-locations.conf:ro" \
+            -v "$ngx_dir/bpp-templates/vhost.conf.template:/etc/nginx/bpp-templates/vhost.conf.template:ro" \
+            -v "$ngx_dir/entrypoint/30-render-bpp-vhosts.sh:/docker-entrypoint.d/30-render-bpp-vhosts.sh:ro" \
+            -v "$ngx_dir/ssl:/etc/ssl/private:ro" \
+            -v "$ngx_dir/html/maintenance.html:/usr/share/nginx/html/maintenance.html:ro" \
+            -e NGINX_ENVSUBST_FILTER=DJANGO_BPP_ \
+            -e DJANGO_BPP_HOSTNAMES="$hostnames" \
+            -e DJANGO_BPP_HOSTNAME="$single_host" \
+            nginx:1.29.7) || return 1
+        if [ -z "$cid" ]; then return 1; fi
+        for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
+            p80=$(docker port "$cid" 80/tcp 2>/dev/null | head -1 | sed 's/.*://')
+            if [ -n "$p80" ] && curl -sf "http://127.0.0.1:$p80/healthz" >/dev/null 2>&1; then
+                p443=$(docker port "$cid" 443/tcp 2>/dev/null | head -1 | sed 's/.*://')
+                echo "$cid $p80 $p443"
+                return 0
+            fi
+            sleep 1
+        done
+        docker stop -t 1 "$cid" >/dev/null 2>&1 || true
+        return 1
+    }
+
+    _runtime_stop_nginx() {
+        if [ -n "$nginx_cid" ]; then
+            docker stop -t 1 "$nginx_cid" >/dev/null 2>&1 || true
+            nginx_cid=""
+        fi
+    }
+
+    # ==== 15a: single-host legacy ====
+    yellow "  -- 15a: single-host (DJANGO_BPP_HOSTNAME=legacy.example.org) --"
+    local port_80 port_443 code body h start_out
+    start_out=$(_runtime_start_nginx "" "legacy.example.org") || {
+        fail "single-host nginx nie wstal w 15s"
+        return
+    }
+    read -r nginx_cid port_80 port_443 <<< "$start_out"
+    pass "single-host nginx wstal i odpowiada na /healthz"
+
+    code=$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$port_80/healthz" || true)
+    if [ "$code" = "200" ]; then pass "HTTP /healthz catch-all -> 200"
+    else fail "HTTP /healthz: got '$code'"; fi
+
+    code=$(curl -s -o /dev/null -w '%{http_code}' -H "Host: legacy.example.org" "http://127.0.0.1:$port_80/" || true)
+    if [ "$code" = "301" ]; then pass "HTTP legacy.example.org -> 301"
+    else fail "HTTP legacy redirect: got '$code'"; fi
+
+    # 444 zamyka polaczenie bez odpowiedzi → curl: http_code=000 + non-zero exit.
+    # `|| true` chroni przed set -e; samo "000" w stdout wystarczy do detekcji.
+    code=$(curl -s -o /dev/null -w '%{http_code}' -H "Host: unknown.example" "http://127.0.0.1:$port_80/" 2>/dev/null || true)
+    if [ "$code" = "000" ]; then pass "HTTP unknown.example -> drop (444)"
+    else fail "HTTP unknown.example: got '$code'"; fi
+
+    body=$(curl -sk --resolve "legacy.example.org:$port_443:127.0.0.1" "https://legacy.example.org:$port_443/some/path" || true)
+    if echo "$body" | grep -q "Host: legacy.example.org" && echo "$body" | grep -q "Path: /some/path"; then
+        pass "HTTPS legacy.example.org -> proxy do appservera (Host + Path)"
+    else
+        fail "HTTPS legacy: nieoczekiwana odpowiedz: $(echo "$body" | head -c 200)"
+    fi
+
+    if curl -sk --resolve "unknown.example:$port_443:127.0.0.1" "https://unknown.example:$port_443/" >/dev/null 2>&1; then
+        fail "HTTPS unknown.example: oczekiwany ssl_reject_handshake"
+    else
+        pass "HTTPS unknown.example -> ssl_reject_handshake"
+    fi
+
+    _runtime_stop_nginx
+
+    # ==== 15b: multi-host (3 hosty) ====
+    yellow "  -- 15b: multi-host (DJANGO_BPP_HOSTNAMES=federacja+wizja+ufam) --"
+    start_out=$(_runtime_start_nginx "bpp.federacja.pl,bpp.wizja.pl,bpp.ufam.pl" "") || {
+        fail "multi-host nginx nie wstal w 15s"
+        return
+    }
+    read -r nginx_cid port_80 port_443 <<< "$start_out"
+    pass "multi-host nginx wstal i odpowiada na /healthz"
+
+    for h in bpp.federacja.pl bpp.wizja.pl bpp.ufam.pl; do
+        body=$(curl -sk --resolve "$h:$port_443:127.0.0.1" "https://$h:$port_443/x" || true)
+        if echo "$body" | grep -q "Host: $h"; then
+            pass "HTTPS $h -> proxy z Host: $h"
+        else
+            fail "HTTPS $h: $(echo "$body" | head -c 200)"
+        fi
+
+        code=$(curl -s -o /dev/null -w '%{http_code}' -H "Host: $h" "http://127.0.0.1:$port_80/" || true)
+        if [ "$code" = "301" ]; then pass "HTTP $h -> 301"
+        else fail "HTTP $h: got '$code'"; fi
+    done
+
+    if curl -sk --resolve "intruder.example:$port_443:127.0.0.1" "https://intruder.example:$port_443/" >/dev/null 2>&1; then
+        fail "HTTPS intruder.example w multi-host: oczekiwany reject"
+    else
+        pass "HTTPS intruder.example -> reject (multi-host)"
+    fi
+
+    # cleanup via trap RETURN
 }
 
 # ============================================================
@@ -462,6 +733,7 @@ test_compose_bind_mounts
 test_env_sample
 test_no_scp_in_configs
 test_nginx_config_valid
+test_nginx_runtime
 
 echo ""
 echo "========================================"

@@ -29,6 +29,9 @@ services:
       - ${BPP_CONFIGS_DIR}/ssl:/etc/ssl/private:ro
       - ./defaults/webserver/default.conf.template:/etc/nginx/templates/default.conf.template:ro
       - ./defaults/webserver/security-headers.conf:/etc/nginx/conf.d/security-headers.conf:ro
+      - ./defaults/webserver/_bpp-locations.conf:/etc/nginx/bpp-templates/_bpp-locations.conf:ro
+      - ./defaults/webserver/vhost.conf.template:/etc/nginx/bpp-templates/vhost.conf.template:ro
+      - ./defaults/webserver/30-render-bpp-vhosts.sh:/docker-entrypoint.d/30-render-bpp-vhosts.sh:ro
       - ./defaults/webserver/maintenance.html:/usr/share/nginx/html/maintenance.html:ro
     deploy:
       resources:

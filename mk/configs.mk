@@ -8,8 +8,10 @@ ensure-config-files:
 
 update-ssl-certs:
 	@if docker compose ps webserver 2>/dev/null | grep -q "Up"; then \
-		echo "Webserver is running, reloading nginx..."; \
-		docker compose exec webserver nginx -t && docker compose exec webserver nginx -s reload; \
+		echo "Webserver is running, regenerating vhosts and reloading nginx..."; \
+		docker compose exec webserver /docker-entrypoint.d/30-render-bpp-vhosts.sh && \
+		docker compose exec webserver nginx -t && \
+		docker compose exec webserver nginx -s reload; \
 	else \
 		echo "Webserver not running. Certificates will be loaded on next startup."; \
 	fi

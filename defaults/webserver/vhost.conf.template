@@ -1,0 +1,43 @@
+# ============================================================================
+# PER-HOST VHOST TEMPLATE
+# ============================================================================
+#
+# Template renderowany N razy przez 30-render-bpp-vhosts.sh — raz na kazda
+# nazwe hosta z DJANGO_BPP_HOSTNAMES (lub raz dla DJANGO_BPP_HOSTNAME w trybie
+# legacy). Wynik trafia do /etc/nginx/conf.d/vhost-<host>.conf.
+#
+# Zmienne (substytuowane przez envsubst, NIE przez nginx-a):
+#   ${VHOST_NAME}      - pojedyncza nazwa hosta (np. bpp.federacja.pl)
+#   ${VHOST_CERT_PATH} - sciezka do cert.pem w kontenerze
+#   ${VHOST_KEY_PATH}  - sciezka do key.pem w kontenerze
+#
+# Wnetrze (locationy, gzip, security blocks itd.) zyje w _bpp-locations.conf
+# i jest tutaj includowane — zeby dodanie kolejnego hosta nie wymagalo
+# duplikowania kilkuset linii konfiguracji.
+# ============================================================================
+
+# HTTP -> HTTPS redirect for this host
+server {
+    listen 80;
+    listen [::]:80;
+    server_name ${VHOST_NAME};
+    return 301 https://$host$request_uri;
+}
+
+# Main HTTPS server block for ${VHOST_NAME}
+server {
+    client_max_body_size 100M;
+
+    listen 443 ssl;
+    listen 443 quic;
+    listen [::]:443 quic;
+    http2 on;
+    add_header Alt-Svc 'h3=":443"; ma=86400' always;
+    server_name ${VHOST_NAME};
+
+    ssl_certificate ${VHOST_CERT_PATH};
+    ssl_certificate_key ${VHOST_KEY_PATH};
+    ssl_session_timeout 30m;
+
+    include /etc/nginx/bpp-templates/_bpp-locations.conf;
+}

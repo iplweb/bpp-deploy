@@ -346,6 +346,54 @@ Docker traktuje limit RAM jako **twardy** (przekroczenie → OOM kill), a CPU ja
 
 Wynik ląduje w `$BPP_CONFIGS_DIR/.env` jako zmienne `DBSERVER_MEM_LIMIT`, `APPSERVER_MEM_LIMIT` itd. Możesz wrócić i przekonfigurować w każdej chwili uruchamiając `make configure-resources` ręcznie.
 
+### Multi-host (jeden Django, wiele domen)
+
+Jedna instancja BPP może obsługiwać wiele różnych domen równocześnie — wszystkie żądania trafiają do tego samego appservera i tej samej bazy. Typowe użycie: konsorcjum uczelni, gdzie każda jednostka chce dostawać BPP pod własną nazwą (`bpp.uczelnia-a.pl`, `bpp.uczelnia-b.pl`, `bpp.federacja.pl`).
+
+**Włączenie:** w `$BPP_CONFIGS_DIR/.env` ustaw `DJANGO_BPP_HOSTNAMES` jako listę CSV. Gdy zmienna jest niepusta, ma pierwszeństwo nad `DJANGO_BPP_HOSTNAME`:
+
+```bash
+DJANGO_BPP_HOSTNAMES=bpp.uczelnia-a.pl,bpp.uczelnia-b.pl,bpp.federacja.pl
+DJANGO_BPP_CSRF_EXTRA_ORIGINS=https://bpp.uczelnia-a.pl,https://bpp.uczelnia-b.pl,https://bpp.federacja.pl
+```
+
+Dotychczasowy single-host flow (`DJANGO_BPP_HOSTNAME` + `ssl/cert.pem`+`key.pem`) działa bez zmian — gdy `DJANGO_BPP_HOSTNAMES` puste, nginx dostaje jeden vhost dokładnie jak wcześniej.
+
+**Certyfikaty SSL — per-host:** różne organizacje zwykle mają własne CA, więc każdy host dostaje własną parę cert+key:
+
+```
+$BPP_CONFIGS_DIR/ssl/
+├── cert.pem                          # legacy single-host (nadal działa)
+├── key.pem
+├── bpp.uczelnia-a.pl/cert.pem       # per-host
+├── bpp.uczelnia-a.pl/key.pem
+├── bpp.uczelnia-b.pl/cert.pem
+├── bpp.uczelnia-b.pl/key.pem
+└── bpp.federacja.pl/cert.pem
+    bpp.federacja.pl/key.pem
+```
+
+Dla danego hosta wgraj certyfikat do podkatalogu `ssl/<nazwa-hosta>/`. Jeśli per-host nie istnieje, nginx-entrypoint fallbackuje do `ssl/cert.pem`+`key.pem` — co jest sensowne tylko gdy wszystkie hosty są aliasami w jednym certyfikacie SAN.
+
+**Snakeoile (testy):** `make generate-snakeoil-certs` wykrywa tryb multi-host i generuje pary per-host:
+
+```bash
+make generate-snakeoil-certs        # tworzy ssl/<host>/cert.pem dla kazdego hosta z CSV
+make generate-snakeoil-certs-force  # nadpisuje istniejace
+```
+
+**Po zmianach** (dodanie/usunięcie hosta lub podmiana certu na działającym stacku):
+
+```bash
+make update-ssl-certs   # regeneruje vhost-*.conf w kontenerze i robi nginx -s reload (bez restartu)
+```
+
+**Co dzieje się pod spodem:** entrypoint nginx-a (`30-render-bpp-vhosts.sh`) iteruje po liście, dla każdego hosta wybiera certyfikat (per-host lub legacy fallback) i renderuje `/etc/nginx/conf.d/vhost-<host>.conf` z `defaults/webserver/vhost.conf.template`. Wspólne wnętrze (proxy do appservera, /grafana/, /flower/, /static/, /media/, gzip, security blocks) trzymane jest w `defaults/webserver/_bpp-locations.conf` i includowane przez każdy vhost — żeby zmiana reguły nie wymagała edytowania N plików.
+
+Globalne catch-all bloki (HTTP 444 dla nieznanego hosta, HTTPS `ssl_reject_handshake` dla nieznanego SNI) zostają w `default.conf.template`. Tylko nazwy z `DJANGO_BPP_HOSTNAMES` są redirectowane na HTTPS — reszta dostaje 444.
+
+> **Po stronie Django:** `ALLOWED_HOSTS` musi obejmować wszystkie nazwy z `DJANGO_BPP_HOSTNAMES`. Sposób konfiguracji jest po stronie obrazu `appservera` — sprawdź ustawienia w repo `bpp`. `DJANGO_BPP_CSRF_EXTRA_ORIGINS` musi też zawierać `https://<host>` dla każdej z nazw.
+
 ### Wersja serwera PostgreSQL
 
 Kontener `dbserver` używa obrazu `iplweb/bpp_dbserver:psql-<MAJOR.MINOR>`. Wersja jest sterowana zmienną `DJANGO_BPP_POSTGRESQL_VERSION` w `$BPP_CONFIGS_DIR/.env` (obok jest auto-derived `DJANGO_BPP_POSTGRESQL_VERSION_MAJOR` używana przez backup-runnera `postgres:<major>-alpine`). Aktualna lista tagów: [hub.docker.com/r/iplweb/bpp_dbserver/tags](https://hub.docker.com/r/iplweb/bpp_dbserver/tags) (np. `16.13`, `17.9`, `18.3`).
