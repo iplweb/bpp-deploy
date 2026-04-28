@@ -338,6 +338,55 @@ test_no_scp_in_configs() {
 }
 
 # ============================================================
+# TEST 16: init-configs w trybie multi-host
+# ============================================================
+# Gdy DJANGO_BPP_HOSTNAMES jest ustawione w .env, init-configs powinien:
+#   - NIE pytac o DJANGO_BPP_HOSTNAME (auto-fill z pierwszego hosta listy)
+#   - auto-derive DJANGO_BPP_CSRF_EXTRA_ORIGINS z calej listy
+# ============================================================
+
+test_init_configs_multihost_skips_hostname() {
+    yellow "=== Test 16: init-configs w trybie multi-host ==="
+
+    setup_temp
+    mkdir -p "$CONFIG_DIR"
+
+    # Pierwszy run - generuje fresh .env z single-host (HOSTNAME)
+    make -C "$REPO_COPY" init-configs BPP_CONFIGS_DIR="$CONFIG_DIR" >/dev/null 2>&1 \
+        || { fail "init-configs (1st run)"; cleanup_temp; return; }
+
+    # Symuluj user-edit: usun HOSTNAME i CSRF, dodaj HOSTNAMES (jak user
+    # ktory przeszedl na multi-host i zapomnial/usunal HOSTNAME)
+    awk '!/^DJANGO_BPP_HOSTNAME=/ && !/^DJANGO_BPP_CSRF_EXTRA_ORIGINS=/' \
+        "$CONFIG_DIR/.env" > "$CONFIG_DIR/.env.tmp"
+    mv "$CONFIG_DIR/.env.tmp" "$CONFIG_DIR/.env"
+    echo "DJANGO_BPP_HOSTNAMES=alpha.pl,beta.pl,gamma.pl" >> "$CONFIG_DIR/.env"
+
+    # Drugi run z odlaczonym stdin - jakikolwiek prompt by zawiesil albo dostal EOF.
+    # Test kluczowy: czy init-configs odpala sie czysto (bez interakcji) i auto-fill.
+    if make -C "$REPO_COPY" init-configs BPP_CONFIGS_DIR="$CONFIG_DIR" </dev/null >/dev/null 2>&1; then
+        pass "init-configs runs cleanly w trybie multi-host"
+    else
+        fail "init-configs crashed w trybie multi-host"
+        cleanup_temp
+        return
+    fi
+
+    # HOSTNAME nie moze byc auto-filled w trybie multi-host (Django w bpp
+    # czyta ALBO HOSTNAME ALBO HOSTNAMES, oba ustawione = konflikt).
+    assert_file_not_contains "HOSTNAME nie auto-filled w multi-host" \
+        "^DJANGO_BPP_HOSTNAME=" "$CONFIG_DIR/.env"
+
+    # CSRF powinno byc derived z calej listy (czysto deploy-side default,
+    # nie konfliktuje z Django).
+    assert_file_contains "CSRF derived ze wszystkich hostow" \
+        "^DJANGO_BPP_CSRF_EXTRA_ORIGINS=https://alpha.pl,https://beta.pl,https://gamma.pl$" \
+        "$CONFIG_DIR/.env"
+
+    cleanup_temp
+}
+
+# ============================================================
 # TEST 14: nginx config (legacy single-host + multi-host)
 # ============================================================
 # Spina oficjalny obraz nginx:1.29.7, mountuje pelen stack templatow
@@ -732,6 +781,7 @@ test_normal_path_targets
 test_compose_bind_mounts
 test_env_sample
 test_no_scp_in_configs
+test_init_configs_multihost_skips_hostname
 test_nginx_config_valid
 test_nginx_runtime
 

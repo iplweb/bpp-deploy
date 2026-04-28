@@ -24,7 +24,10 @@ services:
           cpus: "${OFELIA_CPU_LIMIT:-0.25}"
     labels:
       ofelia.email-to: "${DJANGO_BPP_ADMIN_EMAIL}"
-      ofelia.email-from: "Ofelia @ ${DJANGO_BPP_HOSTNAME} <${DJANGO_BPP_ADMIN_EMAIL}>"
+      # Bez referencji do DJANGO_BPP_HOSTNAME, zeby compose nie wypisywal
+      # "variable not set" w trybie multi-host (gdzie tylko HOSTNAMES jest
+      # ustawione). I tak emaile nie sa wysylane - to tylko adres From.
+      ofelia.email-from: "Ofelia <${DJANGO_BPP_ADMIN_EMAIL}>"
       ofelia.slack-webhook: "${DJANGO_BPP_SLACK_WEBHOOK}"
 
   autoheal:

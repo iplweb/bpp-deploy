@@ -350,12 +350,17 @@ Wynik ląduje w `$BPP_CONFIGS_DIR/.env` jako zmienne `DBSERVER_MEM_LIMIT`, `APPS
 
 Jedna instancja BPP może obsługiwać wiele różnych domen równocześnie — wszystkie żądania trafiają do tego samego appservera i tej samej bazy. Typowe użycie: konsorcjum uczelni, gdzie każda jednostka chce dostawać BPP pod własną nazwą (`bpp.uczelnia-a.pl`, `bpp.uczelnia-b.pl`, `bpp.federacja.pl`).
 
-**Włączenie:** w `$BPP_CONFIGS_DIR/.env` ustaw `DJANGO_BPP_HOSTNAMES` jako listę CSV. Gdy zmienna jest niepusta, ma pierwszeństwo nad `DJANGO_BPP_HOSTNAME`:
+**Włączenie:** w `$BPP_CONFIGS_DIR/.env` ustaw `DJANGO_BPP_HOSTNAMES` jako listę CSV i **usuń** `DJANGO_BPP_HOSTNAME` (Django w `bpp` czyta jedną z nich — oba ustawione naraz powodują konflikt w `settings.py`):
 
 ```bash
 DJANGO_BPP_HOSTNAMES=bpp.uczelnia-a.pl,bpp.uczelnia-b.pl,bpp.federacja.pl
-DJANGO_BPP_CSRF_EXTRA_ORIGINS=https://bpp.uczelnia-a.pl,https://bpp.uczelnia-b.pl,https://bpp.federacja.pl
+# DJANGO_BPP_HOSTNAME=...  ← usuń tę linię
 ```
+
+`make init-configs` w trybie multi-host:
+- pomija prompt o `DJANGO_BPP_HOSTNAME`,
+- auto-derive-uje `DJANGO_BPP_CSRF_EXTRA_ORIGINS=https://host1,https://host2,...` z całej listy (jeśli zmienna nie jest jeszcze ustawiona),
+- ostrzega gdy w `.env` znajdzie obie zmienne naraz.
 
 Dotychczasowy single-host flow (`DJANGO_BPP_HOSTNAME` + `ssl/cert.pem`+`key.pem`) działa bez zmian — gdy `DJANGO_BPP_HOSTNAMES` puste, nginx dostaje jeden vhost dokładnie jak wcześniej.
 
@@ -392,7 +397,7 @@ make update-ssl-certs   # regeneruje vhost-*.conf w kontenerze i robi nginx -s r
 
 Globalne catch-all bloki (HTTP 444 dla nieznanego hosta, HTTPS `ssl_reject_handshake` dla nieznanego SNI) zostają w `default.conf.template`. Tylko nazwy z `DJANGO_BPP_HOSTNAMES` są redirectowane na HTTPS — reszta dostaje 444.
 
-> **Po stronie Django:** `ALLOWED_HOSTS` musi obejmować wszystkie nazwy z `DJANGO_BPP_HOSTNAMES`. Sposób konfiguracji jest po stronie obrazu `appservera` — sprawdź ustawienia w repo `bpp`. `DJANGO_BPP_CSRF_EXTRA_ORIGINS` musi też zawierać `https://<host>` dla każdej z nazw.
+> **Po stronie Django:** `ALLOWED_HOSTS` musi obejmować wszystkie nazwy z `DJANGO_BPP_HOSTNAMES`. Sposób konfiguracji jest po stronie obrazu `appservera` — sprawdź ustawienia w repo `bpp`. `DJANGO_BPP_CSRF_EXTRA_ORIGINS` (wystawione przez `init-configs`) automatycznie pokrywa wszystkie hosty.
 
 ### Wersja serwera PostgreSQL
 

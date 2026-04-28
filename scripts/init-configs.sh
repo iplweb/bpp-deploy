@@ -495,10 +495,35 @@ else
     ensure_env_var "DJANGO_BPP_REDIS_HOST" "redis" "" "Redis"
     ensure_env_var "DJANGO_BPP_REDIS_DB_BROKER" "1" "" "Redis (Celery broker)"
 
-    ensure_env_var "DJANGO_BPP_HOSTNAME" "$DEFAULT_HOSTNAME" \
-        "Podaj nazwe hosta dla aplikacji" "Aplikacja"
+    # Multi-host vs single-host: jezeli DJANGO_BPP_HOSTNAMES jest ustawione
+    # i niepuste, traktujemy to jako tryb multi-host. NIE auto-fill-ujemy
+    # DJANGO_BPP_HOSTNAME (Django w bpp wymaga ALBO HOSTNAME ALBO HOSTNAMES,
+    # oba naraz powodowalyby konflikt w settings.py). DJANGO_BPP_CSRF_EXTRA_ORIGINS
+    # jest natomiast czysto deploy-side i mozemy je auto-derive z calej listy.
+    _hostnames_csv="$(get_env_var DJANGO_BPP_HOSTNAMES)"
+    if [ -n "$_hostnames_csv" ]; then
+        _primary_host="$(echo "$_hostnames_csv" | tr ',' '\n' | tr -d ' \t' | awk 'NF>0' | head -1)"
+        if [ -z "$_primary_host" ]; then
+            echo "  ! DJANGO_BPP_HOSTNAMES ustawione ale puste po sparsowaniu - pomijam"
+        else
+            echo "  i wykryto multi-host (DJANGO_BPP_HOSTNAMES); pomijam prompt o HOSTNAME"
+            if env_has_var "DJANGO_BPP_HOSTNAME"; then
+                echo "  ! UWAGA: DJANGO_BPP_HOSTNAME tez jest ustawione. Django w bpp"
+                echo "    czyta ALBO HOSTNAME ALBO HOSTNAMES - usun jedna z nich z .env"
+                echo "    zeby uniknac konfliktu w settings.py."
+            fi
+            # CSRF: https://<host> dla kazdego, polaczone przecinkiem
+            _csrf_derived="$(echo "$_hostnames_csv" | tr ',' '\n' | tr -d ' \t' \
+                | awk 'NF>0 {printf "%shttps://%s", sep, $0; sep=","}')"
+            ensure_env_var "DJANGO_BPP_CSRF_EXTRA_ORIGINS" "$_csrf_derived" "" \
+                "Aplikacja (auto-derived z DJANGO_BPP_HOSTNAMES)"
+        fi
+    else
+        ensure_env_var "DJANGO_BPP_HOSTNAME" "$DEFAULT_HOSTNAME" \
+            "Podaj nazwe hosta dla aplikacji" "Aplikacja"
+        ensure_env_var "DJANGO_BPP_CSRF_EXTRA_ORIGINS" "https://$DEFAULT_HOSTNAME" "" "Aplikacja"
+    fi
     ensure_env_var "DOCKER_VERSION" "latest" "" "Aplikacja"
-    ensure_env_var "DJANGO_BPP_CSRF_EXTRA_ORIGINS" "https://$DEFAULT_HOSTNAME" "" "Aplikacja"
     ensure_env_var "STATIC_ROOT" "/staticroot/" "" "Pliki statyczne"
     ensure_env_var "DJANGO_SETTINGS_MODULE" \
         "django_bpp.settings.production" "" "Django settings"
