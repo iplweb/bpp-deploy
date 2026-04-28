@@ -54,6 +54,8 @@ sudo apt install -y git make openssl gettext
 
 Zainstaluj Docker Engine — oficjalna instrukcja dla [Debian](https://docs.docker.com/engine/install/debian/) lub [Ubuntu](https://docs.docker.com/engine/install/ubuntu/) (zawiera Docker Compose).
 
+> **Podpowiedź:** Możesz też zainstalować Docker poleceniem `make install-docker` po sklonowaniu repo (Debian/Ubuntu — używa `apt` i oficjalnego repozytorium Dockera).
+
 </details>
 
 <details>
@@ -103,8 +105,6 @@ Po zainstalowaniu narzędzi i Dockera, sklonuj repozytorium i przejdź do katalo
 git clone https://github.com/iplweb/bpp-deploy.git
 cd bpp-deploy
 ```
-
-> **Podpowiedź:** Możesz też zainstalować Docker poleceniem `make install-docker` po sklonowaniu repo.
 
 ---
 
