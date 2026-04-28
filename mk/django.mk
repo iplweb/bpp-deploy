@@ -1,5 +1,5 @@
 .PHONY: changepassword invalidate schowaj-jezyki-dyscypliny pbn-first-import \
-       createsuperuser test-email
+       createsuperuser test-email test-rollbar
 
 changepassword:
 	docker compose exec appserver python src/manage.py changepassword $(DJANGO_BPP_ADMIN_USERNAME)
@@ -27,4 +27,11 @@ test-email:
 	fi
 	docker compose exec appserver python src/manage.py sendtestemail $(DJANGO_BPP_ADMIN_EMAIL)
 	docker compose exec appserver python src/manage.py sendtesttemplatedemail $(DJANGO_BPP_ADMIN_EMAIL)
+	$(MAKE) test-rollbar
+
+test-rollbar:
+	@if [ -z "$(ROLLBAR_ACCESS_TOKEN)" ]; then \
+		echo "ROLLBAR_ACCESS_TOKEN nie jest ustawiony. Ustaw go w $(BPP_CONFIGS_DIR)/.env"; \
+		exit 1; \
+	fi
 	docker compose exec appserver python src/manage.py test_rollbar
