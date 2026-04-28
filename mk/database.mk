@@ -1,5 +1,5 @@
 .PHONY: do-migrate stop-denorm-celery start-denorm-celery migrate \
-       backup db-backup media-backup dbshell dbshell-psql ps-dbserver \
+       backup db-backup media-backup restore dbshell dbshell-psql ps-dbserver \
        dump-local-postgresql-and-copy-to-remote \
        restore-db-stop-servers restore-db-remove-db-rebuild-db-rm-backup \
        restore-remote-db-from-dump restore-remote-db-from-dump-dont-backup \
@@ -80,6 +80,40 @@ media-backup:
 		tar czf /backup/$(MEDIA_BACKUP_TAR) -C /src .
 	@echo "Media backup saved to: $(MEDIA_BACKUP_FULL_PATH)"
 	@echo "Restore: tar xzf $(MEDIA_BACKUP_TAR) -C /mediaroot/"
+
+# Restore z backupow zrobionych przez `make backup` (lub backup-cycle).
+# Cala logika w scripts/restore.sh - target jest tylko thin wrapperem.
+#
+# Uzycie:
+#   make restore                          # najnowsza para db+media, z safety-backup
+#   make restore PICK=1                   # interaktywny wybor (fzf jesli jest)
+#   make restore TIMESTAMP=20260428-140218 # konkretna para
+#   make restore DB_ONLY=1                # tylko baza
+#   make restore MEDIA_ONLY=1             # tylko media
+#   make restore NO_SAFETY=1              # pomin safety-backup biezacego stanu
+#   make restore YES=1                    # noninteractive (auto-yes na confirm)
+RESTORE_FLAGS :=
+ifdef TIMESTAMP
+  RESTORE_FLAGS += --timestamp=$(TIMESTAMP)
+endif
+ifdef PICK
+  RESTORE_FLAGS += --pick
+endif
+ifdef DB_ONLY
+  RESTORE_FLAGS += --db-only
+endif
+ifdef MEDIA_ONLY
+  RESTORE_FLAGS += --media-only
+endif
+ifdef NO_SAFETY
+  RESTORE_FLAGS += --no-safety-backup
+endif
+ifdef YES
+  RESTORE_FLAGS += --yes
+endif
+
+restore:
+	@bash scripts/restore.sh $(RESTORE_FLAGS)
 
 dbshell:
 	docker compose exec appserver python src/manage.py dbshell

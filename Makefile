@@ -99,6 +99,8 @@ help:
 	@echo "    backup-cycle         - Full cycle: backup + rclone sync + Rollbar notify"
 	@echo "    db-backup            - Create parallel database backup (tar.gz)"
 	@echo "    media-backup         - Create media files backup (tar.gz)"
+	@echo "    restore              - Restore db+media from tar.gz pair (newest by default)"
+	@echo "                           Flags: PICK=1 TIMESTAMP=... DB_ONLY=1 MEDIA_ONLY=1 NO_SAFETY=1 YES=1"
 	@echo "    dbshell              - Django database shell"
 	@echo "    dbshell-psql         - Direct PostgreSQL shell"
 	@echo ""
