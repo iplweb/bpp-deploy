@@ -138,6 +138,7 @@ services:
     command:
       - '--path.rootfs=/host'
       - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
+      - '--no-collector.kernel_hung'
     pid: host
     volumes:
       - '/:/host:ro,rslave'
