@@ -3,7 +3,7 @@
 # BPP Deploy
 
 [![CI](https://github.com/iplweb/bpp-deploy/actions/workflows/ci.yml/badge.svg)](https://github.com/iplweb/bpp-deploy/actions/workflows/ci.yml)
-![Version](https://img.shields.io/badge/version-2026.04.28-blue)
+![Version](https://img.shields.io/badge/version-2026.04.28.0-blue)
 
 Konfiguracja wdrożeniowa systemu **[BPP (Bibliografia Publikacji Pracowników)](https://github.com/iplweb/bpp)** — orkiestracja Docker Compose z monitoringiem, backupami i automatyczną konfiguracją.
 
