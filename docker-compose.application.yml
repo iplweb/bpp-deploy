@@ -139,6 +139,41 @@ services:
       ofelia.job-exec.restart_self.schedule: "0 0 5 * * *"
       ofelia.job-exec.restart_self.command: "kill 1"
 
+      # === Let's Encrypt: codzienny renew ===
+      # job-run spawnuje swiezy kontener certbot/certbot, robi certbot renew
+      # (idempotentny - pomija certy z >30 dni do wygaśniecia, exit 0 gdy nic
+      # do zrobienia, take same exit gdy katalog letsencrypt jest pusty).
+      # Po sukcesie deploy-hook tworzy sentinel /etc/letsencrypt/.reload-needed,
+      # ktory webserver podnosi 5 minut pozniej (label ofelia.job-exec na
+      # webserverze w docker-compose.infrastructure.yml) i robi nginx -s reload.
+      #
+      # Codziennie zamiast co 60 dni: certbot renew nie kontaktuje sie z LE
+      # gdy nie trzeba, wiec koszt to ~5s spawn kontenera. Plus: jezeli renew
+      # sie wysypie, mamy 30 dni okna na alarm zamiast 1.
+      #
+      # SSL_MODE=manual: katalog letsencrypt/ pusty, certbot renew exit 0 bez
+      # akcji - bezpieczny no-op.
+      ofelia.job-run.letsencrypt_renew.schedule: "0 0 4 * * *"
+      ofelia.job-run.letsencrypt_renew.image: "certbot/certbot:v3.3.0"
+      ofelia.job-run.letsencrypt_renew.volume: "${COMPOSE_PROJECT_NAME}_acme-challenge:/var/www/certbot,${BPP_CONFIGS_DIR}/letsencrypt:/etc/letsencrypt"
+      ofelia.job-run.letsencrypt_renew.command: "renew --webroot -w /var/www/certbot --quiet --deploy-hook \"touch /etc/letsencrypt/.reload-needed\""
+
+  # === Certbot ===
+  # Sidecar uruchamiany na zadanie ('docker compose run --rm certbot ...')
+  # przez make ssl-letsencrypt-issue / make ssl-letsencrypt-renew. NIE startuje
+  # z 'make up' (profile letsencrypt = nie aktywny domyslnie).
+  #
+  # Codzienny renew odbywa sie przez Ofelia job-run (label na appserver wyzej),
+  # ktora spawnuje swoj wlasny kontener z tego samego image i wolumenow.
+  certbot:
+    image: certbot/certbot:v3.3.0
+    profiles: ['letsencrypt']
+    logging: *default-logging
+    env_file: ${BPP_CONFIGS_DIR}/.env
+    volumes:
+      - acme-challenge:/var/www/certbot
+      - ${BPP_CONFIGS_DIR}/letsencrypt:/etc/letsencrypt
+
 volumes:
   staticfiles:
   media:

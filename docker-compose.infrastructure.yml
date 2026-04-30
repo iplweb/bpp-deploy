@@ -27,11 +27,25 @@ services:
       - staticfiles:/var/www/html/staticroot
       - media:/mediaroot
       - ${BPP_CONFIGS_DIR}/ssl:/etc/ssl/private:ro
+      # Let's Encrypt: certyfikaty zarzadzane przez kontener certbot (bind do
+      # $BPP_CONFIGS_DIR/letsencrypt). Mountowane RW - nginx czyta certy oraz
+      # usuwa sentinel .reload-needed po wykonaniu reload-a. Cert-files nie sa
+      # nigdy modyfikowane przez nginx, tylko sentinel. Niezaleznie od
+      # DJANGO_BPP_SSL_MODE - katalog moze byc pusty w trybie manual
+      # (skrypt 30-render-bpp-vhosts.sh wybiera wlasciwa sciezke).
+      - ${BPP_CONFIGS_DIR}/letsencrypt:/etc/letsencrypt
+      # Webroot dla HTTP-01 challenge. Wspoldzielony z kontenerem certbot
+      # (RW dla certbota, RO tutaj). Pusty katalog w trybie manual = 404
+      # dla zapytan ACME, co jest ok bo i tak nikt prawdziwy tam nie chodzi.
+      - acme-challenge:/var/www/certbot:ro
       - ./defaults/webserver/default.conf.template:/etc/nginx/templates/default.conf.template:ro
       - ./defaults/webserver/security-headers.conf:/etc/nginx/conf.d/security-headers.conf:ro
       - ./defaults/webserver/_bpp-locations.conf:/etc/nginx/bpp-templates/_bpp-locations.conf:ro
       - ./defaults/webserver/vhost.conf.template:/etc/nginx/bpp-templates/vhost.conf.template:ro
       - ./defaults/webserver/30-render-bpp-vhosts.sh:/docker-entrypoint.d/30-render-bpp-vhosts.sh:ro
+      # Let's Encrypt reload helper. NIE w /docker-entrypoint.d/ (uruchomilby
+      # sie przy starcie kontenera) - tylko jako exec na zadanie z Ofelia.
+      - ./scripts/letsencrypt-reload.sh:/usr/local/bin/letsencrypt-reload.sh:ro
       - ./defaults/webserver/maintenance.html:/usr/share/nginx/html/maintenance.html:ro
     deploy:
       resources:
@@ -41,6 +55,15 @@ services:
           # +110 MB RAM. 256m daje headroom pod burst + HTTP/3 QUIC + duze uploady.
           memory: ${WEBSERVER_MEM_LIMIT:-256m}
           cpus: "${WEBSERVER_CPU_LIMIT:-2.0}"
+    labels:
+      ofelia.enabled: "true"
+      # Po renew certbota (job-run w docker-compose.application.yml) pojawi sie
+      # sentinel /etc/letsencrypt/.reload-needed. Ten job-exec wykrywa go
+      # i robi graceful reload nginx-a, zeby podniesc nowy cert. Bez sentinela
+      # nginx serwuje stary cert do najblizszej restartu.
+      # 5 minut po job-run renew (bezpieczny margines na wystawienie certu).
+      ofelia.job-exec.letsencrypt_reload.schedule: "0 5 4 * * *"
+      ofelia.job-exec.letsencrypt_reload.command: "/usr/local/bin/letsencrypt-reload.sh"
 
   redis:
     image: redis:8.6.2
@@ -72,3 +95,8 @@ services:
 
 volumes:
   redis:
+  # Webroot dla HTTP-01 challenge Let's Encrypt. Wspoldzielony miedzy
+  # webserverem (czyta+rm sentinela) a kontenerem certbot z application.yml
+  # (zapisuje pliki challenge przez --webroot). Ephemeral - tresc challenge
+  # zyje sekundami, nic wartosciowego sie nie kumuluje.
+  acme-challenge:

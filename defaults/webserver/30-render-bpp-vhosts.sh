@@ -10,12 +10,20 @@
 #   $DJANGO_BPP_HOSTNAME   - single, fallback gdy HOSTNAMES puste.
 #
 # Wybor certyfikatu per host:
-#   1) /etc/ssl/private/<host>/cert.pem + key.pem  (tryb multi-host)
-#   2) /etc/ssl/private/cert.pem + key.pem         (legacy fallback - tylko
-#                                                   gdy katalog per-host nie
-#                                                   istnieje)
 #
-# Tryb legacy 2) zachowuje 100% zgodnosc dla dotychczasowych deploymentow,
+# DJANGO_BPP_SSL_MODE=letsencrypt:
+#   1) /etc/letsencrypt/live/<host>/{fullchain,privkey}.pem (per-host LE cert)
+#   2) /etc/letsencrypt/live/<canonical>/{fullchain,privkey}.pem (SAN — wszystkie
+#      hosty wskazuja na cert wystawiony pod nazwa pierwszego hosta z listy)
+#   3) /etc/ssl/private/<host>/{cert,key}.pem (manual per-host fallback - gdy LE
+#      jeszcze nie wystawiony, zeby nginx wstal na snakeoil)
+#   4) /etc/ssl/private/{cert,key}.pem (legacy single-pair fallback)
+#
+# DJANGO_BPP_SSL_MODE=manual (default):
+#   1) /etc/ssl/private/<host>/{cert,key}.pem (per-host)
+#   2) /etc/ssl/private/{cert,key}.pem (legacy fallback)
+#
+# Tryb manual zachowuje 100% zgodnosc dla dotychczasowych deploymentow,
 # gdzie .env ma tylko DJANGO_BPP_HOSTNAME i ssl/{cert,key}.pem.
 
 set -eu
@@ -24,6 +32,8 @@ ME="30-render-bpp-vhosts.sh"
 TEMPLATE="/etc/nginx/bpp-templates/vhost.conf.template"
 OUT_DIR="/etc/nginx/conf.d"
 SSL_DIR="/etc/ssl/private"
+LE_DIR="/etc/letsencrypt/live"
+SSL_MODE="${DJANGO_BPP_SSL_MODE:-manual}"
 
 log() {
     echo "$ME: $*"
@@ -65,6 +75,12 @@ if [ -z "$HOSTS" ]; then
     exit 1
 fi
 
+# Canonical host (pierwszy z listy) — uzywany jako fallback dla SAN cert
+# Let's Encrypt-a, gdzie wszystkie SAN-y dziela jeden plik fullchain.pem
+# wystawiony pod nazwa pierwszego -d.
+CANONICAL_HOST=$(echo "$HOSTS" | head -1)
+log "ssl mode: $SSL_MODE (canonical host: $CANONICAL_HOST)"
+
 ANY_RENDERED=0
 
 # `for host in $(echo ...)` zamiast `while read`: dziala w `set -eu` bez
@@ -76,19 +92,51 @@ for HOST in $HOSTS; do
     IFS="$OLD_IFS"
     [ -z "$HOST" ] && continue
 
-    # Per-host cert ma priorytet, legacy single-pair jest fallbackiem.
-    if [ -f "$SSL_DIR/$HOST/cert.pem" ] && [ -f "$SSL_DIR/$HOST/key.pem" ]; then
-        VHOST_CERT_PATH="$SSL_DIR/$HOST/cert.pem"
-        VHOST_KEY_PATH="$SSL_DIR/$HOST/key.pem"
-        CERT_KIND="per-host"
-    elif [ -f "$SSL_DIR/cert.pem" ] && [ -f "$SSL_DIR/key.pem" ]; then
-        VHOST_CERT_PATH="$SSL_DIR/cert.pem"
-        VHOST_KEY_PATH="$SSL_DIR/key.pem"
-        CERT_KIND="legacy"
-    else
-        err "brak certyfikatu dla $HOST. Oczekiwane:"
-        err "    $SSL_DIR/$HOST/cert.pem + $SSL_DIR/$HOST/key.pem (per-host)"
-        err " lub $SSL_DIR/cert.pem + $SSL_DIR/key.pem (legacy fallback)"
+    # Resolwer cert-path. Kolejnosc zalezy od DJANGO_BPP_SSL_MODE:
+    # - letsencrypt: LE per-host -> LE canonical/SAN -> manual per-host -> manual legacy
+    # - manual: manual per-host -> manual legacy
+    VHOST_CERT_PATH=""
+    VHOST_KEY_PATH=""
+    CERT_KIND=""
+
+    if [ "$SSL_MODE" = "letsencrypt" ]; then
+        if [ -f "$LE_DIR/$HOST/fullchain.pem" ] && [ -f "$LE_DIR/$HOST/privkey.pem" ]; then
+            VHOST_CERT_PATH="$LE_DIR/$HOST/fullchain.pem"
+            VHOST_KEY_PATH="$LE_DIR/$HOST/privkey.pem"
+            CERT_KIND="letsencrypt-per-host"
+        elif [ -f "$LE_DIR/$CANONICAL_HOST/fullchain.pem" ] \
+                && [ -f "$LE_DIR/$CANONICAL_HOST/privkey.pem" ]; then
+            VHOST_CERT_PATH="$LE_DIR/$CANONICAL_HOST/fullchain.pem"
+            VHOST_KEY_PATH="$LE_DIR/$CANONICAL_HOST/privkey.pem"
+            CERT_KIND="letsencrypt-san"
+        fi
+    fi
+
+    if [ -z "$VHOST_CERT_PATH" ]; then
+        if [ -f "$SSL_DIR/$HOST/cert.pem" ] && [ -f "$SSL_DIR/$HOST/key.pem" ]; then
+            VHOST_CERT_PATH="$SSL_DIR/$HOST/cert.pem"
+            VHOST_KEY_PATH="$SSL_DIR/$HOST/key.pem"
+            CERT_KIND="manual-per-host"
+        elif [ -f "$SSL_DIR/cert.pem" ] && [ -f "$SSL_DIR/key.pem" ]; then
+            VHOST_CERT_PATH="$SSL_DIR/cert.pem"
+            VHOST_KEY_PATH="$SSL_DIR/key.pem"
+            CERT_KIND="manual-legacy"
+        fi
+    fi
+
+    if [ -z "$VHOST_CERT_PATH" ]; then
+        err "brak certyfikatu dla $HOST (ssl_mode=$SSL_MODE). Sprawdzono:"
+        if [ "$SSL_MODE" = "letsencrypt" ]; then
+            err "    $LE_DIR/$HOST/fullchain.pem (per-host LE)"
+            err "    $LE_DIR/$CANONICAL_HOST/fullchain.pem (SAN LE)"
+        fi
+        err "    $SSL_DIR/$HOST/cert.pem (per-host manual)"
+        err "    $SSL_DIR/cert.pem (legacy manual fallback)"
+        if [ "$SSL_MODE" = "letsencrypt" ]; then
+            err "Wystaw cert: make ssl-letsencrypt-issue (staging) -> make ssl-letsencrypt-issue PROD=1"
+        else
+            err "Wygeneruj snakeoil: make generate-snakeoil-certs"
+        fi
         exit 1
     fi
 

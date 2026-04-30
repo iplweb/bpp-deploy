@@ -29,6 +29,11 @@ if [ ! -d "$BPP_CONFIGS_DIR" ]; then
 fi
 
 mkdir -p "$BPP_CONFIGS_DIR/ssl"
+# Let's Encrypt: certyfikaty wystawiane przez certbot (mountowane RW przez
+# webserver dla sentinela .reload-needed). Tworzymy pusty katalog niezaleznie
+# od DJANGO_BPP_SSL_MODE, zeby bind-mount na webserverze nie wykreowal
+# pustego katalogu / nie wywalil sie przy starcie.
+mkdir -p "$BPP_CONFIGS_DIR/letsencrypt"
 mkdir -p "$BPP_CONFIGS_DIR/rclone"
 mkdir -p "$BPP_CONFIGS_DIR/alloy"
 mkdir -p "$BPP_CONFIGS_DIR/loki"

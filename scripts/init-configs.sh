@@ -357,6 +357,20 @@ DJANGO_BPP_ADMIN_USERNAME=$ADMIN_USERNAME
 DJANGO_BPP_ADMIN_EMAIL=$ADMIN_EMAIL
 ADMINS=$ADMIN_USERNAME <$ADMIN_EMAIL>
 
+# === SSL ===
+# DJANGO_BPP_SSL_MODE: ktore certyfikaty serwuje nginx.
+#   manual      - czyta z \$BPP_CONFIGS_DIR/ssl/ (snakeoil albo wgrane recznie).
+#   letsencrypt - czyta z \$BPP_CONFIGS_DIR/letsencrypt/live/<host>/. Wystaw
+#                 cert przez 'make ssl-letsencrypt-issue PROD=1'. Codzienny
+#                 renew dziala automatycznie przez Ofelia.
+# Manualne certy sa zachowane fizycznie nawet przy mode=letsencrypt - LE pisze
+# do osobnego katalogu, mozna w kazdej chwili przelaczyc tryb tam i z powrotem.
+DJANGO_BPP_SSL_MODE=manual
+# Email dla Let's Encrypt (powiadomienia o wygasajacych certach).
+# Domyslnie = DJANGO_BPP_ADMIN_EMAIL. Mozesz nadpisac jesli LE notyfikacje
+# maja chodzic na inny adres niz administrator BPP.
+DJANGO_BPP_LETSENCRYPT_EMAIL=$ADMIN_EMAIL
+
 # === Powiadomienia (opcjonalne) ===
 DJANGO_BPP_SLACK_WEBHOOK=$SLACK_WEBHOOK
 
@@ -549,6 +563,15 @@ else
         _email=$(grep "^DJANGO_BPP_ADMIN_EMAIL=" "$ENV_FILE" | head -1 | cut -d= -f2-)
         ensure_env_var "ADMINS" "$_username <$_email>" "" "Administrator (format Django)"
     fi
+
+    # SSL mode + Let's Encrypt email - dodajemy z domyslnymi wartosciami
+    # bezpiecznymi dla istniejacych deploymentow (mode=manual = obecne zachowanie).
+    # Email dziedziczy z DJANGO_BPP_ADMIN_EMAIL zeby uniknac drugiego prompta.
+    ensure_env_var "DJANGO_BPP_SSL_MODE" "manual" "" \
+        "SSL: 'manual' (czyta ssl/) lub 'letsencrypt' (czyta letsencrypt/live/<host>/)"
+    _admin_email_for_le="$(get_env_var DJANGO_BPP_ADMIN_EMAIL)"
+    ensure_env_var "DJANGO_BPP_LETSENCRYPT_EMAIL" "${_admin_email_for_le:-admin@example.com}" "" \
+        "Email dla Let's Encrypt (default = DJANGO_BPP_ADMIN_EMAIL)"
 
     ensure_env_var "DJANGO_BPP_SLACK_WEBHOOK" "" \
         "Slack webhook URL (opcjonalny, Enter = pomin)" "Powiadomienia (opcjonalne)"

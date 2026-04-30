@@ -234,6 +234,12 @@ Dodaj certyfikaty SSL (lub wygeneruj samopodpisane):
 
 # Opcja B: samopodpisane certyfikaty (snakeoil) do testów
 make generate-snakeoil-certs
+
+# Opcja C: Let's Encrypt (wymaga DNS wskazującego na ten serwer + port 80
+#          osiągalny z internetu). Zacznij OD STAGINGA, potem PROD=1:
+make ssl-letsencrypt-issue           # staging - test pipeline'u
+make ssl-letsencrypt-issue PROD=1    # prawdziwy cert + flip mode na 'letsencrypt'
+# Codzienne odnawianie działa automatycznie przez Ofelię.
 ```
 
 ### 3. Uruchom usługi
@@ -336,7 +342,40 @@ make update-ssl-certs   # Przeładuj nginx po zmianie certyfikatów
 make init-configs       # Uzupełnij brakujące pliki w katalogu konfiguracyjnym
 make configure-resources # Dostrój limity RAM/CPU dla wszystkich serwisów
 make generate-snakeoil-certs  # Wygeneruj samopodpisane certyfikaty SSL
+make ssl-letsencrypt-issue    # Wystaw cert Let's Encrypt (PROD=1 dla prawdziwego)
+make ssl-letsencrypt-renew    # Manualnie odśwież certy LE (codzienne dzieje się przez Ofelię)
 ```
+
+#### Let's Encrypt — automatyczne certyfikaty SSL
+
+BPP ma natywne wsparcie dla Let's Encrypt obok tradycyjnych certów na dysku. **Manualne i LE-certy współistnieją** w osobnych katalogach (`ssl/` vs `letsencrypt/`) — LE nigdy nie nadpisuje plików w `ssl/`. Wybór trybu sterowany jedną zmienną `DJANGO_BPP_SSL_MODE` w `$BPP_CONFIGS_DIR/.env`:
+
+```bash
+DJANGO_BPP_SSL_MODE=manual       # default — czyta ssl/<host>/cert.pem (snakeoil/ręczne)
+DJANGO_BPP_SSL_MODE=letsencrypt  # czyta letsencrypt/live/<host>/fullchain.pem
+```
+
+**Pierwszy raz** (DNS musi już wskazywać na ten serwer i port 80 musi być osiągalny z internetu):
+
+```bash
+make ssl-letsencrypt-issue           # staging — niezaufany w przeglądarce, ale weryfikuje pipeline
+make ssl-letsencrypt-issue PROD=1    # prod — prawdziwy cert + interaktywny prompt o flip mode
+```
+
+W trybie `PROD=1`, jeśli aktualne `SSL_MODE=manual`, skrypt pyta o aktywację `letsencrypt`. Non-interactive: `ACTIVATE=1` (auto-flip + recreate webservera) lub `ACTIVATE=0` (zostaw mode=manual). Cert wystawiany jako SAN — jeden plik dla wszystkich hostów z `DJANGO_BPP_HOSTNAMES`/`DJANGO_BPP_HOSTNAME`.
+
+**Codzienne odnawianie**: Ofelia o 04:00 spawnuje świeży kontener `certbot/certbot` (job-run), wywołuje `certbot renew` (idempotentny — pomija certy z >30 dni do wygaśnięcia). Po sukcesie deploy-hook tworzy sentinel; o 04:05 drugi job (job-exec na webserverze) podnosi sentinel i robi `nginx -s reload`.
+
+**Powrót do certów manualnych** (np. uczelnia dała wildcard EV):
+
+```bash
+# wgraj nowy cert do $BPP_CONFIGS_DIR/ssl/cert.pem (lub ssl/<host>/cert.pem dla multi-host)
+# edytuj $BPP_CONFIGS_DIR/.env: DJANGO_BPP_SSL_MODE=manual
+make refresh
+# Katalog letsencrypt/ zostaje na dysku — można w każdej chwili wrócić bez ponownego wystawiania.
+```
+
+**Zero downtime**: certbot używa webroot challenge (nie standalone), nginx cały czas pracuje. Location `/.well-known/acme-challenge/` jest zawsze aktywny w bloku port-80 (niezależnie od trybu) — w trybie manual zwraca 404 dla zapytań ACME, co jest bezpieczne.
 
 #### Limity zasobów (`make configure-resources`)
 

@@ -21,7 +21,23 @@ server {
     listen 80;
     listen [::]:80;
     server_name ${VHOST_NAME};
-    return 301 https://$host$request_uri;
+
+    # Let's Encrypt HTTP-01 challenge.
+    # Always present (independent of DJANGO_BPP_SSL_MODE) — certbot pisze pliki
+    # do wolumenu acme-challenge przy issue/renew. W trybie manual katalog jest
+    # pusty i wszystkie requesty dostaja 404 (nikt prawdziwy tam nie chodzi).
+    # Longest-prefix match wygrywa nad ogolnym `location /` ponizej, wiec ten
+    # blok przechwytuje walidacje LE zanim redirect na HTTPS sie wykona.
+    location /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+        default_type "text/plain";
+        try_files $uri =404;
+        access_log off;
+    }
+
+    location / {
+        return 301 https://$host$request_uri;
+    }
 }
 
 # Main HTTPS server block for ${VHOST_NAME}

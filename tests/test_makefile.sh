@@ -533,6 +533,109 @@ test_nginx_config_valid() {
     assert_file_contains "HTTP/2 on (vhost)"            "http2 on"       "$vhost_tpl"
     assert_file_contains "HTTP/3 QUIC (vhost)"          "listen 443 quic" "$vhost_tpl"
 
+    # --- Asercje na ACME location (Let's Encrypt webroot) w port-80 bloku ---
+    assert_file_contains "ACME location w vhost (port 80)" \
+        "/.well-known/acme-challenge/" "$vhost_tpl"
+    assert_file_contains "ACME root /var/www/certbot (vhost)" \
+        "/var/www/certbot" "$vhost_tpl"
+
+    # ============================================================
+    # 14c-e: SSL_MODE=letsencrypt - resolver cert paths
+    # ============================================================
+    # Generujemy fejkowe certy LE w letsencrypt/live/<host>/{fullchain,privkey}.pem
+    # i sprawdzamy czy 30-render-bpp-vhosts.sh wybiera wlasciwa sciezke
+    # (per-host > canonical/SAN > manual fallback).
+
+    mkdir -p "$ngx_dir/letsencrypt/live"
+
+    docker run --rm -v "$ngx_dir/letsencrypt:/le" --entrypoint sh nginx:1.29.7 -c '
+        apt-get update >/dev/null 2>&1 && apt-get install -y openssl >/dev/null 2>&1
+        for h in bpp.federacja.pl bpp.wizja.pl bpp.ufam.pl; do
+            mkdir -p "/le/live/$h"
+            openssl req -x509 -newkey rsa:2048 -nodes -days 1 \
+                -keyout "/le/live/$h/privkey.pem" -out "/le/live/$h/fullchain.pem" \
+                -subj "/CN=$h" >/dev/null 2>&1
+        done
+    ' || { fail "stub LE cert generation"; rm -rf "$ngx_dir"; return; }
+
+    # --- Test 14c: per-host LE certy obecne dla wszystkich hostow ---
+    rm -f "$ngx_dir/out"/vhost-*.conf "$ngx_dir/out/rendered-default.conf"
+    local out_c
+    out_c=$(_run_nginx_t "$ngx_dir" \
+        -e DJANGO_BPP_HOSTNAMES="bpp.federacja.pl,bpp.wizja.pl,bpp.ufam.pl" \
+        -e DJANGO_BPP_SSL_MODE=letsencrypt \
+        -v "$ngx_dir/letsencrypt:/etc/letsencrypt:ro" \
+        -v "$ngx_dir/out:/out" 2>&1 || true)
+    if echo "$out_c" | grep -q "syntax is ok" && echo "$out_c" | grep -q "test is successful"; then
+        pass "nginx -t (LE per-host)"
+        # Kazdy vhost powinien wskazywac na sciezke LE swojego hosta
+        for h in bpp.federacja.pl bpp.wizja.pl bpp.ufam.pl; do
+            local vh="$ngx_dir/out/vhost-$h.conf"
+            assert_file_contains "vhost $h: ssl_certificate -> /etc/letsencrypt/live/$h/fullchain.pem" \
+                "/etc/letsencrypt/live/$h/fullchain.pem" "$vh"
+            assert_file_contains "vhost $h: ssl_certificate_key -> /etc/letsencrypt/live/$h/privkey.pem" \
+                "/etc/letsencrypt/live/$h/privkey.pem" "$vh"
+            assert_file_not_contains "vhost $h: nie uzywa manual cert" \
+                "/etc/ssl/private" "$vh"
+        done
+    else
+        fail "nginx -t (LE per-host)"
+        printf '    %s\n' "${out_c//$'\n'/$'\n    '}"
+    fi
+
+    # --- Test 14d: SAN — tylko canonical (pierwszy host) ma LE cert ---
+    # Usun per-host certy dla 2-go i 3-go hosta. Zostaje tylko canonical.
+    # Wszystkie 3 vhosty powinny wskazywac na canonical fullchain.
+    rm -rf "$ngx_dir/letsencrypt/live/bpp.wizja.pl" "$ngx_dir/letsencrypt/live/bpp.ufam.pl"
+    rm -f "$ngx_dir/out"/vhost-*.conf "$ngx_dir/out/rendered-default.conf"
+    local out_d
+    out_d=$(_run_nginx_t "$ngx_dir" \
+        -e DJANGO_BPP_HOSTNAMES="bpp.federacja.pl,bpp.wizja.pl,bpp.ufam.pl" \
+        -e DJANGO_BPP_SSL_MODE=letsencrypt \
+        -v "$ngx_dir/letsencrypt:/etc/letsencrypt:ro" \
+        -v "$ngx_dir/out:/out" 2>&1 || true)
+    if echo "$out_d" | grep -q "syntax is ok" && echo "$out_d" | grep -q "test is successful"; then
+        pass "nginx -t (LE SAN — canonical only)"
+        # Canonical powinien uzywac swojego LE; pozostale 2 fallbackuja na canonical
+        assert_file_contains "vhost canonical: LE per-host" \
+            "/etc/letsencrypt/live/bpp.federacja.pl/fullchain.pem" \
+            "$ngx_dir/out/vhost-bpp.federacja.pl.conf"
+        assert_file_contains "vhost wizja: SAN fallback na canonical LE" \
+            "/etc/letsencrypt/live/bpp.federacja.pl/fullchain.pem" \
+            "$ngx_dir/out/vhost-bpp.wizja.pl.conf"
+        assert_file_contains "vhost ufam: SAN fallback na canonical LE" \
+            "/etc/letsencrypt/live/bpp.federacja.pl/fullchain.pem" \
+            "$ngx_dir/out/vhost-bpp.ufam.pl.conf"
+    else
+        fail "nginx -t (LE SAN)"
+        printf '    %s\n' "${out_d//$'\n'/$'\n    '}"
+    fi
+
+    # --- Test 14e: SSL_MODE=letsencrypt ale BRAK LE certow -> fallback manual ---
+    # Soft-fallback to manual paths zeby nginx wstal na snakeoil zanim user
+    # wystawi LE cert (typowy first-deploy scenariusz).
+    rm -rf "$ngx_dir/letsencrypt/live/bpp.federacja.pl"
+    rm -f "$ngx_dir/out"/vhost-*.conf "$ngx_dir/out/rendered-default.conf"
+    local out_e
+    out_e=$(_run_nginx_t "$ngx_dir" \
+        -e DJANGO_BPP_HOSTNAMES="bpp.federacja.pl,bpp.wizja.pl,bpp.ufam.pl" \
+        -e DJANGO_BPP_SSL_MODE=letsencrypt \
+        -v "$ngx_dir/letsencrypt:/etc/letsencrypt:ro" \
+        -v "$ngx_dir/out:/out" 2>&1 || true)
+    if echo "$out_e" | grep -q "syntax is ok" && echo "$out_e" | grep -q "test is successful"; then
+        pass "nginx -t (LE mode, brak certow -> fallback manual)"
+        # Wszystkie vhosty powinny uzywac manual per-host certow ($ngx_dir/ssl/<h>/)
+        for h in bpp.federacja.pl bpp.wizja.pl bpp.ufam.pl; do
+            assert_file_contains "vhost $h: fallback na manual per-host (mode=letsencrypt, brak LE)" \
+                "/etc/ssl/private/$h/cert.pem" "$ngx_dir/out/vhost-$h.conf"
+            assert_file_not_contains "vhost $h: nie zostawil LE path" \
+                "/etc/letsencrypt/" "$ngx_dir/out/vhost-$h.conf"
+        done
+    else
+        fail "nginx -t (LE mode, fallback manual)"
+        printf '    %s\n' "${out_e//$'\n'/$'\n    '}"
+    fi
+
     rm -rf "$ngx_dir"
 }
 
@@ -649,6 +752,10 @@ PYEOF
     # stdout. Caller parsuje przez `read`. Konieczne bo `$(_runtime_start_nginx)`
     # uruchamia subshell — zmiana globalnej $nginx_cid w funkcji nie propagowalaby
     # sie do parenta. Explicit `-p` (a nie -P) bo nginx image EXPOSE-uje tylko 80.
+    # Webroot dla ACME challenge - zawsze mountowany. Pusty dla 15a/15b
+    # (curl-e nie probuja ACME). 15c pre-stage-uje plik przed startem nginx-a.
+    mkdir -p "$ngx_dir/webroot/.well-known/acme-challenge"
+
     _runtime_start_nginx() {
         local hostnames="$1" single_host="$2"
         local cid p80 p443
@@ -661,6 +768,7 @@ PYEOF
             -v "$ngx_dir/bpp-templates/vhost.conf.template:/etc/nginx/bpp-templates/vhost.conf.template:ro" \
             -v "$ngx_dir/entrypoint/30-render-bpp-vhosts.sh:/docker-entrypoint.d/30-render-bpp-vhosts.sh:ro" \
             -v "$ngx_dir/ssl:/etc/ssl/private:ro" \
+            -v "$ngx_dir/webroot:/var/www/certbot:ro" \
             -v "$ngx_dir/html/maintenance.html:/usr/share/nginx/html/maintenance.html:ro" \
             -e NGINX_ENVSUBST_FILTER=DJANGO_BPP_ \
             -e DJANGO_BPP_HOSTNAMES="$hostnames" \
@@ -752,6 +860,62 @@ PYEOF
         fail "HTTPS intruder.example w multi-host: oczekiwany reject"
     else
         pass "HTTPS intruder.example -> reject (multi-host)"
+    fi
+
+    _runtime_stop_nginx
+
+    # ==== 15c: ACME challenge serwowany z webroot, redirect dla pozostalych ====
+    # Krytyczna asercja: location /.well-known/acme-challenge/ jest umieszczony
+    # PRZED redirectem na HTTPS (longest-prefix match) i serwuje pliki z
+    # webroot zamiast zwracac 301. Bez tego LE-walidacja by nie zadzialala.
+    yellow "  -- 15c: ACME challenge serwowany z webroot --"
+    # Pre-stage challenge file (reuzywamy nginx_dir/webroot ktory jest mount-em).
+    local token="bpp-test-token-$$"
+    local content="bpp-test-challenge-content-$$"
+    echo -n "$content" > "$ngx_dir/webroot/.well-known/acme-challenge/$token"
+
+    start_out=$(_runtime_start_nginx "" "acme.example.org") || {
+        fail "ACME-test nginx nie wstal w 15s"
+        return
+    }
+    read -r nginx_cid port_80 port_443 <<< "$start_out"
+    pass "ACME-test nginx wstal"
+
+    # Trzeba podpisac cert dla acme.example.org pod 15a/15b uzywaja innych
+    # hostow, wiec generujemy ad-hoc snakeoil w istniejacym ssl/ - ale dla
+    # 15c interesuje nas tylko port 80 (HTTP), wiec pomijamy.
+
+    # Krok 1: ACME challenge -> 200 + content
+    local probe_url="http://127.0.0.1:$port_80/.well-known/acme-challenge/$token"
+    code=$(curl -s -o /dev/null -w '%{http_code}' -H "Host: acme.example.org" "$probe_url" || true)
+    if [ "$code" = "200" ]; then
+        pass "GET /.well-known/acme-challenge/<token> -> 200 (zamiast 301)"
+    else
+        fail "ACME challenge: oczekiwane 200, otrzymano '$code'"
+    fi
+    body=$(curl -s -H "Host: acme.example.org" "$probe_url" || true)
+    if [ "$body" = "$content" ]; then
+        pass "GET ACME challenge: tresc pasuje do pliku w webroot"
+    else
+        fail "ACME challenge body: oczekiwano '$content', otrzymano '$body'"
+    fi
+
+    # Krok 2: nieistniejacy ACME token -> 404 (location matchuje, plik nie ma)
+    code=$(curl -s -o /dev/null -w '%{http_code}' -H "Host: acme.example.org" \
+        "http://127.0.0.1:$port_80/.well-known/acme-challenge/missing-$$" || true)
+    if [ "$code" = "404" ]; then
+        pass "GET /.well-known/acme-challenge/missing -> 404 (NIE 301)"
+    else
+        fail "ACME missing: oczekiwane 404, otrzymano '$code' (mogl byc 301 jesli location jest po redirecie)"
+    fi
+
+    # Krok 3: inne path-e dalej dostaja 301 - location bloku nie zaburzyl reszty
+    code=$(curl -s -o /dev/null -w '%{http_code}' -H "Host: acme.example.org" \
+        "http://127.0.0.1:$port_80/admin/" || true)
+    if [ "$code" = "301" ]; then
+        pass "GET /admin/ wciaz dostaje 301 (redirect na HTTPS dziala)"
+    else
+        fail "GET /admin/: oczekiwane 301, otrzymano '$code'"
     fi
 
     # cleanup via trap RETURN

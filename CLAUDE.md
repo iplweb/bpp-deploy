@@ -59,6 +59,35 @@ Image tags: https://hub.docker.com/r/iplweb/bpp_dbserver/tags
 
 `STATIC_ROOT=/staticroot/` in `.env` overrides image default `/app/staticroot`. Backward-compat: entrypoint guards with `if [ -d /app/staticroot.baked ]`. After `make refresh` or `make prune-orphan-volumes`, volume gets repopulated from `.baked`.
 
+### SSL: manual vs Let's Encrypt
+
+`DJANGO_BPP_SSL_MODE` (default `manual`) wybiera, gdzie nginx czyta certy:
+
+- **`manual`** — `$BPP_CONFIGS_DIR/ssl/<host>/{cert,key}.pem` (multi-host) z fallbackiem do `$BPP_CONFIGS_DIR/ssl/{cert,key}.pem` (legacy single). Tu trafiają snakeoil i certy wgrane ręcznie. **LE nigdy nie pisze do `ssl/`** — separacja katalogów chroni manualne certy.
+- **`letsencrypt`** — `$BPP_CONFIGS_DIR/letsencrypt/live/<host>/{fullchain,privkey}.pem` (per-host) z fallbackiem do `live/<canonical>/...` (SAN, jeden cert pod nazwą pierwszego hosta z `HOSTNAMES`/`HOSTNAME`). Dalsze fallbacki do manualnych ścieżek — gdy LE jeszcze nie wystawił, nginx wstaje na snakeoil.
+
+Wybór trybu: edycja `DJANGO_BPP_SSL_MODE` w `$BPP_CONFIGS_DIR/.env` + `make refresh`.
+
+**Wystawienie cert LE** (one-shot, ręcznie):
+
+```bash
+make ssl-letsencrypt-issue           # staging (LE staging API, niezaufany w przeglądarce, test pipeline'u)
+make ssl-letsencrypt-issue PROD=1    # prod (zużywa rate-limit LE!)
+```
+
+W trybie PROD skrypt wykrywa kolizję `mode=manual` i interaktywnie pyta o flip na `letsencrypt`. Non-interactive: `ACTIVATE=1` lub `ACTIVATE=0`. Cert wystawiany jako SAN — jedna `--cert-name` pod `$CANONICAL_HOST` (= pierwszy z listy), wszystkie hosty jako `-d`.
+
+**Codzienny renew**: Ofelia `job-run` na certbot image o 04:00 (label na `appserver` w `application.yml`). `certbot renew` jest idempotentny — pomija certy z >30 dni do wygaśnięcia, exit 0 gdy `letsencrypt/` puste. Po sukcesie deploy-hook tworzy sentinel `letsencrypt/.reload-needed`. Drugi job (Ofelia `job-exec` na webserverze, 04:05) podnosi sentinel, robi `nginx -s reload` i kasuje go. Manualny renew: `make ssl-letsencrypt-renew` (tożsamy flow, od razu).
+
+**ACME location**: `/.well-known/acme-challenge/` w port-80 server bloku `vhost.conf.template` — zawsze aktywny, niezależnie od `SSL_MODE`. Webroot na shared volume `acme-challenge` (RW dla certbota, RO dla nginx). Zero downtime przy issue/renew (webroot challenge, nie standalone).
+
+**Pliki**:
+- `scripts/letsencrypt.sh` — host-side orchestrator (issue/renew, auto-flip mode po prompcie)
+- `scripts/letsencrypt-reload.sh` — exec-owany przez Ofelia w webserverze, sprawdza sentinel
+- `defaults/webserver/30-render-bpp-vhosts.sh` — SSL_MODE-aware cert path resolver
+- `docker-compose.application.yml` — service `certbot` z `profiles: ['letsencrypt']` (start tylko przez `docker compose run`) + Ofelia `job-run` label dla codziennego renew
+- `docker-compose.infrastructure.yml` — webserver bind mount `letsencrypt/` (RW dla sentinela), volume `acme-challenge`, Ofelia `job-exec` label dla reloadu
+
 ### Authentication
 
 Grafana uses auth proxy mode behind nginx + authserver (Django). Headers: `X-WEBAUTH-USER`, `X-WEBAUTH-EMAIL`, `X-WEBAUTH-NAME`. Auto-signup as Admin.
