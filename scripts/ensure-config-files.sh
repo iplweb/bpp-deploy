@@ -40,6 +40,8 @@ mkdir -p "$BPP_CONFIGS_DIR/loki"
 mkdir -p "$BPP_CONFIGS_DIR/prometheus"
 mkdir -p "$BPP_CONFIGS_DIR/grafana/provisioning/datasources"
 mkdir -p "$BPP_CONFIGS_DIR/grafana/provisioning/dashboards"
+mkdir -p "$BPP_CONFIGS_DIR/netdata/go.d"
+mkdir -p "$BPP_CONFIGS_DIR/netdata/health.d"
 
 # Kopiuje plik tylko jesli nie istnieje. Obsluguje edge-case, gdy Docker
 # przy bind-moucie nieistniejacej sciezki hosta utworzyl w tym miejscu pusty
@@ -73,3 +75,11 @@ while IFS= read -r -d '' f; do
     dest="$BPP_CONFIGS_DIR/grafana/provisioning/$rel"
     copy_if_missing "$f" "$dest"
 done < <(find "$DEFAULTS_DIR/grafana/provisioning" -type f -print0)
+
+# Netdata configi (rekursywnie, copy_if_missing).
+while IFS= read -r -d '' f; do
+    rel="${f#"$DEFAULTS_DIR/netdata/"}"
+    dest="$BPP_CONFIGS_DIR/netdata/$rel"
+    mkdir -p "$(dirname "$dest")"
+    copy_if_missing "$f" "$dest"
+done < <(find "$DEFAULTS_DIR/netdata" -type f -print0)

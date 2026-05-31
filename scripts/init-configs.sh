@@ -431,6 +431,16 @@ DJANGO_BPP_POSTGRESQL_VERSION_MAJOR=$_dbserver_major
 EOF
     fi
 
+    # Netdata + ntfy.sh: wygeneruj losowy topic (sekret) i ustaw publiczny serwer.
+    # Te same wartosci sa tez dosypywane przez blok migracji w 'else' ponizej dla
+    # istniejacych .envow - tu obslugujemy tylko swiezo wygenerowany plik.
+    _topic="$(openssl rand -hex 16 2>/dev/null || head -c 32 /dev/urandom | xxd -p -c 32)"
+    set_env_var "NTFY_TOPIC" "$_topic" \
+        "Sekretny topic dla push-alertow Netdaty (subskrybuj w app ntfy)"
+    echo "  ! Subskrybuj na telefonie: https://ntfy.sh/$_topic"
+    ensure_env_var "DJANGO_BPP_NTFY_SERVER" "https://ntfy.sh" "" \
+        "Serwer ntfy do alertow (default publiczny ntfy.sh)"
+
     echo "Wygenerowano $ENV_FILE z losowymi haslami."
 
 else
@@ -660,6 +670,19 @@ else
             "Pelna wersja PostgreSQL (MAJOR.MINOR lokalnie, MAJOR w external)"
         echo "  + derive DJANGO_BPP_POSTGRESQL_VERSION=$_val z DJANGO_BPP_POSTGRESQL_VERSION_MAJOR"
     fi
+
+    # Migracja: dodaj NTFY_TOPIC dla istniejacych deploymentow (Netdata + ntfy.sh).
+    # Topic jest sekretem - kto zna URL, czyta alerty. openssl rand -hex generuje
+    # 32 znaki, fallback na /dev/urandom dla minimalnych obrazow bez openssl.
+    if ! env_has_var "NTFY_TOPIC"; then
+        _topic="$(openssl rand -hex 16 2>/dev/null || head -c 32 /dev/urandom | xxd -p -c 32)"
+        set_env_var "NTFY_TOPIC" "$_topic" \
+            "Sekretny topic dla push-alertow Netdaty (subskrybuj w app ntfy)"
+        echo "  ! Subskrybuj na telefonie: https://ntfy.sh/$_topic"
+    fi
+
+    ensure_env_var "DJANGO_BPP_NTFY_SERVER" "https://ntfy.sh" "" \
+        "Serwer ntfy do alertow (default publiczny ntfy.sh)"
 
     # W trybie zewnetrznej bazy - upewnij sie ze major version sentinela jest ustawiony.
     if [ "$BPP_EXTERNAL_DB" = "yes" ] && ! env_has_var "DJANGO_BPP_POSTGRESQL_VERSION_MAJOR"; then
