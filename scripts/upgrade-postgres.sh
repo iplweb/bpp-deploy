@@ -474,7 +474,7 @@ Procedura wykona:
      jesli siec padnie lub tag nie istnieje, dowiemy sie TERAZ a nie po
      skasowaniu volume)
   2. Zatrzyma serwisy konsumujace baze (appserver, authserver, workery,
-     celerybeat, denorm-queue, flower, postgres-exporter, ofelia, backup-runner)
+     celerybeat, denorm-queue, flower, ofelia, backup-runner)
      - po dodatkowym prompcie, zeby bylo jasne co pada
   3. pg_dump aktualnego clustra (przez 'make db-backup') - bez concurrent writes
   4. Zatrzyma i usunie kontener dbserver
@@ -681,9 +681,8 @@ fi
 
 # ---- Krok 2: stop dependent services ------------------------------------
 # WAZNE: stop PRZED db-backupem - zeby pg_dump dostal czysty snapshot bez
-# concurrent writes od appservera/workerow i bez interferencji postgres-exportera
-# (ktory zrzuca co 15s `pg_stat_*`). ofelia stop = nie wystartuje swojego cronu
-# (migrate, denorm-rebuild) w trakcie upgrade'u. backup-runner stop = nie
+# concurrent writes od appservera/workerow. ofelia stop = nie wystartuje swojego
+# cronu (migrate, denorm-rebuild) w trakcie upgrade'u. backup-runner stop = nie
 # wystartuje wlasnego pg_dumpa rownolegle z naszym.
 if [ "$FROM_STEP" -le 2 ] && ! step_is_skipped 2; then
     CURRENT_STEP=2
@@ -701,7 +700,6 @@ uniknac konfliktow w trakcie upgrade'u:
   celerybeat             - scheduler Celery
   denorm-queue           - LISTEN/NOTIFY bridge
   flower                 - monitoring Celery
-  postgres-exporter      - Prometheus metrics (zeby nie kolidowal z pg_dump)
   ofelia                 - Docker cron (zeby nie triggerowal taskow w trakcie)
   backup-runner          - daily backup (zeby nie uruchomil wlasnego pg_dumpa)
 
@@ -717,10 +715,10 @@ EOF
     # Denorm-queue + workerserver-* + celerybeat maja dedykowany target (wspolny
     # z 'make migrate') - docker compose wysle SIGTERM i poczeka na graceful stop.
     run make stop-denorm-celery
-    # Reszta konsumentow bazy + postgres-exporter + ofelia + backup-runner.
+    # Reszta konsumentow bazy + ofelia + backup-runner.
     run docker compose stop \
         appserver authserver flower \
-        postgres-exporter ofelia backup-runner
+        ofelia backup-runner
 fi
 
 # ---- Krok 3: dump --------------------------------------------------------

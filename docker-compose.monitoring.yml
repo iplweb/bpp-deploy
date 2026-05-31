@@ -92,62 +92,6 @@ services:
           memory: ${ALLOY_MEM_LIMIT:-384m}
           cpus: "${ALLOY_CPU_LIMIT:-0.5}"
 
-  prometheus:
-    image: prom/prometheus:v3.11.0
-    restart: always
-    logging: *default-logging
-    command:
-      - '--config.file=/etc/prometheus/prometheus.yml'
-      - '--storage.tsdb.path=/prometheus'
-      - '--storage.tsdb.retention.time=30d'
-      - '--storage.tsdb.retention.size=4GB'
-      - '--web.enable-lifecycle'
-      - '--log.level=warn'
-    volumes:
-      - prometheus_data:/prometheus
-      - ${BPP_CONFIGS_DIR}/prometheus:/etc/prometheus:ro
-    depends_on:
-      - appserver
-    deploy:
-      resources:
-        limits:
-          memory: ${PROMETHEUS_MEM_LIMIT:-512m}
-          cpus: "${PROMETHEUS_CPU_LIMIT:-1.0}"
-
-  postgres-exporter:
-    image: quay.io/prometheuscommunity/postgres-exporter:v0.19.1
-    restart: always
-    logging: *default-logging
-    environment:
-      DATA_SOURCE_URI: "${DJANGO_BPP_DB_HOST}:${DJANGO_BPP_DB_PORT}/${DJANGO_BPP_DB_NAME}?sslmode=disable"
-      DATA_SOURCE_USER: "${DJANGO_BPP_DB_USER}"
-      DATA_SOURCE_PASS: "${DJANGO_BPP_DB_PASSWORD}"
-    depends_on:
-      dbserver:
-        condition: service_healthy
-    deploy:
-      resources:
-        limits:
-          memory: ${PG_EXPORTER_MEM_LIMIT:-64m}
-          cpus: "${PG_EXPORTER_CPU_LIMIT:-0.25}"
-
-  node-exporter:
-    image: quay.io/prometheus/node-exporter:v1.11.0
-    restart: always
-    logging: *default-logging
-    command:
-      - '--path.rootfs=/host'
-      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
-      - '--no-collector.kernel_hung'
-    pid: host
-    volumes:
-      - '/:/host:ro,rslave'
-    deploy:
-      resources:
-        limits:
-          memory: ${NODE_EXPORTER_MEM_LIMIT:-64m}
-          cpus: "${NODE_EXPORTER_CPU_LIMIT:-0.25}"
-
   netdata:
     image: netdata/netdata:v1.99.0
     hostname: ${DJANGO_BPP_HOSTNAME:-bpp}
@@ -208,7 +152,6 @@ services:
 
 volumes:
   grafana_data:
-  prometheus_data:
   loki_data:
   netdata_lib:
   netdata_cache:

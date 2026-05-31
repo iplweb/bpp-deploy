@@ -106,7 +106,7 @@ SERVICES=(
     "workerserver-denorm:15:12.5"
     "redis:13:7.5"
     "loki:5:2.5"
-    "prometheus:7:5"
+    "netdata:7:5"
 )
 
 # --- Helpery ---
@@ -326,7 +326,7 @@ var_prefix_for() {
         workerserver-denorm)    echo "WORKER_DENORM" ;;
         redis)                  echo "REDIS" ;;
         loki)                   echo "LOKI" ;;
-        prometheus)             echo "PROMETHEUS" ;;
+        netdata)                echo "NETDATA" ;;
         *) echo "UNKNOWN" ;;
     esac
 }

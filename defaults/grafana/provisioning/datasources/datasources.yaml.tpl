@@ -6,18 +6,8 @@ datasources:
     type: loki
     access: proxy
     url: http://loki:3100
-    isDefault: false
-    editable: false
-
-  - name: Prometheus
-    uid: prometheus
-    type: prometheus
-    access: proxy
-    url: http://prometheus:9090
     isDefault: true
     editable: false
-    jsonData:
-      timeInterval: "15s"
 
   - name: PostgreSQL
     uid: postgresql

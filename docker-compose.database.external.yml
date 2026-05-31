@@ -8,8 +8,8 @@
 # sentinel (postgres:<major>-alpine w wersji dopasowanej do zewnętrznej bazy),
 # który:
 #
-#   1. Istnieje po to, żeby 'depends_on: dbserver' w authserver/appserver/
-#      postgres-exporter nadal działało.
+#   1. Istnieje po to, żeby 'depends_on: dbserver' w authserver/appserver
+#      nadal działało.
 #   2. Jego healthcheck sonduje prawdziwą, zewnętrzną bazę przez pg_isready,
 #      więc serwisy zależne startują dopiero gdy zewnętrzna baza jest
 #      faktycznie dostępna.
@@ -17,9 +17,9 @@
 #      dzięki czemu 'make db-backup', 'make dbshell-psql' itp. działają bez
 #      zmian w targetach.
 #
-# Aplikacja (appserver, authserver, workerserver-*, postgres-exporter) łączy
-# się BEZPOŚREDNIO z zewnętrzną bazą przez DJANGO_BPP_DB_HOST z .env -
-# sentinel nie jest pośrednikiem, tylko wartownikiem.
+# Aplikacja (appserver, authserver, workerserver-*) łączy się BEZPOŚREDNIO
+# z zewnętrzną bazą przez DJANGO_BPP_DB_HOST z .env - sentinel nie jest
+# pośrednikiem, tylko wartownikiem.
 
 x-logging: &default-logging
   driver: "local"

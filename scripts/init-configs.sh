@@ -13,7 +13,6 @@ set -euo pipefail
 BPP_CONFIGS_DIR="${1:-}"
 USER_HOME="${2:-$HOME}"
 REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-CONFIG_DEFAULTS_DIR="$REPO_DIR/defaults"
 
 # --- 1. Oblicz domyślną ścieżkę ---
 
@@ -756,20 +755,6 @@ if [ ! -f "$ABS_CONFIG/ssl/key.pem" ] || [ ! -f "$ABS_CONFIG/ssl/cert.pem" ]; th
             -addext "subjectAltName=DNS:$SSL_HOSTNAME" 2>/dev/null
         echo "  Wygenerowano certyfikaty snakeoil SSL."
         echo "  Wazne 365 dni. Mozna pozniej zamienic na wlasciwe certyfikaty."
-    fi
-fi
-
-# --- 8b. Local overrides (macOS) ---
-
-OVERRIDES_FILE="$REPO_DIR/docker-compose.local_overrides.yml"
-if [ ! -f "$OVERRIDES_FILE" ]; then
-    if [ "$(uname -s)" = "Darwin" ]; then
-        cp "$CONFIG_DEFAULTS_DIR/docker-compose.local_overrides.yml" "$OVERRIDES_FILE"
-        echo "  Utworzono docker-compose.local_overrides.yml (macOS — node-exporter wylaczony)"
-    else
-        # Linux: pusty override, wymagany przez docker-compose.yml include
-        echo "# Linux — no overrides needed" > "$OVERRIDES_FILE"
-        echo "  Utworzono docker-compose.local_overrides.yml (Linux — pusty)"
     fi
 fi
 
