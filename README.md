@@ -7,31 +7,22 @@
 
 Konfiguracja wdrożeniowa systemu **[BPP (Bibliografia Publikacji Pracowników)](https://github.com/iplweb/bpp)** — orkiestracja Docker Compose z monitoringiem, backupami i automatyczną konfiguracją.
 
+📖 **Pełna dokumentacja:** [iplweb.github.io/bpp-deploy](https://iplweb.github.io/bpp-deploy/)
+
 <p align="center">
   <b>Wsparcie komercyjne zapewnia</b><br><br>
   <a href="https://bpp.iplweb.pl"><img src="https://www.iplweb.pl/images/ipl-logo-large.png" width="150" alt="IPL Web"></a>
 </p>
 
-## Spis treści
+---
 
-- [Jak zainstalować i uruchomić system BPP przy pomocy bpp-deploy](#jak-zainstalować-i-uruchomić-system-bpp-przy-pomocy-bpp-deploy)
-  - [Linux](#linux)
-  - [macOS](#macos)
-  - [Windows](#windows)
-- [Wspólne kroki konfiguracji](#wspólne-kroki-konfiguracji)
-- [Struktura katalogów](#struktura-katalogów)
-- [Najważniejsze komendy](#najważniejsze-komendy)
-- [Usługi](#usługi)
-- [Przenosiny serwera na inną maszynę](#przenosiny-serwera-na-inną-maszynę)
-- [Rozwiązywanie problemów](#rozwiązywanie-problemów)
-- [Jak rozwijać pakiet bpp-deploy](#jak-rozwijać-pakiet-bpp-deploy)
-  - [Testy](#testy)
-  - [Pre-commit hooks](#pre-commit-hooks)
-- [Licencja](#licencja)
+To repozytorium zawiera **wyłącznie warstwę wdrożeniową** (Docker Compose, `Makefile`, skrypty, monitoring). Kod aplikacji Django żyje w osobnym repozytorium **[iplweb/bpp](https://github.com/iplweb/bpp)** i wewnątrz obrazów `iplweb/*`.
+
+To README pokazuje **jak zainstalować i uruchomić system BPP**. Wszystkie pozostałe tematy — konfiguracja, monitoring, backupy, upgrade PostgreSQL, przenosiny serwera, rozwiązywanie problemów — opisuje [pełna dokumentacja](https://iplweb.github.io/bpp-deploy/).
 
 ## Jak zainstalować i uruchomić system BPP przy pomocy bpp-deploy
 
-Wybierz swój system operacyjny — instrukcje są podzielone na sekcje per-OS. Po zakończeniu kroków właściwych dla Twojego systemu przejdź do **[wspólnych kroków konfiguracji](#wspólne-kroki-konfiguracji)**, identycznych dla wszystkich platform.
+Wybierz swój system operacyjny. Po zakończeniu kroków właściwych dla Twojego systemu przejdź do **[wspólnych kroków konfiguracji](#wspólne-kroki-konfiguracji)**, identycznych dla wszystkich platform.
 
 | System | Instrukcja |
 |--------|------------|
@@ -42,8 +33,6 @@ Wybierz swój system operacyjny — instrukcje są podzielone na sekcje per-OS. 
 ### Linux
 
 Otwórz **Terminal** (zazwyczaj skrót `Ctrl+Alt+T` lub znajdziesz go w menu aplikacji).
-
-Wybierz swoją dystrybucję i wpisz podane polecenia jedno po drugim:
 
 <details>
 <summary><b>Debian / Ubuntu</b></summary>
@@ -75,11 +64,6 @@ Zainstaluj Docker Engine — [oficjalna instrukcja dla Fedory](https://docs.dock
 
 ```bash
 sudo pacman -Sy --noconfirm git make openssl gettext
-```
-
-Zainstaluj Docker Engine:
-
-```bash
 sudo pacman -Sy --noconfirm docker docker-compose
 sudo systemctl enable --now docker
 sudo usermod -aG docker $USER
@@ -100,82 +84,59 @@ Zainstaluj Docker Engine — [oficjalna instrukcja dla SLES/openSUSE](https://do
 
 </details>
 
-Po zainstalowaniu narzędzi i Dockera, dodaj swojego użytkownika do grupy `docker`, żeby `make` i `docker compose` działały **bez** `sudo` i bez podawania hasła roota przy każdym poleceniu:
+Dodaj użytkownika do grupy `docker`, żeby `make` i `docker compose` działały **bez** `sudo`:
 
 ```bash
 sudo usermod -aG docker $USER
 ```
 
-Aby zmiana zaczęła obowiązywać, **wyloguj się i zaloguj ponownie** (na sesji graficznej najprościej całkowicie wylogować, a w SSH zakończyć sesję i wejść na nowo). Alternatywnie odśwież grupy w bieżącej powłoce poleceniem `newgrp docker` — działa tylko w tym jednym terminalu.
+**Wyloguj się i zaloguj ponownie**, aby zmiana zaczęła obowiązywać (lub `newgrp docker` w bieżącym terminalu). Sprawdź: `docker run --rm hello-world` powinno wykonać się bez `sudo`.
 
-Sprawdź, czy działa:
+> **Uwaga bezpieczeństwa:** członkostwo w grupie `docker` jest równoważne uprawnieniom roota na hoście. Dodawaj do niej tylko zaufane konta administratorów.
 
-```bash
-docker run --rm hello-world
-```
-
-Polecenie powinno wykonać się bez `sudo`. Jeżeli zamiast tego widzisz `permission denied while trying to connect to the Docker daemon socket` — przelogowanie nie zostało wykonane.
-
-> **Uwaga bezpieczeństwa:** członkostwo w grupie `docker` jest faktycznie równoważne uprawnieniom roota na hoście (przez Dockera można zamontować `/` i wyjść z kontenera). Dodawaj do tej grupy tylko zaufane konta administratorów.
-
-Sklonuj repozytorium i przejdź do katalogu:
+Sklonuj repozytorium:
 
 ```bash
 git clone https://github.com/iplweb/bpp-deploy.git
 cd bpp-deploy
 ```
 
----
+Więcej: [dokumentacja → Instalacja → Linux](https://iplweb.github.io/bpp-deploy/instalacja/linux/).
 
 ### macOS
 
-Otwórz **Terminal** — znajdziesz go w Finderze pod ścieżką *Programy > Narzędzia > Terminal* (albo wyszukaj "Terminal" przez Spotlight: `Cmd+Spacja`).
-
-Zainstaluj Xcode Command Line Tools (zawiera git i make). Wpisz w Terminalu:
+Otwórz **Terminal** (Spotlight: `Cmd+Spacja`, wpisz „Terminal").
 
 ```bash
-xcode-select --install
+xcode-select --install      # git + make (potwierdź w oknie dialogowym)
+brew install gettext        # envsubst (wymaga Homebrew: https://brew.sh/)
 ```
 
-Pojawi się okno z prośbą o potwierdzenie — kliknij **Zainstaluj** i poczekaj na zakończenie.
+Zainstaluj [Docker Desktop dla macOS](https://docs.docker.com/desktop/install/mac-install/) (wybierz **Apple Silicon** dla M1/M2/M3/M4 lub **Intel**), uruchom i poczekaj, aż ikona w pasku menu przestanie się animować.
 
-Zainstaluj [Docker Desktop dla macOS](https://docs.docker.com/desktop/install/mac-install/) — pobierz ze strony (wybierz wariant zgodny z Twoim Makiem: **Apple Silicon** dla M1/M2/M3/M4 lub **Intel** dla starszych modeli), otwórz plik `.dmg` i przeciągnij Docker do folderu Programy. Uruchom Docker Desktop i poczekaj, aż ikona w pasku menu przestanie się animować.
-
-Zainstaluj `envsubst` (potrzebny do generowania konfiguracji). Jeśli nie masz jeszcze [Homebrew](https://brew.sh/), najpierw go zainstaluj, a potem wpisz w Terminalu:
-
-```bash
-brew install gettext
-```
-
-Sklonuj repozytorium i przejdź do katalogu:
+Sklonuj repozytorium:
 
 ```bash
 git clone https://github.com/iplweb/bpp-deploy.git
 cd bpp-deploy
 ```
 
----
+Więcej: [dokumentacja → Instalacja → macOS](https://iplweb.github.io/bpp-deploy/instalacja/macos/).
 
 ### Windows
 
-Pobierz i zainstaluj (klikając "Dalej" w instalatorach):
+Pobierz i zainstaluj:
 
-- [Git for Windows](https://gitforwindows.org/) — dostarcza **Git Bash**, czyli terminal z narzędziami Unix
-- [Docker Desktop for Windows](https://docs.docker.com/desktop/install/windows-install/) — po instalacji uruchom Docker Desktop i poczekaj, aż ikona w zasobniku przestanie się animować
+- [Git for Windows](https://gitforwindows.org/) — dostarcza **Git Bash**
+- [Docker Desktop for Windows](https://docs.docker.com/desktop/install/windows-install/) — uruchom i poczekaj, aż ikona w zasobniku przestanie się animować
 
-Zainstaluj GNU Make. Otwórz **PowerShell jako Administrator** (kliknij prawym przyciskiem na menu Start > "Terminal (Administrator)" lub "Windows PowerShell (Administrator)") i wpisz:
+W **PowerShell jako Administrator** zainstaluj GNU Make ([Chocolatey](https://chocolatey.org/install) lub [Scoop](https://scoop.sh/)):
 
 ```powershell
 choco install make
 ```
 
-Jeśli nie masz [Chocolatey](https://chocolatey.org/install), możesz zamiast tego użyć [Scoop](https://scoop.sh/):
-
-```powershell
-scoop install make
-```
-
-Otwórz **Git Bash** (znajdziesz go w menu Start po wpisaniu "Git Bash") i sklonuj repozytorium:
+Otwórz **Git Bash** i sklonuj repozytorium:
 
 ```bash
 git clone https://github.com/iplweb/bpp-deploy.git
@@ -183,6 +144,8 @@ cd bpp-deploy
 ```
 
 > **Ważne:** Od tego momentu wszystkie komendy `make` uruchamiaj w **Git Bash**, nie w CMD ani PowerShell.
+
+Więcej: [dokumentacja → Instalacja → Windows](https://iplweb.github.io/bpp-deploy/instalacja/windows/).
 
 ## Wspólne kroki konfiguracji
 
@@ -194,53 +157,27 @@ Poniższe kroki wykonujesz po zakończeniu instrukcji właściwych dla Twojego s
 make
 ```
 
-Przy pierwszym uruchomieniu `make` zapyta o ścieżkę do **katalogu konfiguracyjnego** — musi znajdować się poza repozytorium. Jego nazwa stanie się nazwą projektu Docker Compose.
-
-```
-=== BPP Deploy - pierwsze uruchomienie ===
-
-Podaj sciezke do katalogu konfiguracyjnego instancji BPP.
-Katalog musi znajdowac sie POZA repozytorium.
-
-Przyklad: /home/deploy/publikacje-uczelnia
-
-Sciezka: /home/deploy/moja-instancja
-```
-
-`make` automatycznie:
-- utworzy strukturę katalogów konfiguracyjnych,
-- skopiuje szablonowe pliki z `defaults/`,
-- wygeneruje losowe hasła do bazy danych,
-- utworzy plik `.env` z konfiguracją.
+Przy pierwszym uruchomieniu `make` zapyta o ścieżkę do **katalogu konfiguracyjnego** (musi znajdować się poza repozytorium — jego nazwa stanie się nazwą projektu Docker Compose) i automatycznie: utworzy strukturę katalogów, skopiuje szablony z `defaults/`, wygeneruje losowe hasła i utworzy plik `.env`.
 
 ### 2. Sprawdź i dostosuj konfigurację
 
-Otwórz plik `.env` z katalogu konfiguracyjnego w dowolnym edytorze tekstu (np. Notepad, VS Code, nano, vim):
+Otwórz `.env` z katalogu konfiguracyjnego (ścieżka wyświetli się po pierwszym `make`, np. `/home/deploy/moja-instancja/.env`) i ustaw:
 
-```
-# Ścieżka wyświetli się po pierwszym uruchomieniu make, np.:
-# /home/deploy/moja-instancja/.env
-```
-
-Co trzeba zmienić w `.env`:
-- `DJANGO_BPP_HOSTNAME` — właściwa nazwa hosta (np. `publikacje.uczelnia.pl`)
+- `DJANGO_BPP_HOSTNAME` — nazwę hosta (np. `publikacje.uczelnia.pl`)
 - `DJANGO_BPP_CSRF_EXTRA_ORIGINS` — dozwolone originy CSRF
-- Sprawdź wygenerowane hasła (opcjonalnie)
 
-Dodaj certyfikaty SSL (lub wygeneruj samopodpisane):
+Dodaj certyfikaty SSL:
+
 ```bash
-# Opcja A: własne certyfikaty — skopiuj cert.pem i key.pem
-#          do podkatalogu ssl/ w katalogu konfiguracyjnym
-
-# Opcja B: samopodpisane certyfikaty (snakeoil) do testów
+# Opcja A: własne certyfikaty — skopiuj cert.pem i key.pem do podkatalogu ssl/
+# Opcja B: samopodpisane (snakeoil) do testów:
 make generate-snakeoil-certs
-
-# Opcja C: Let's Encrypt (wymaga DNS wskazującego na ten serwer + port 80
-#          osiągalny z internetu). Zacznij OD STAGINGA, potem PROD=1:
+# Opcja C: Let's Encrypt (DNS musi wskazywać na serwer, port 80 osiągalny):
 make ssl-letsencrypt-issue           # staging - test pipeline'u
 make ssl-letsencrypt-issue PROD=1    # prawdziwy cert + flip mode na 'letsencrypt'
-# Codzienne odnawianie działa automatycznie przez Ofelię.
 ```
+
+Szczegóły SSL, multi-host i limitów zasobów: [dokumentacja → Konfiguracja](https://iplweb.github.io/bpp-deploy/konfiguracja/architektura/).
 
 ### 3. Uruchom usługi
 
@@ -250,451 +187,31 @@ make run
 
 ### 4. Otwórz aplikację w przeglądarce
 
-Po uruchomieniu `make run` główny serwis jest dostępny przez `webserver` (Nginx), który wystawia standardowe porty HTTP i HTTPS:
+Główny serwis jest dostępny przez `webserver` (Nginx) na portach `80` i `443`. Otwórz aplikację pod adresem hosta zgodnym z `DJANGO_BPP_HOSTNAME` (lokalnie najprościej `DJANGO_BPP_HOSTNAME=localhost` → `https://localhost/`).
 
-- `80:80`
-- `443:443`
+Przy pustej bazie aplikacja przekieruje do `/setup/` — kreatora, w którym tworzysz pierwsze konto administratora.
 
-Na Docker Desktop pod macOS oznacza to, że porty są mapowane na hosta macOS. Aplikację otwierasz więc w przeglądarce przez adres hosta, a nie przez wewnętrzne porty kontenerów.
+Narzędzia administracyjne i monitoring są dostępne przez Nginx (chronione uwierzytelnianiem): `https://<hostname>/grafana/`, `/netdata/`, `/flower/`, `/dozzle/`.
 
-Zalecane warianty konfiguracji lokalnej:
+## Dokumentacja
 
-- ustaw `DJANGO_BPP_HOSTNAME=localhost` i otwórz `https://localhost/`
-- albo ustaw własną nazwę, np. `bpp.local`, dodaj ją do `/etc/hosts`, a następnie otwórz `https://bpp.local/`
+Pełna dokumentacja: **[iplweb.github.io/bpp-deploy](https://iplweb.github.io/bpp-deploy/)**
 
-Uwaga: Nginx akceptuje tylko hostname zgodny z `DJANGO_BPP_HOSTNAME`. Jeśli w konfiguracji ustawisz inną nazwę hosta, wejście przez `localhost` może nie działać poprawnie mimo poprawnego mapowania portów.
+| Sekcja | Tematy |
+|--------|--------|
+| [Instalacja](https://iplweb.github.io/bpp-deploy/instalacja/) | Linux / macOS / Windows, pierwsze uruchomienie |
+| [Konfiguracja](https://iplweb.github.io/bpp-deploy/konfiguracja/architektura/) | architektura, SSL, multi-host, limity zasobów, PostgreSQL |
+| [Eksploatacja](https://iplweb.github.io/bpp-deploy/eksploatacja/komendy/) | komendy `make`, baza danych, backupy, przenosiny serwera, wydania |
+| [Monitoring i logi](https://iplweb.github.io/bpp-deploy/monitoring/przeglad/) | Netdata, Loki, Grafana, alerty ntfy, wolne zapytania |
+| [Architektura](https://iplweb.github.io/bpp-deploy/architektura/uslugi/) | usługi, przepływ danych, healthchecks, zadania Ofelii |
+| [Rozwiązywanie problemów](https://iplweb.github.io/bpp-deploy/rozwiazywanie-problemow/) | najczęstsze problemy przy starcie |
+| [Rozwój pakietu](https://iplweb.github.io/bpp-deploy/rozwoj/testy/) | testy, pre-commit, backwards compatibility |
 
-Przy pierwszym uruchomieniu, jeśli baza danych jest pusta, aplikacja automatycznie przekieruje do `/setup/`. Jest to oczekiwane zachowanie kreatora konfiguracji początkowej, w którym tworzysz pierwsze konto administratora.
-
-Dodatkowe narzędzia administracyjne i monitoring nie są wystawiane jako osobne porty hosta. Są dostępne przez Nginx pod ścieżkami:
-
-- `https://<hostname>/grafana/`
-- `https://<hostname>/netdata/`
-- `https://<hostname>/flower/`
-- `https://<hostname>/dozzle/`
-
-## Struktura katalogów
-
-```
-~/
-├── bpp-deploy/                     # To repozytorium
-│   ├── .env                        # Wskazuje katalog konfiguracyjny
-│   ├── Makefile
-│   ├── docker-compose.*.yml
-│   ├── mk/                         # Moduły Makefile
-│   ├── defaults/             # Szablonowe pliki konfiguracyjne
-│   └── tests/
-│
-├── moja-instancja/                 # Katalog konfiguracyjny (BPP_CONFIGS_DIR)
-│   ├── .env                        # Zmienne aplikacyjne (hasła, hostname)
-│   ├── ssl/                        # Certyfikaty SSL
-│   ├── alloy/                      # Konfiguracja Grafana Alloy
-│   ├── loki/                       # Konfiguracja Loki (retencja logów)
-│   ├── netdata/                    # Konfiguracja Netdata (go.d/, health.d/, alerty ntfy)
-│   ├── grafana/provisioning/       # Dashboardy i datasources Grafana
-│   ├── rclone/                     # Konfiguracja backupów
-│   └── dozzle/                     # Użytkownicy Dozzle
-│
-└── backups/                        # Backupy baz danych
-```
-
-## Najważniejsze komendy
+Podgląd dokumentacji lokalnie:
 
 ```bash
-make help             # Pełna lista wszystkich targetów Make (źródło prawdy)
-```
-
-### Wdrożenie
-
-```bash
-make run              # Pełne wdrożenie (pull, build, configs, up)
-make up               # Start wszystkich usług (force recreate)
-make up-quick         # Szybki start bez recreation
-make refresh          # prune + pull + recreate (po update obrazu)
-make wait             # Czeka na build z GH Actions, potem make refresh
-make stop             # Zatrzymaj usługi
-make restart-appserver  # Restart serwera aplikacji
-```
-
-### Baza danych
-
-```bash
-make migrate          # Migracje Django (bezpiecznie zatrzymuje workery)
-make db-backup        # Backup bazy (równoległy pg_dump, tar.gz)
-make dbshell          # Django database shell
-make dbshell-psql     # Bezpośredni psql
-make upgrade-postgres # Upgrade major wersji PostgreSQL (np. 16.13 -> 18.3)
-```
-
-### Monitoring i logi
-
-```bash
-make health           # Szybki healthcheck wszystkich usług
-make logs-appserver   # Logi serwera aplikacji
-make logs-celery      # Logi workerów Celery
-make logs-netdata     # Logi Netdaty (metryki + alerty)
-make ps               # Lista kontenerów
-make celery-stats     # Statystyki zadań Celery
-make ntfy-test        # Wyślij testowy push na ntfy (alerty na telefon)
-```
-
-### Konfiguracja
-
-```bash
-make update-configs     # Regeneruj datasources.yaml (envsubst)
-make update-ssl-certs   # Przeładuj nginx po zmianie certyfikatów
-make init-configs       # Uzupełnij brakujące pliki w katalogu konfiguracyjnym
-make configure-resources # Dostrój limity RAM/CPU dla wszystkich serwisów
-make generate-snakeoil-certs  # Wygeneruj samopodpisane certyfikaty SSL
-make ssl-letsencrypt-issue    # Wystaw cert Let's Encrypt (PROD=1 dla prawdziwego)
-make ssl-letsencrypt-renew    # Manualnie odśwież certy LE (codzienne dzieje się przez Ofelię)
-```
-
-#### Let's Encrypt — automatyczne certyfikaty SSL
-
-BPP ma natywne wsparcie dla Let's Encrypt obok tradycyjnych certów na dysku. **Manualne i LE-certy współistnieją** w osobnych katalogach (`ssl/` vs `letsencrypt/`) — LE nigdy nie nadpisuje plików w `ssl/`. Wybór trybu sterowany jedną zmienną `DJANGO_BPP_SSL_MODE` w `$BPP_CONFIGS_DIR/.env`:
-
-```bash
-DJANGO_BPP_SSL_MODE=manual       # default — czyta ssl/<host>/cert.pem (snakeoil/ręczne)
-DJANGO_BPP_SSL_MODE=letsencrypt  # czyta letsencrypt/live/<host>/fullchain.pem
-```
-
-**Pierwszy raz** (DNS musi już wskazywać na ten serwer i port 80 musi być osiągalny z internetu):
-
-```bash
-make ssl-letsencrypt-issue           # staging — niezaufany w przeglądarce, ale weryfikuje pipeline
-make ssl-letsencrypt-issue PROD=1    # prod — prawdziwy cert + interaktywny prompt o flip mode
-```
-
-W trybie `PROD=1`, jeśli aktualne `SSL_MODE=manual`, skrypt pyta o aktywację `letsencrypt`. Non-interactive: `ACTIVATE=1` (auto-flip + recreate webservera) lub `ACTIVATE=0` (zostaw mode=manual). Cert wystawiany jako SAN — jeden plik dla wszystkich hostów z `DJANGO_BPP_HOSTNAMES`/`DJANGO_BPP_HOSTNAME`.
-
-**Codzienne odnawianie**: Ofelia o 04:00 spawnuje świeży kontener `certbot/certbot` (job-run), wywołuje `certbot renew` (idempotentny — pomija certy z >30 dni do wygaśnięcia). Po sukcesie deploy-hook tworzy sentinel; o 04:05 drugi job (job-exec na webserverze) podnosi sentinel i robi `nginx -s reload`.
-
-**Powrót do certów manualnych** (np. uczelnia dała wildcard EV):
-
-```bash
-# wgraj nowy cert do $BPP_CONFIGS_DIR/ssl/cert.pem (lub ssl/<host>/cert.pem dla multi-host)
-# edytuj $BPP_CONFIGS_DIR/.env: DJANGO_BPP_SSL_MODE=manual
-make refresh
-# Katalog letsencrypt/ zostaje na dysku — można w każdej chwili wrócić bez ponownego wystawiania.
-```
-
-**Zero downtime**: certbot używa webroot challenge (nie standalone), nginx cały czas pracuje. Location `/.well-known/acme-challenge/` jest zawsze aktywny w bloku port-80 (niezależnie od trybu) — w trybie manual zwraca 404 dla zapytań ACME, co jest bezpieczne.
-
-#### Limity zasobów (`make configure-resources`)
-
-Podczas pierwszego uruchomienia `make` skrypt `configure-resources` jest odpalany automatycznie — wykrywa RAM i liczbę rdzeni hosta, proponuje proporcjonalny podział budżetu między 7 serwisów wysokiego ryzyka (dbserver, appserver, workerserver-general/denorm, redis, loki, netdata) i pyta użytkownika o akceptację każdej wartości. Jeżeli odstąpisz od zaproponowanego defaultu dla któregoś serwisu, pozostałe mają swój budżet proporcjonalnie powiększony lub zmniejszony.
-
-Docker traktuje limit RAM jako **twardy** (przekroczenie → OOM kill), a CPU jako **miękki** (throttling bez zabijania). RAM ustawiaj z zapasem.
-
-Wynik ląduje w `$BPP_CONFIGS_DIR/.env` jako zmienne `DBSERVER_MEM_LIMIT`, `APPSERVER_MEM_LIMIT` itd. Możesz wrócić i przekonfigurować w każdej chwili uruchamiając `make configure-resources` ręcznie.
-
-### Multi-host (jeden Django, wiele domen)
-
-Jedna instancja BPP może obsługiwać wiele różnych domen równocześnie — wszystkie żądania trafiają do tego samego appservera i tej samej bazy. Typowe użycie: konsorcjum uczelni, gdzie każda jednostka chce dostawać BPP pod własną nazwą (`bpp.uczelnia-a.pl`, `bpp.uczelnia-b.pl`, `bpp.federacja.pl`).
-
-**Włączenie:** w `$BPP_CONFIGS_DIR/.env` ustaw `DJANGO_BPP_HOSTNAMES` jako listę CSV i **usuń** `DJANGO_BPP_HOSTNAME` (Django w `bpp` czyta jedną z nich — oba ustawione naraz powodują konflikt w `settings.py`):
-
-```bash
-DJANGO_BPP_HOSTNAMES=bpp.uczelnia-a.pl,bpp.uczelnia-b.pl,bpp.federacja.pl
-# DJANGO_BPP_HOSTNAME=...  ← usuń tę linię
-```
-
-`make init-configs` w trybie multi-host:
-- pomija prompt o `DJANGO_BPP_HOSTNAME`,
-- auto-derive-uje `DJANGO_BPP_CSRF_EXTRA_ORIGINS=https://host1,https://host2,...` z całej listy (jeśli zmienna nie jest jeszcze ustawiona),
-- ostrzega gdy w `.env` znajdzie obie zmienne naraz.
-
-Dotychczasowy single-host flow (`DJANGO_BPP_HOSTNAME` + `ssl/cert.pem`+`key.pem`) działa bez zmian — gdy `DJANGO_BPP_HOSTNAMES` puste, nginx dostaje jeden vhost dokładnie jak wcześniej.
-
-**Certyfikaty SSL — per-host:** różne organizacje zwykle mają własne CA, więc każdy host dostaje własną parę cert+key:
-
-```
-$BPP_CONFIGS_DIR/ssl/
-├── cert.pem                          # legacy single-host (nadal działa)
-├── key.pem
-├── bpp.uczelnia-a.pl/cert.pem       # per-host
-├── bpp.uczelnia-a.pl/key.pem
-├── bpp.uczelnia-b.pl/cert.pem
-├── bpp.uczelnia-b.pl/key.pem
-└── bpp.federacja.pl/cert.pem
-    bpp.federacja.pl/key.pem
-```
-
-Dla danego hosta wgraj certyfikat do podkatalogu `ssl/<nazwa-hosta>/`. Jeśli per-host nie istnieje, nginx-entrypoint fallbackuje do `ssl/cert.pem`+`key.pem` — co jest sensowne tylko gdy wszystkie hosty są aliasami w jednym certyfikacie SAN.
-
-**Snakeoile (testy):** `make generate-snakeoil-certs` wykrywa tryb multi-host i generuje pary per-host:
-
-```bash
-make generate-snakeoil-certs        # tworzy ssl/<host>/cert.pem dla kazdego hosta z CSV
-make generate-snakeoil-certs-force  # nadpisuje istniejace
-```
-
-**Po zmianach** (dodanie/usunięcie hosta lub podmiana certu na działającym stacku):
-
-```bash
-make update-ssl-certs   # regeneruje vhost-*.conf w kontenerze i robi nginx -s reload (bez restartu)
-```
-
-**Co dzieje się pod spodem:** entrypoint nginx-a (`30-render-bpp-vhosts.sh`) iteruje po liście, dla każdego hosta wybiera certyfikat (per-host lub legacy fallback) i renderuje `/etc/nginx/conf.d/vhost-<host>.conf` z `defaults/webserver/vhost.conf.template`. Wspólne wnętrze (proxy do appservera, /grafana/, /flower/, /static/, /media/, gzip, security blocks) trzymane jest w `defaults/webserver/_bpp-locations.conf` i includowane przez każdy vhost — żeby zmiana reguły nie wymagała edytowania N plików.
-
-Globalne catch-all bloki (HTTP 444 dla nieznanego hosta, HTTPS `ssl_reject_handshake` dla nieznanego SNI) zostają w `default.conf.template`. Tylko nazwy z `DJANGO_BPP_HOSTNAMES` są redirectowane na HTTPS — reszta dostaje 444.
-
-> **Po stronie Django:** `ALLOWED_HOSTS` musi obejmować wszystkie nazwy z `DJANGO_BPP_HOSTNAMES`. Sposób konfiguracji jest po stronie obrazu `appservera` — sprawdź ustawienia w repo `bpp`. `DJANGO_BPP_CSRF_EXTRA_ORIGINS` (wystawione przez `init-configs`) automatycznie pokrywa wszystkie hosty.
-
-### Wersja serwera PostgreSQL
-
-Kontener `dbserver` używa obrazu `iplweb/bpp_dbserver:psql-<MAJOR.MINOR>`. Wersja jest sterowana zmienną `DJANGO_BPP_POSTGRESQL_VERSION` w `$BPP_CONFIGS_DIR/.env` (obok jest auto-derived `DJANGO_BPP_POSTGRESQL_VERSION_MAJOR` używana przez backup-runnera `postgres:<major>-alpine`). Aktualna lista tagów: [hub.docker.com/r/iplweb/bpp_dbserver/tags](https://hub.docker.com/r/iplweb/bpp_dbserver/tags) (np. `16.13`, `17.9`, `18.3`).
-
-**Domyślna wersja**: `16.13`. Wybór wersji następuje przy pierwszym uruchomieniu `make` — skrypt `init-configs` zapyta o `Wersja PostgreSQL [16.13]:`. Możesz wpisać dowolną dostępną na Docker Hub.
-
-#### Minor upgrade (ta sama wersja major, np. 16.13 → 16.14)
-
-Format PGDATA jest binarnie kompatybilny w obrębie tego samego majora, więc wystarczy zmiana tagu i restart:
-
-```bash
-# 1. W $BPP_CONFIGS_DIR/.env zmień: DJANGO_BPP_POSTGRESQL_VERSION=16.14
-# 2. Pobierz nowy obraz i odśwież kontener:
-docker compose pull dbserver
-docker compose up -d dbserver
-```
-
-#### Major upgrade (np. 16.13 → 18.3)
-
-Między różnymi major wersjami PostgreSQL **nie ma binarnej kompatybilności formatu PGDATA** — każdy nowy kontener musi wystartować na pustym, świeżo zainicjalizowanym wolumenie. Dane przenosi się metodą *logical dump & restore*:
-
-```bash
-make upgrade-postgres
-```
-
-Skrypt interaktywnie wykonuje 9 kroków (dump → kopia volume → bump `.env` → initdb na nowym majorze → restore → migracje), z **automatycznym rollbackiem** w razie nieudanego startu nowej bazy oraz trybem **resume** (`--from-step=N`) pozwalającym wznowić po błędzie bez powtarzania długiego dumpu.
-
-**Wymagania**:
-- Obraz `iplweb/bpp_dbserver:psql-<nowa_wersja>` musi być opublikowany na Docker Hub.
-- Wolne miejsce: ~2.5× rozmiar PGDATA (tarball + kopia starego volume).
-- Stack musi być uruchomiony (`make up`), żeby wykonać `pg_dump`.
-
-Pełna dokumentacja kroków, rollbacku i resume:
-
-```bash
-bash scripts/upgrade-postgres.sh --help
-```
-
-**Tryb external** (`BPP_DATABASE_COMPOSE=docker-compose.database.external.yml`): upgrade samej bazy wykonujesz po swojej stronie (managed service, RDS blue/green, `pg_upgradecluster` itp.), a skrypt tylko synchronizuje `DJANGO_BPP_POSTGRESQL_VERSION` + `_MAJOR` i odświeża sentinel/backup-runner.
-
-### Backup
-
-```bash
-make db-backup        # Pojedynczy pg_dump (równoległy, tar.gz)
-make backup-cycle     # Pełen cykl: pg_dump + tar mediów + rclone + powiadomienia
-make rclone-config    # Konfiguracja zdalnego backupu (Google Drive, S3, ...)
-make rclone-sync      # Wymuszona synchronizacja z chmurą
-make rclone-check     # Sprawdzenie spójności kopii zdalnej
-```
-
-Codzienny backup uruchamia Ofelia o `02:30` — opisane szerzej w sekcji [Usługi](#usługi).
-
-### Wydanie
-
-```bash
-make release          # Tag + push: YYYY.MM.DD lub YYYY.MM.DD.N (calendar versioning)
-make version          # Wyświetl bieżącą wersję
-```
-
-### Zarządzanie hostem
-
-```bash
-make base-host-update-upgrade  # Aktualizacja systemu (apt update + full-upgrade)
-make base-host-reboot          # Restart hosta
-make install-docker            # Instalacja Dockera na hoście
-```
-
-## Usługi
-
-| Usługa | Opis |
-|--------|------|
-| **appserver** | Serwer aplikacji Django |
-| **authserver** | Serwer uwierzytelniania dla nginx |
-| **dbserver** | PostgreSQL |
-| **webserver** | Nginx (reverse proxy + static files) |
-| **redis** | Cache, broker Celery i result backend |
-| **workerserver-general** | Ogólne zadania Celery |
-| **workerserver-denorm** | Zadania denormalizacji |
-| **denorm-queue** | Bridge PostgreSQL LISTEN → Celery (single instance!) |
-| **celerybeat** | Harmonogram zadań okresowych |
-| **flower** | UI monitorowania Celery (`/flower`) |
-| **grafana** | Dashboardy i wizualizacje (`/grafana`) |
-| **netdata** | Metryki hosta / kontenerów / PostgreSQL + alerty push na ntfy.sh (`/netdata`) |
-| **loki** | Agregacja logów |
-| **alloy** | Kolektor logów z kontenerów Docker |
-| **dozzle** | Przeglądarka logów w czasie rzeczywistym (`/dozzle`) |
-| **rclone** | Backup do chmury |
-| **ofelia** | Cron dla Dockera |
-
-## Przenosiny serwera na inną maszynę
-
-Procedura przeniesienia działającej instancji BPP na nowy host (np. wymiana sprzętu, migracja do innego data center, klonowanie środowiska produkcyjnego na zapasowe). Sprowadza się do **trzech katalogów + dwóch komend**.
-
-### Na starej maszynie
-
-1. Zrób świeży backup pary baza + media:
-
-   ```bash
-   cd ~/bpp-deploy
-   make backup
-   ```
-
-   `make backup` uruchamia `db-backup` (równoległy `pg_dump -Fd`, spakowany do `tar.gz`) i `media-backup` (zawartość volume `media` jako `tar.gz`). Oba archiwa lądują w `$DJANGO_BPP_HOST_BACKUP_DIR` z timestampem (`db-backup-YYYYMMDD-HHMMSS.tar.gz`, `media-backup-YYYYMMDD-HHMMSS.tar.gz`).
-
-2. Skopiuj na nową maszynę **trzy katalogi** (np. przez `rsync`, `scp`, dysk zewnętrzny):
-
-   - `~/bpp-deploy/` — repozytorium (zawiera `.env` wskazujący na katalog konfiguracyjny)
-   - `$BPP_CONFIGS_DIR` — katalog konfiguracyjny instancji (np. `~/publikacje-uczelnia/` z `.env`, certyfikatami SSL, konfiguracją Grafany itd.)
-   - `$DJANGO_BPP_HOST_BACKUP_DIR` — katalog z backupami (potrzebny tylko ten najświeższy z punktu 1, ale prościej skopiować całość)
-
-   Przykład z `rsync` przez SSH (z aktualnego hosta na nowy):
-
-   ```bash
-   rsync -avzP ~/bpp-deploy/              nowy-host:~/bpp-deploy/
-   rsync -avzP ~/publikacje-uczelnia/     nowy-host:~/publikacje-uczelnia/
-   rsync -avzP ~/backups/                 nowy-host:~/backups/
-   ```
-
-   Ścieżki absolutne w `.env` (`BPP_CONFIGS_DIR`, `DJANGO_BPP_HOST_BACKUP_DIR`) muszą się zgadzać po obu stronach — albo skopiuj do tych samych ścieżek, albo edytuj `.env` na nowej maszynie po przeniesieniu.
-
-### Na nowej maszynie
-
-3. Zainstaluj zależności hosta zgodnie z sekcją [Linux](#linux) / [macOS](#macos) / [Windows](#windows) — Docker Engine, `make`, `git`, `gettext`, dodanie użytkownika do grupy `docker`. **Nie uruchamiaj `make` ani `make init-configs`** — masz już skopiowaną konfigurację, świeży `init-configs` rozjedzie hasła z dumpem.
-
-4. Przywróć dane z backupu:
-
-   ```bash
-   cd ~/bpp-deploy
-   make restore
-   ```
-
-   Skrypt `restore.sh` automatycznie wybiera najświeższą parę `db-backup` + `media-backup` z katalogu backupów (możesz też podać `--pick` do interaktywnego wyboru z `fzf`/menu albo `--timestamp=YYYYMMDD-HHMMSS`). Przed destruktywnym restorem robi safety-backup aktualnej pustej bazy, więc procedura jest odwracalna.
-
-5. Zweryfikuj:
-
-   ```bash
-   make health
-   make logs-appserver
-   ```
-
-   Otwórz aplikację w przeglądarce — powinieneś zobaczyć dokładnie ten sam stan, co na starej maszynie w momencie `make backup`.
-
-### Co przenieść warto, ale opcjonalnie
-
-- **DNS / certyfikaty SSL** — jeśli zmienia się hostname, zaktualizuj `DJANGO_BPP_HOSTNAME` i `DJANGO_BPP_CSRF_EXTRA_ORIGINS` w `$BPP_CONFIGS_DIR/.env`, podmień certyfikaty w `$BPP_CONFIGS_DIR/ssl/` i uruchom `make update-ssl-certs`.
-- **rclone** — konfiguracja zdalnych backupów już jest w `$BPP_CONFIGS_DIR/rclone/`, działa od razu po przeniesieniu.
-- **Cron Ofelia** — niczego nie trzeba przepisywać, harmonogram jest w pliku `docker-compose.application.yml` z repozytorium.
-
-### Co **nie** jest backupowane przez `make backup`
-
-`make backup` zapisuje tylko bazę danych i wolumeny mediów. Loki/Netdata/Grafana (logi i metryki historyczne) **nie są przenoszone** — po starcie na nowym hoście zaczynają od pustego stanu. Jeśli zależy ci na historii monitoringu, skopiuj dodatkowo wolumeny `loki_data`, `netdata_lib`, `netdata_cache` i `grafana_data` (przy zatrzymanym stacku, np. przez `docker run --rm -v <vol>:/data alpine tar czf - /data | ssh nowy-host 'cat > vol.tar.gz'`).
-
-## Rozwiązywanie problemów
-
-#### Porty 80/443 są zajęte
-
-Symptom: `make up` kończy się błędem `bind: address already in use` na `webserver`. Lokalna instalacja nginx, Apache lub innego serwera zajmuje porty.
-
-```bash
-# Sprawdź, kto trzyma port:
-sudo lsof -iTCP:80 -sTCP:LISTEN
-sudo lsof -iTCP:443 -sTCP:LISTEN
-```
-
-Zatrzymaj kolidującą usługę (`sudo systemctl stop nginx`) albo zmień mapowanie portów w `docker-compose.infrastructure.yml` (np. `8080:80`, `8443:443`) — pamiętaj o zaktualizowaniu URL-i, którymi otwierasz aplikację.
-
-#### Przeglądarka pokazuje ostrzeżenie o niezaufanym certyfikacie
-
-Symptom: po `make generate-snakeoil-certs` przeglądarka blokuje stronę z komunikatem `NET::ERR_CERT_AUTHORITY_INVALID` lub podobnym.
-
-To certyfikat **samopodpisany** — przewidziany do testów lokalnych. Opcje:
-
-- **Lokalnie**: kliknij „Zaawansowane" → „Mimo to przejdź do strony" (Chrome/Edge) lub „Zaakceptuj ryzyko" (Firefox).
-- **Produkcyjnie**: wystaw prawdziwy certyfikat przez Let's Encrypt / komercyjne CA i podmień `cert.pem`/`key.pem` w katalogu `ssl/` w `$BPP_CONFIGS_DIR`. Następnie `make update-ssl-certs`.
-
-#### `permission denied` przy `docker compose` (Linux)
-
-Symptom: `Got permission denied while trying to connect to the Docker daemon socket`.
-
-Twój użytkownik nie należy do grupy `docker`:
-
-```bash
-sudo usermod -aG docker $USER
-# Wyloguj się i zaloguj ponownie, albo:
-newgrp docker
-```
-
-#### Setup wizard `/setup/` się nie pokazuje
-
-Symptom: aplikacja zamiast `/setup/` rzuca błąd 500 lub przekierowuje na login. Najczęstsza przyczyna: migracje nie zostały uruchomione na pustej bazie.
-
-```bash
-make migrate
-make logs-appserver  # Sprawdź, czy migracje przeszły bez błędu
-```
-
-#### Worker / appserver się restartuje w kółko
-
-Symptom: `make ps` pokazuje status `restarting` albo `unhealthy`.
-
-```bash
-make health                    # Globalny przegląd
-make logs-<service>            # Zastąp <service> nazwą z make ps
-docker compose logs --tail=200 <service>
-```
-
-Najczęstsze przyczyny: brak migracji bazy (uruchom `make migrate`), brak połączenia z Redis (sprawdź czy `redis` jest healthy), niepoprawne wartości w `.env`.
-
-#### Po `git pull` coś się rozjechało
-
-Symptom: nowe usługi się nie pojawiają, obrazy są stare, `.env` nie ma nowych zmiennych.
-
-```bash
-make init-configs   # Uzupełnia brakujące zmienne w .env (idempotentne)
-make refresh        # prune + pull + recreate całego stacku
-```
-
-Backwards compatibility jest gwarantowana — `bpp-deploy` zawsze startuje na starym `.env` (patrz `CLAUDE.md`, sekcja „Backwards Compatibility"). Jeśli mimo to coś nie działa, zgłoś issue.
-
-## Jak rozwijać pakiet bpp-deploy
-
-> **Zakres:** ta sekcja dotyczy wyłącznie rozwoju **`bpp-deploy`** — czyli orkiestracji Docker Compose, Makefile, skryptów konfiguracyjnych i monitoringu opisanych w tym repozytorium.
->
-> Rozwój **samej aplikacji BPP** (kod Django w `/src/`, modele, widoki, importery, integracje z PBN, ORCID itd.) odbywa się w osobnym repozytorium: **[github.com/iplweb/bpp](https://github.com/iplweb/bpp)** — tam też znajdziesz dokumentację dla developerów aplikacji.
-
-### Testy
-
-```bash
-./tests/test_makefile.sh
-```
-
-Testy weryfikują orkiestrację `bpp-deploy`:
-- first-run setup (tworzenie konfiguracji, generowanie haseł)
-- idempotentność `init-configs`
-- losowość haseł między instancjami
-- dostępność targetów Make w trybie normalnym
-- poprawność bind mountów w docker-compose
-- brak mechanizmów SCP w konfiguracji
-
-### Pre-commit hooks
-
-Repozytorium używa [pre-commit](https://pre-commit.com/) z następującymi hookami:
-
-- **trailing-whitespace**, **end-of-file-fixer** — formatowanie
-- **check-yaml** — walidacja YAML
-- **check-merge-conflict** — wykrywanie konfliktów merge
-- **detect-private-key** — blokada kluczy prywatnych
-- **shellcheck** — linter bash
-- **TruffleHog** — wykrywanie sekretów i haseł
-
-```bash
-pip install pre-commit
-pre-commit install
+pip install -r docs/requirements.txt
+mkdocs serve   # http://127.0.0.1:8000
 ```
 
 ## Licencja

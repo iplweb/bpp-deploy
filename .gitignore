@@ -21,8 +21,12 @@ credentials.yml
 credentials.yaml
 service-account*.json
 
-# Claude Code local data
-.claude/
+# Claude Code local data (but keep committed, repo-shared skills)
+.claude/*
+!.claude/skills/
+
+# MkDocs build output
+site/
 
 # Emacs backup / autosave / lockfiles
 *~
