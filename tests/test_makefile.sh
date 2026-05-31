@@ -27,6 +27,17 @@ assert_file_contains()  { if grep -q "$2" "$3" 2>/dev/null; then pass "$1"; else
 assert_file_not_contains() { if ! grep -q "$2" "$3" 2>/dev/null; then pass "$1"; else fail "$1 (found '$2')"; fi; }
 assert_file_not_empty() { if [ -s "$2" ]; then pass "$1"; else fail "$1 ($2 is empty)"; fi; }
 
+# rm -rf z fallbackiem na sudo. Potrzebne po testach uzywajacych docker run,
+# ktore zostawiaja pliki nalezace do root (default user w kontenerze) — na
+# Linuxie (GHA Ubuntu) host user != root, wiec plain rm dostaje EACCES.
+# macOS Docker Desktop user-mapuje volumes wiec rm dziala bez sudo. GHA ma
+# passwordless sudo. Lokalnie bez sudo — sudo wisi/faila, fallback na rm
+# pokaze oryginalny blad permission denied (degradacja akceptowalna,
+# user widzi dlaczego cleanup nie zadzialal).
+rm_rf_root() {
+    sudo -n rm -rf "$@" 2>/dev/null || rm -rf "$@"
+}
+
 setup_temp() {
     WORK_DIR=$(mktemp -d)
     REPO_COPY="$WORK_DIR/bpp-deploy"
@@ -486,7 +497,7 @@ test_nginx_config_valid() {
                     -subj \"/CN=\$h\" >/dev/null 2>&1
             done" || {
         fail "dummy SSL cert generation"
-        rm -rf "$ngx_dir"
+        rm_rf_root "$ngx_dir"
         return
     }
 
@@ -560,7 +571,7 @@ test_nginx_config_valid() {
                 -keyout "/le/live/$h/privkey.pem" -out "/le/live/$h/fullchain.pem" \
                 -subj "/CN=$h" >/dev/null 2>&1
         done
-    ' || { fail "stub LE cert generation"; rm -rf "$ngx_dir"; return; }
+    ' || { fail "stub LE cert generation"; rm_rf_root "$ngx_dir"; return; }
 
     # --- Test 14c: per-host LE certy obecne dla wszystkich hostow ---
     rm -f "$ngx_dir/out"/vhost-*.conf "$ngx_dir/out/rendered-default.conf"
@@ -590,7 +601,7 @@ test_nginx_config_valid() {
     # --- Test 14d: SAN — tylko canonical (pierwszy host) ma LE cert ---
     # Usun per-host certy dla 2-go i 3-go hosta. Zostaje tylko canonical.
     # Wszystkie 3 vhosty powinny wskazywac na canonical fullchain.
-    rm -rf "$ngx_dir/letsencrypt/live/bpp.wizja.pl" "$ngx_dir/letsencrypt/live/bpp.ufam.pl"
+    rm_rf_root "$ngx_dir/letsencrypt/live/bpp.wizja.pl" "$ngx_dir/letsencrypt/live/bpp.ufam.pl"
     rm -f "$ngx_dir/out"/vhost-*.conf "$ngx_dir/out/rendered-default.conf"
     local out_d
     out_d=$(_run_nginx_t "$ngx_dir" \
@@ -618,7 +629,7 @@ test_nginx_config_valid() {
     # --- Test 14e: SSL_MODE=letsencrypt ale BRAK LE certow -> fallback manual ---
     # Soft-fallback to manual paths zeby nginx wstal na snakeoil zanim user
     # wystawi LE cert (typowy first-deploy scenariusz).
-    rm -rf "$ngx_dir/letsencrypt/live/bpp.federacja.pl"
+    rm_rf_root "$ngx_dir/letsencrypt/live/bpp.federacja.pl"
     rm -f "$ngx_dir/out"/vhost-*.conf "$ngx_dir/out/rendered-default.conf"
     local out_e
     out_e=$(_run_nginx_t "$ngx_dir" \
@@ -640,7 +651,7 @@ test_nginx_config_valid() {
         printf '    %s\n' "${out_e//$'\n'/$'\n    '}"
     fi
 
-    rm -rf "$ngx_dir"
+    rm_rf_root "$ngx_dir"
 }
 
 # ============================================================
@@ -694,7 +705,7 @@ test_nginx_runtime() {
             docker stop -t 1 "$app_cid" >/dev/null 2>&1 || true
         fi
         docker network rm "$net_name" >/dev/null 2>&1 || true
-        rm -rf "$ngx_dir"
+        rm_rf_root "$ngx_dir"
     }
     trap _runtime_cleanup RETURN
 
