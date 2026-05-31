@@ -26,6 +26,7 @@
         "type": "loki",
         "uid": "loki"
       },
+      "description": "Wolumen linii logu w czasie, rozbity po poziomie (detected_level). Slupki stackowane. Klik w serie poziomu filtruje dashboard po tym poziomie (var-level). Respektuje filtry Service/Container/Level u gory.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -40,7 +41,7 @@
             "barAlignment": 0,
             "barWidthFactor": 0.6,
             "drawStyle": "bars",
-            "fillOpacity": 50,
+            "fillOpacity": 70,
             "gradientMode": "none",
             "hideFrom": {
               "legend": false,
@@ -55,7 +56,6 @@
               "type": "linear"
             },
             "showPoints": "auto",
-            "showValues": false,
             "spanNulls": false,
             "stacking": {
               "group": "A",
@@ -67,8 +67,8 @@
           },
           "links": [
             {
-              "title": "Filtruj logi poniżej tym serwerem (${__field.labels.service})",
-              "url": "?var-service=${__field.labels.service}"
+              "title": "Filtruj po poziomie: ${__field.labels.detected_level}",
+              "url": "?var-level=${__field.labels.detected_level}"
             }
           ],
           "mappings": [],
@@ -77,11 +77,7 @@
             "steps": [
               {
                 "color": "green",
-                "value": 0
-              },
-              {
-                "color": "red",
-                "value": 1
+                "value": null
               }
             ]
           },
@@ -91,13 +87,13 @@
           {
             "matcher": {
               "id": "byName",
-              "options": "alloy"
+              "options": "emergency"
             },
             "properties": [
               {
                 "id": "color",
                 "value": {
-                  "fixedColor": "#3274D9",
+                  "fixedColor": "#8E0E18",
                   "mode": "fixed"
                 }
               }
@@ -106,7 +102,52 @@
           {
             "matcher": {
               "id": "byName",
-              "options": "appserver"
+              "options": "alert"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "#8E0E18",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "fatal"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "#8E0E18",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "critical"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "#C4162A",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "error"
             },
             "properties": [
               {
@@ -121,7 +162,22 @@
           {
             "matcher": {
               "id": "byName",
-              "options": "webserver"
+              "options": "err"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "#E02F44",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "warning"
             },
             "properties": [
               {
@@ -136,13 +192,13 @@
           {
             "matcher": {
               "id": "byName",
-              "options": "dbserver"
+              "options": "warn"
             },
             "properties": [
               {
                 "id": "color",
                 "value": {
-                  "fixedColor": "#56A64B",
+                  "fixedColor": "#FF9830",
                   "mode": "fixed"
                 }
               }
@@ -151,142 +207,7 @@
           {
             "matcher": {
               "id": "byName",
-              "options": "workerserver-general"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "fixedColor": "#8F3BB8",
-                  "mode": "fixed"
-                }
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "workerserver-denorm"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "fixedColor": "#CA95E5",
-                  "mode": "fixed"
-                }
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "celerybeat"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "fixedColor": "#FADE2A",
-                  "mode": "fixed"
-                }
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "redis"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "fixedColor": "#DC382D",
-                  "mode": "fixed"
-                }
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "rabbitmq"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "fixedColor": "#FF6E00",
-                  "mode": "fixed"
-                }
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "grafana"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "fixedColor": "#F2495C",
-                  "mode": "fixed"
-                }
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "prometheus"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "fixedColor": "#E6522C",
-                  "mode": "fixed"
-                }
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "loki"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "fixedColor": "#5794F2",
-                  "mode": "fixed"
-                }
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "dozzle"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "fixedColor": "#B877D9",
-                  "mode": "fixed"
-                }
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "ofelia"
+              "options": "notice"
             },
             "properties": [
               {
@@ -301,13 +222,13 @@
           {
             "matcher": {
               "id": "byName",
-              "options": "node-exporter"
+              "options": "info"
             },
             "properties": [
               {
                 "id": "color",
                 "value": {
-                  "fixedColor": "#96D98D",
+                  "fixedColor": "#56A64B",
                   "mode": "fixed"
                 }
               }
@@ -316,13 +237,73 @@
           {
             "matcher": {
               "id": "byName",
-              "options": "postgres-exporter"
+              "options": "debug"
             },
             "properties": [
               {
                 "id": "color",
                 "value": {
-                  "fixedColor": "#336791",
+                  "fixedColor": "#3274D9",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "trace"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "#5794F2",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "unknown"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "#8A8A8A",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "logs"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "#8A8A8A",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "none"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "#8A8A8A",
                   "mode": "fixed"
                 }
               }
@@ -332,7 +313,7 @@
       },
       "gridPos": {
         "h": 8,
-        "w": 24,
+        "w": 18,
         "x": 0,
         "y": 0
       },
@@ -360,14 +341,124 @@
             "uid": "loki"
           },
           "editorMode": "code",
-          "expr": "sum(count_over_time({job=\"docker\", service=~\"$service\", container=~\"$container\", detected_level=~\"$level\"} [$__interval])) by (service)",
-          "legendFormat": "{{service}}",
+          "expr": "sum(count_over_time({job=\"docker\", service=~\"$service\", container=~\"$container\", detected_level=~\"$level\"} [$__interval])) by (detected_level)",
+          "legendFormat": "{{detected_level}}",
           "queryType": "range",
           "refId": "A"
         }
       ],
-      "title": "Error Count Over Time",
+      "title": "Log volume by level over time",
       "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "description": "Liczba linii logu per serwer (w wybranym zakresie czasu). Klik w wiersz ustawia filtr Service dla calego dashboardu. Tabela NIE filtruje sie po Service (zostaje pelnym menu); respektuje Container/Level.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "filterable": false,
+            "inspect": false
+          },
+          "links": [
+            {
+              "title": "Filtruj dashboard tym serwerem",
+              "url": "?var-service=${__data.fields.service}"
+            }
+          ],
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Lines"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 70
+              },
+              {
+                "id": "unit",
+                "value": "short"
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 18,
+        "y": 0
+      },
+      "id": 3,
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "countRows": false,
+          "fields": "",
+          "reducer": [
+            "sum"
+          ],
+          "show": false
+        },
+        "showHeader": true,
+        "sortBy": [
+          {
+            "desc": true,
+            "displayName": "Lines"
+          }
+        ]
+      },
+      "pluginVersion": "12.4.2",
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "editorMode": "code",
+          "expr": "sum(count_over_time({job=\"docker\", container=~\"$container\", detected_level=~\"$level\"} [$__range])) by (service)",
+          "queryType": "instant",
+          "refId": "A"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true
+            },
+            "indexByName": {},
+            "renameByName": {
+              "Value": "Lines"
+            }
+          }
+        }
+      ],
+      "title": "By service (click to filter)",
+      "type": "table"
     },
     {
       "datasource": {
@@ -411,7 +502,7 @@
           "refId": "A"
         }
       ],
-      "title": "Error Logs",
+      "title": "Logs",
       "type": "logs"
     }
   ],
@@ -520,8 +611,8 @@
   },
   "timepicker": {},
   "timezone": "browser",
-  "title": "Error Monitoring",
+  "title": "Log Monitoring",
   "uid": "error-monitoring",
-  "version": 4,
+  "version": 5,
   "weekStart": ""
 }
