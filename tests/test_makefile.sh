@@ -206,9 +206,12 @@ test_init_configs_no_overwrite() {
     # Zapamiętaj oryginalne zawartości
     local original_pass
     original_pass=$(grep 'DJANGO_BPP_DB_PASSWORD=' "$CONFIG_DIR/.env" | cut -d= -f2)
-    # Zmodyfikuj szablonowe pliki, żeby sprawdzić czy nie zostaną nadpisane
+    # Zmodyfikuj szablonowe pliki, żeby sprawdzić czy nie zostaną nadpisane.
+    # UWAGA: netdata.conf jest FORCE-SYNCOWANY (renderowany z netdata.conf.tpl -
+    # announce URL), wiec NIE testujemy go tu. Do sprawdzenia zachowania
+    # user-configa uzywamy health_alarm_notify.conf, ktory pozostaje copy_if_missing.
     echo "# custom alloy config" > "$CONFIG_DIR/alloy/config.alloy"
-    echo "# custom netdata config" > "$CONFIG_DIR/netdata/netdata.conf"
+    echo "# custom netdata notify config" > "$CONFIG_DIR/netdata/health_alarm_notify.conf"
 
     # Drugie uruchomienie — nie powinno nadpisać
     make -C "$REPO_COPY" init-configs BPP_CONFIGS_DIR="$CONFIG_DIR" >/dev/null 2>&1
@@ -224,7 +227,7 @@ test_init_configs_no_overwrite() {
 
     # Sprawdź szablonowe pliki konfiguracyjne
     assert_file_contains "alloy config preserved" "# custom alloy config" "$CONFIG_DIR/alloy/config.alloy"
-    assert_file_contains "netdata config preserved" "# custom netdata config" "$CONFIG_DIR/netdata/netdata.conf"
+    assert_file_contains "netdata config preserved" "# custom netdata notify config" "$CONFIG_DIR/netdata/health_alarm_notify.conf"
 
     cleanup_temp
 }
