@@ -13,7 +13,7 @@ ntfy-test:
 		echo "      Uruchom: make init-configs"; \
 		exit 1; \
 	fi
-	@echo "Wysylam test na $(NTFY_SERVER)/$(NTFY_TOPIC)"
+	@echo "Wysylam test na $(NTFY_SERVER)/<topic-ukryty>"
 	@curl -fsSL \
 		-H "Title: BPP test notification" \
 		-H "Tags: white_check_mark,bpp" \
@@ -25,7 +25,7 @@ ntfy-test:
 # Healthcheck Netdaty bezposrednio przez kontener (nginx wymaga auth,
 # wiec test przez localhost zwracal by 302 - mylace).
 health-netdata:
-	@docker compose exec -T netdata wget -qO- http://localhost:19999/api/v1/info 2>/dev/null \
+	@docker compose exec -T netdata curl -fsS http://localhost:19999/api/v1/info \
 		| head -c 200 && echo "" \
 		|| echo "Netdata kontener nie odpowiada (sprawdz: make logs-netdata)"
 
