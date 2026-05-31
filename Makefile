@@ -122,7 +122,6 @@ help:
 	@echo "    logs-netdata         - Tail netdata logs"
 	@echo "    ps                   - Show running containers"
 	@echo "    health               - Quick health check of all services"
-	@echo "    health-netdata       - Check netdata agent status"
 	@echo "    check-quic           - Verify HTTP/3 (QUIC) UDP port availability"
 	@echo "    ntfy-test            - Send test notification to ntfy (phone alerts)"
 	@echo ""

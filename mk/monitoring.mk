@@ -1,9 +1,12 @@
 # Monitoring helpers (Netdata + ntfy).
 
-.PHONY: ntfy-test health-netdata logs-netdata netdata-shell
+.PHONY: ntfy-test logs-netdata netdata-shell
 
 NTFY_TOPIC ?= $(shell grep '^NTFY_TOPIC=' $(BPP_CONFIGS_DIR)/.env 2>/dev/null | cut -d= -f2-)
-NTFY_SERVER ?= $(shell grep '^DJANGO_BPP_NTFY_SERVER=' $(BPP_CONFIGS_DIR)/.env 2>/dev/null | cut -d= -f2- || echo https://ntfy.sh)
+# $(or ...) bo `grep | cut || echo` nie dziala: cut konczy sie exit 0 nawet na
+# pustym wejsciu, wiec `|| echo` nigdy nie odpalalo i NTFY_SERVER bywal pusty
+# (stary .env bez DJANGO_BPP_NTFY_SERVER -> `make ntfy-test` curlowal do `/topic`).
+NTFY_SERVER ?= $(or $(strip $(shell grep '^DJANGO_BPP_NTFY_SERVER=' $(BPP_CONFIGS_DIR)/.env 2>/dev/null | cut -d= -f2-)),https://ntfy.sh)
 
 # Wyslij testowe powiadomienie na ntfy - potwierdzenie ze appka na
 # telefonie subskrybuje wlasciwy topic i konfiguracja dziala.
@@ -21,13 +24,6 @@ ntfy-test:
 		-d "To jest test z make ntfy-test. Jesli to widzisz, alerty dzialaja." \
 		"$(NTFY_SERVER)/$(NTFY_TOPIC)" >/dev/null
 	@echo "Wyslane. Sprawdz appke ntfy na telefonie."
-
-# Healthcheck Netdaty bezposrednio przez kontener (nginx wymaga auth,
-# wiec test przez localhost zwracal by 302 - mylace).
-health-netdata:
-	@docker compose exec -T netdata curl -fsS http://localhost:19999/api/v1/info \
-		| head -c 200 && echo "" \
-		|| echo "Netdata kontener nie odpowiada (sprawdz: make logs-netdata)"
 
 # Live logi netdata.
 logs-netdata:

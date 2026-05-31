@@ -316,7 +316,7 @@ test_compose_bind_mounts() {
         assert_file_contains "$f.yml uses BPP_CONFIGS_DIR" "BPP_CONFIGS_DIR" "$file"
     done
 
-    for vol in ssl_certs rabbitmq_config grafana_provisioning alloy_config prometheus_config rclone_config; do
+    for vol in ssl_certs rabbitmq_config grafana_provisioning alloy_config prometheus_data rclone_config; do
         if grep -rq "^  ${vol}:" "$REPO_DIR"/docker-compose.*.yml 2>/dev/null; then
             fail "Named volume '$vol' still defined"
         else

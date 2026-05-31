@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
 # Tworzy read-only uzytkownika PostgreSQL `bpp_monitor` uzywanego przez
 # Grafane (datasource) i Netdate (kolektor postgres). NIE jest to uzytkownik
-# aplikacji (BPP) - osobna, ograniczona rola tylko do odczytu:
-#   - pg_monitor        -> pg_stat_*, pg_stat_statements (built-in od PG10)
-#   - pg_read_all_data  -> SELECT na wszystkich tabelach (built-in od PG14;
-#                          best-effort, dashboardy i tak korzystaja gl. ze stat-view)
-# Rola NIE ma DDL/DML - panel SQL w Grafanie nie moze nic zepsuc w bazie.
+# aplikacji (BPP) - osobna, ograniczona rola tylko do statystyk:
+#   - pg_monitor -> pg_stat_*, pg_stat_statements (built-in od PG10); pokrywa
+#                   WSZYSTKIE dashboardy (operuja na stat-view, nie na danych).
+# Rola NIE ma DDL/DML ANI dostepu do danych aplikacji (CELOWO bez pg_read_all_data).
+# Grafana auto-promuje zalogowanych do Admina i daje ad-hoc SQL, wiec gdyby rola
+# miala SELECT na tabelach, kazdy user Grafany czytalby dane osobowe pracownikow.
+# pg_monitor wystarcza dla metryk i wolnych zapytan.
 #
 # Idempotentne: ponowne uruchomienie aktualizuje tylko haslo i granty.
 # Haslo z DJANGO_BPP_PG_MONITOR_PASSWORD (generowane przez ensure-config-files.sh).
@@ -93,11 +95,6 @@ GRANT pg_monitor TO ${MON_USER};
 GRANT CONNECT ON DATABASE "${DB_NAME}" TO ${MON_USER};
 SQL_EOF
 
-# pg_read_all_data istnieje dopiero od PG14 - osobny, best-effort statement,
-# zeby brak roli na starszym PG nie wywalil calosci (pg_monitor wystarcza dla
-# obecnych dashboardow).
-SQL_READALL="DO \$b\$ BEGIN IF EXISTS (SELECT FROM pg_roles WHERE rolname='pg_read_all_data') THEN GRANT pg_read_all_data TO ${MON_USER}; END IF; END \$b\$;"
-
 # Tryb external: dbserver to sentinel, nie prawdziwa baza.
 DATABASE_COMPOSE="$(_get_env BPP_DATABASE_COMPOSE "$REPO_DIR/.env")"
 if [ "$DATABASE_COMPOSE" = "docker-compose.database.external.yml" ]; then
@@ -113,7 +110,6 @@ Utworz role read-only recznie na zewnetrznym serwerze Postgres jako superuser:
 
 ----------------------------------------------------------------------
 ${SQL}
-${SQL_READALL}
 ----------------------------------------------------------------------
 
 Haslo musi byc identyczne z DJANGO_BPP_PG_MONITOR_PASSWORD w $ENV_FILE.
@@ -143,9 +139,5 @@ if ! docker compose exec -T -e PGPASSWORD="$SU_PASS" dbserver \
         psql -v ON_ERROR_STOP=1 -U "$SU_USER" -d "$DB_NAME" -c "$SQL"; then
     fail "nie udalo sie utworzyc roli ${MON_USER} (czy ${SU_USER} jest superuserem?)"
 fi
-# Best-effort pg_read_all_data (PG14+); nie przerywa gdy starszy PG.
-docker compose exec -T -e PGPASSWORD="$SU_PASS" dbserver \
-    psql -v ON_ERROR_STOP=1 -U "$SU_USER" -d "$DB_NAME" -c "$SQL_READALL" \
-    || echo "  (pg_read_all_data niedostepne - PG<14? pg_monitor wystarcza dla dashboardow)"
 
-echo "OK: rola ${MON_USER} gotowa (read-only: pg_monitor + pg_read_all_data)."
+echo "OK: rola ${MON_USER} gotowa (read-only: pg_monitor, bez dostepu do danych)."

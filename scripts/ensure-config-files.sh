@@ -95,8 +95,13 @@ while IFS= read -r -d '' f; do
     case "$rel" in
         # Dashboardy: shipped, read-only w UI -> zawsze swieze z repo.
         dashboards/*) copy_always "$f" "$dest" ;;
-        # Reszta (datasources .tpl renderowany osobno przez generate-grafana-datasources,
-        # ewentualne configi tuningowane recznie) -> tylko gdy brak.
+        # Szablon datasource'ow tez force-sync: to shipped artefakt (definicje
+        # Loki/PostgreSQL + cleanup martwego Prometheusa), renderowany potem
+        # przez generate-grafana-datasources. Bez tego upgrade trzymalby stary
+        # .tpl (copy_if_missing nie nadpisuje) i np. zmiana na read-only role
+        # bpp_monitor nigdy by nie zadzialala na istniejacych wdrozeniach.
+        datasources/datasources.yaml.tpl) copy_always "$f" "$dest" ;;
+        # Reszta (configi tuningowane recznie) -> tylko gdy brak.
         *)            copy_if_missing "$f" "$dest" ;;
     esac
 done < <(find "$DEFAULTS_DIR/grafana/provisioning" -type f -print0)
@@ -123,17 +128,28 @@ _ENV="$BPP_CONFIGS_DIR/.env"
 # zgodnie z regula kompatybilnosci wstecznej (patrz CLAUDE.md).
 if [ -f "$_ENV" ]; then
     _ensure_secret() {
-        # $1 = nazwa zmiennej, $2 = wartosc generowana gdy brak
-        if ! grep -qE "^${1}=" "$_ENV" 2>/dev/null; then
-            # Zapewnij trailing newline zanim dopiszemy - recznie edytowany .env
-            # bez konca-linii inaczej sklei nowa zmienna z ostatnia linia.
-            # $(tail -c1) gubi trailing \n: pusty => ostatni bajt to newline.
-            if [ -s "$_ENV" ] && [ -n "$(tail -c1 "$_ENV")" ]; then
-                printf '\n' >> "$_ENV"
-            fi
-            printf '%s=%s\n' "$1" "$2" >> "$_ENV"
-            echo "  + wygenerowano brakujacy sekret w .env: $1"
+        # $1 = nazwa zmiennej, $2 = wartosc generowana gdy brak LUB pusta.
+        # Niepusta wartosc (VAR=cos) -> nic nie robimy. Pusta linia (VAR=)
+        # traktujemy jak brak, bo inaczej create-monitoring-user / ntfy
+        # dostaja pusty sekret; grep "^VAR=" lapal tez taki przypadek i nigdy
+        # nie regenerowal. Wymagamy >=1 znaku po '=' (.+).
+        if grep -qE "^${1}=.+" "$_ENV" 2>/dev/null; then
+            return 0
         fi
+        # Usun ewentualna pusta linie 'VAR=' zanim dopiszemy nowa - bez tego
+        # zostawilibysmy duplikat klucza (VAR= oraz VAR=wartosc).
+        if grep -qE "^${1}=$" "$_ENV" 2>/dev/null; then
+            local _t="$_ENV.tmp.$$"
+            grep -vE "^${1}=$" "$_ENV" > "$_t" && mv "$_t" "$_ENV"
+        fi
+        # Zapewnij trailing newline zanim dopiszemy - recznie edytowany .env
+        # bez konca-linii inaczej sklei nowa zmienna z ostatnia linia.
+        # $(tail -c1) gubi trailing \n: pusty => ostatni bajt to newline.
+        if [ -s "$_ENV" ] && [ -n "$(tail -c1 "$_ENV")" ]; then
+            printf '\n' >> "$_ENV"
+        fi
+        printf '%s=%s\n' "$1" "$2" >> "$_ENV"
+        echo "  + wygenerowano brakujacy sekret w .env: $1"
     }
     # Haslo read-only roli monitoringu (Grafana datasource + Netdata postgres).
     # openssl rand -hex => tylko [0-9a-f]; create-monitoring-user.sh dodatkowo
@@ -161,6 +177,9 @@ if [ -f "$_ENV" ] && [ -f "$DEFAULTS_DIR/netdata/go.d/postgres.conf.tpl" ]; then
     _PG_HOST="$(_get DJANGO_BPP_DB_HOST)"
     _PG_PORT="$(_get DJANGO_BPP_DB_PORT)"
     _PG_DB="$(_get DJANGO_BPP_DB_NAME)"
+    # Port domyslny 5432 gdy .env go nie ma - inaczej DSN renderuje sie jako
+    # '...@host:/db' (pusty port) i kolektor postgres netdaty nie laczy sie.
+    [ -n "$_PG_PORT" ] || _PG_PORT="5432"
 
     if [ -n "$_PG_MON_PASSWORD" ] && [ -n "$_PG_HOST" ] && [ -n "$_PG_DB" ]; then
         # sed-escape replacementu: backslash MUSI byc pierwszy (inaczej kolejne
@@ -180,5 +199,14 @@ if [ -f "$_ENV" ] && [ -f "$DEFAULTS_DIR/netdata/go.d/postgres.conf.tpl" ]; then
         chmod 600 "$_tmp"
         mv "$_tmp" "$_dest"
         echo "  ~ wyrenderowano: $_dest"
+    elif [ -f "$BPP_CONFIGS_DIR/netdata/go.d/postgres.conf" ]; then
+        # Nie udalo sie wyrenderowac (brak hasla/hosta/bazy w .env), a STARY plik
+        # juz istnieje - moze pochodzic sprzed migracji na bpp_monitor (DSN z
+        # superuserem aplikacji). Ostrzegamy glosno, zeby nie zostawic po cichu
+        # kolektora netdaty laczacego sie pelnoprawnym kontem aplikacji.
+        echo "  ! UWAGA: pominieto render netdata/go.d/postgres.conf - brak" >&2
+        echo "    DJANGO_BPP_PG_MONITOR_PASSWORD / DJANGO_BPP_DB_HOST / DJANGO_BPP_DB_NAME" >&2
+        echo "    w .env. Istniejacy plik moze uzywac STAREGO DSN (superuser aplikacji)." >&2
+        echo "    Uzupelnij .env i ponow: make ensure-config-files (lub make refresh)." >&2
     fi
 fi

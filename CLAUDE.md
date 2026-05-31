@@ -32,7 +32,7 @@ Configuration lives **outside the repository** (e.g. `~/publikacje-uczelnia/`). 
 
 Repo's `defaults/` holds template configs copied in by `init-configs` (without overwriting existing — `copy_if_missing`, so user-tuned configs like `loki/`, `netdata/`, `alloy/` survive upgrades).
 
-**Exception — Grafana dashboards are force-synced.** `grafana/provisioning/dashboards/*` are overwritten from `defaults/` on every `ensure-config-files` run (i.e. every `make up` / `refresh` / `run`) via `copy_always` (only when content differs). They're shipped, read-only-in-UI artifacts — editing them in the config dir is pointless, so an updated dashboard in the repo lands on the live deployment automatically with `git pull && make up`, no manual `cp`. Dashboards removed from `defaults/` are left in place (not deleted); user-created UI dashboards live in Grafana's DB and are unaffected.
+**Exception — Grafana dashboards + the datasource template are force-synced.** `grafana/provisioning/dashboards/*` **and** `grafana/provisioning/datasources/datasources.yaml.tpl` are overwritten from `defaults/` on every `ensure-config-files` run (i.e. every `make up` / `refresh` / `run`) via `copy_always` (only when content differs). They're shipped, read-only-in-UI artifacts — editing them in the config dir is pointless, so an updated dashboard/datasource in the repo lands on the live deployment automatically with `git pull && make up`, no manual `cp`. **Why the `.tpl` must force-sync:** with `copy_if_missing`, an upgraded install keeps its stale config-dir `.tpl`, so a change like "Grafana connects via the read-only `bpp_monitor` role instead of the app superuser" (or the `deleteDatasources: Prometheus` cleanup) would never reach existing deployments. The rendered `datasources.yaml` (from `scripts/generate-grafana-datasources.sh`, which reads `.env` from disk — **not** make's parse-time export, so a freshly-generated `DJANGO_BPP_PG_MONITOR_PASSWORD` isn't rendered empty on the first `make up`) is the live file; the `.tpl` is its source. Dashboards removed from `defaults/` are left in place (not deleted); user-created UI dashboards live in Grafana's DB and are unaffected.
 
 ### First Run
 
@@ -169,7 +169,7 @@ Bootstrap (jednorazowy, idempotentny): `make pg-monitoring-setup`. Tryb external
 - **Shell**: `make shell` (appserver), `make shell-python`, `make shell-plus`, `make shell-dbserver`, `make shell-workerserver`, `make createsuperuser`, `make changepassword`
 - **Logs**: `make logs`, `make logs-appserver`, `make logs-celery`, `make logs-dbserver`, `make logs-denorm`, `make logs-netdata`, `make ps`, `make health`
 - **Celery**: `make celery-stats`, `make celery-status`, `make denorm-rebuild`, `make denorm-purge-queues`, `make denorm-flush`
-- **Monitoring**: `make ntfy-test` (test push), `make health-netdata`, `make netdata-shell`, `make grant-pg-monitor` (raz po wdrozeniu — dla internal mode dbserver)
+- **Monitoring**: `make ntfy-test` (test push), `make netdata-shell`, `make create-monitoring-user` (raz po wdrozeniu — dla internal mode dbserver)
 - **Config**: `make update-configs`, `make update-ssl-certs`, `make init-configs`, `make configure-resources`, `make generate-snakeoil-certs[-force]`
 - **Maintenance**: `make docker-clean`, `make prune-orphan-volumes`, `make open-docker-volume`, `make rmrf` (dangerous, prompts)
 - **Backup**: `make rclone-sync`, `make rclone-config`, `make rclone-check`, `make backup-cycle`
@@ -322,7 +322,7 @@ Working tree must be clean (except README, which the script modifies). No `CHANG
 
 All behind nginx + authserver auth: `https://<domain>/netdata/`, `/grafana/`, `/flower/`, `/dozzle/`. Loki is not publicly exposed (queried via Grafana only).
 
-For CLI: `make logs-<service>`, `make logs-netdata`, `make celery-stats`, `make celery-status`, `make health`, `make health-netdata`, `make ps`, `make ntfy-test`.
+For CLI: `make logs-<service>`, `make logs-netdata`, `make celery-stats`, `make celery-status`, `make health`, `make ps`, `make ntfy-test`. Netdata ma wbudowany healthcheck (Docker `HEALTHCHECK` w obrazie) — `make ps` / `docker compose ps` pokazuje jego stan.
 
 **Alerty na komorke**: Netdata wysyla push na publiczny ntfy.sh. Topic (sekret) generowany losowo przy `make init-configs`, przechowywany jako `NTFY_TOPIC` w `${BPP_CONFIGS_DIR}/.env`. Subskrybuj w aplikacji ntfy: `https://ntfy.sh/<NTFY_TOPIC>`. Test wysylki: `make ntfy-test`.
 

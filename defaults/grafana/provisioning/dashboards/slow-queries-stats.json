@@ -149,7 +149,7 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT \n  query,\n  calls,\n  ROUND(mean_exec_time::numeric, 2) AS mean_ms,\n  ROUND(total_exec_time::numeric, 2) AS total_ms,\n  ROUND(stddev_exec_time::numeric, 2) AS stddev_ms,\n  rows\nFROM pg_stat_statements\nWHERE query NOT ILIKE '%pg_stat_statements%'\n  AND query NOT ILIKE 'BEGIN%'\n  AND query NOT ILIKE 'COMMIT%'\n  AND query NOT ILIKE 'ROLLBACK%'\n  AND ('${qid}' = '' OR queryid = NULLIF('${qid}', '')::bigint)\nORDER BY mean_exec_time DESC\nLIMIT 100",
+          "rawSql": "SELECT \n  query,\n  calls,\n  ROUND(mean_exec_time::numeric, 2) AS mean_ms,\n  ROUND(total_exec_time::numeric, 2) AS total_ms,\n  ROUND(stddev_exec_time::numeric, 2) AS stddev_ms,\n  rows\nFROM pg_stat_statements\nWHERE query NOT ILIKE '%pg_stat_statements%'\n  AND query NOT ILIKE 'BEGIN%'\n  AND query NOT ILIKE 'COMMIT%'\n  AND query NOT ILIKE 'ROLLBACK%'\n  AND (${qid:sqlstring} = '' OR queryid::text = ${qid:sqlstring})\nORDER BY mean_exec_time DESC\nLIMIT 100",
           "refId": "A"
         }
       ],

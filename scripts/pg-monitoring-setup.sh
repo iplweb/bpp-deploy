@@ -68,6 +68,12 @@ Wykonaj recznie na zewnetrznym serwerze Postgres jako superuser:
   CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
 
 EOF
+    # Read-only rola monitoringu (bpp_monitor) jest tak samo potrzebna w trybie
+    # external co internal - bez niej Grafana/Netdata nie polacza sie z baza.
+    # create-monitoring-user.sh w trybie external wypisze gotowy SQL roli.
+    echo "Oraz utworz read-only uzytkownika monitoringu na tym samym serwerze:"
+    echo ""
+    bash "$REPO_DIR/scripts/create-monitoring-user.sh"
     exit 0
 fi
 
