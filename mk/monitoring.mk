@@ -36,3 +36,9 @@ logs-netdata:
 # Shell w kontenerze netdata (debugging).
 netdata-shell:
 	docker compose exec netdata bash
+
+# Nadaje role pg_monitor uzytkownikowi BPP (internal) lub wyswietla
+# instrukcje (external). Idempotentne.
+.PHONY: grant-pg-monitor
+grant-pg-monitor:
+	@bash scripts/grant-pg-monitor.sh
