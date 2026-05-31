@@ -20,6 +20,75 @@
   "panels": [
     {
       "datasource": { "type": "grafana-postgresql-datasource", "uid": "postgresql" },
+      "description": "Top 15 queries by mean execution time (snapshot since last pg_stat_statements_reset() — there is no time axis). Click a bar to filter the table below to that exact query; clear the 'Query filter (queryid)' box at the top to show all 100 again.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "fillOpacity": 80,
+            "gradientMode": "none",
+            "lineWidth": 1,
+            "thresholdsStyle": { "mode": "off" }
+          },
+          "links": [
+            {
+              "title": "Filter table below by this query",
+              "url": "?var-qid=${__data.fields.queryid}"
+            }
+          ],
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 100 },
+              { "color": "orange", "value": 500 },
+              { "color": "red", "value": 1000 }
+            ]
+          },
+          "unit": "ms"
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "queryid" },
+            "properties": [{ "id": "custom.hideFrom", "value": { "legend": true, "tooltip": true, "viz": true } }]
+          }
+        ]
+      },
+      "gridPos": { "h": 11, "w": 24, "x": 0, "y": 0 },
+      "id": 3,
+      "options": {
+        "barRadius": 0,
+        "barWidth": 0.8,
+        "fullHighlight": false,
+        "groupWidth": 0.7,
+        "legend": { "calcs": [], "displayMode": "list", "placement": "bottom", "showLegend": false },
+        "orientation": "horizontal",
+        "showValue": "auto",
+        "stacking": "none",
+        "tooltip": { "mode": "single", "sort": "none" },
+        "xTickLabelRotation": 0,
+        "xTickLabelSpacing": 0
+      },
+      "targets": [
+        {
+          "datasource": { "type": "grafana-postgresql-datasource", "uid": "postgresql" },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT\n  LEFT(regexp_replace(query, '\\s+', ' ', 'g'), 70) AS query,\n  ROUND(mean_exec_time::numeric, 2) AS mean_ms,\n  queryid::text AS queryid\nFROM pg_stat_statements\nWHERE query NOT ILIKE '%pg_stat_statements%'\n  AND query NOT ILIKE 'BEGIN%'\n  AND query NOT ILIKE 'COMMIT%'\n  AND query NOT ILIKE 'ROLLBACK%'\nORDER BY mean_exec_time DESC\nLIMIT 15",
+          "refId": "A"
+        }
+      ],
+      "title": "Top 15 queries by mean execution time",
+      "type": "barchart"
+    },
+    {
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "postgresql" },
       "description": "Top 100 normalized queries by mean execution time. Stats accumulate since last pg_stat_statements_reset(). Filter excludes pg_stat_statements self-queries and trivial TX control.",
       "fieldConfig": {
         "defaults": {
@@ -66,7 +135,7 @@
           }
         ]
       },
-      "gridPos": { "h": 22, "w": 24, "x": 0, "y": 0 },
+      "gridPos": { "h": 22, "w": 24, "x": 0, "y": 11 },
       "id": 1,
       "options": {
         "cellHeight": "sm",
@@ -80,7 +149,7 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT \n  query,\n  calls,\n  ROUND(mean_exec_time::numeric, 2) AS mean_ms,\n  ROUND(total_exec_time::numeric, 2) AS total_ms,\n  ROUND(stddev_exec_time::numeric, 2) AS stddev_ms,\n  rows\nFROM pg_stat_statements\nWHERE query NOT ILIKE '%pg_stat_statements%'\n  AND query NOT ILIKE 'BEGIN%'\n  AND query NOT ILIKE 'COMMIT%'\n  AND query NOT ILIKE 'ROLLBACK%'\nORDER BY mean_exec_time DESC\nLIMIT 100",
+          "rawSql": "SELECT \n  query,\n  calls,\n  ROUND(mean_exec_time::numeric, 2) AS mean_ms,\n  ROUND(total_exec_time::numeric, 2) AS total_ms,\n  ROUND(stddev_exec_time::numeric, 2) AS stddev_ms,\n  rows\nFROM pg_stat_statements\nWHERE query NOT ILIKE '%pg_stat_statements%'\n  AND query NOT ILIKE 'BEGIN%'\n  AND query NOT ILIKE 'COMMIT%'\n  AND query NOT ILIKE 'ROLLBACK%'\n  AND ('${qid}' = '' OR queryid = NULLIF('${qid}', '')::bigint)\nORDER BY mean_exec_time DESC\nLIMIT 100",
           "refId": "A"
         }
       ],
@@ -90,7 +159,7 @@
     {
       "datasource": { "type": "grafana", "uid": "-- Grafana --" },
       "description": "How to reset the stats window.",
-      "gridPos": { "h": 6, "w": 24, "x": 0, "y": 22 },
+      "gridPos": { "h": 6, "w": 24, "x": 0, "y": 33 },
       "id": 2,
       "options": {
         "code": { "language": "plaintext", "showLineNumbers": false, "showMiniMap": false },
@@ -105,7 +174,21 @@
   "refresh": "5m",
   "schemaVersion": 39,
   "tags": ["postgresql", "bpp"],
-  "templating": { "list": [] },
+  "templating": {
+    "list": [
+      {
+        "current": { "text": "", "value": "" },
+        "description": "queryid of the query to drill into. Set automatically when you click a bar in the chart; clear it to show all 100 rows again.",
+        "hide": 0,
+        "label": "Query filter (queryid)",
+        "name": "qid",
+        "options": [{ "text": "", "value": "", "selected": true }],
+        "query": "",
+        "skipUrlSync": false,
+        "type": "textbox"
+      }
+    ]
+  },
   "time": { "from": "now-24h", "to": "now" },
   "timepicker": {},
   "timezone": "browser",
