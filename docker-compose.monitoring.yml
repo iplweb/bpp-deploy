@@ -119,6 +119,9 @@ services:
       # Wylacz anonimowa telemetrie Netdaty do netdata.cloud.
       - DO_NOT_TRACK=1
       - DISABLE_TELEMETRY=1
+      # Wylacz klienta Cloud calkowicie - bez tego dashboard pokazuje
+      # dialog "please connect your agent" przy pierwszym wejsciu.
+      - NETDATA_DISABLE_CLOUD=1
     volumes:
       # Configi (bind-mount z BPP_CONFIGS_DIR, RO).
       - ${BPP_CONFIGS_DIR}/netdata/netdata.conf:/etc/netdata/netdata.conf:ro
