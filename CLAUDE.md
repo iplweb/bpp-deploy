@@ -6,7 +6,7 @@ Guidance for Claude Code working in this repository.
 
 **Django-based academic publication management system (BPP — Bibliografia Publikacji Pracowników)**, deployment configuration only. Django source code lives at `/src/` **inside the Docker containers** — this repo contains Docker Compose orchestration and deployment scripts.
 
-**Stack**: Django + PostgreSQL, Celery + Redis (broker + result backend), Nginx, Ofelia (cron), Prometheus + Loki + Grafana + Alloy, custom `iplweb/*` images.
+**Stack**: Django + PostgreSQL, Celery + Redis (broker + result backend), Nginx, Ofelia (cron), Netdata (metryki + alerty → ntfy.sh) + Loki + Grafana + Alloy (logi), custom `iplweb/*` images.
 
 ## Configuration Architecture
 
@@ -14,7 +14,7 @@ Guidance for Claude Code working in this repository.
 
 ```
 docker-compose.yml              # Main orchestration
-├── docker-compose.monitoring.yml     # Prometheus, Loki, Grafana, Alloy, exporters
+├── docker-compose.monitoring.yml     # Netdata, Loki, Grafana, Alloy, Dozzle
 ├── docker-compose.database.yml       # PostgreSQL + postgresql_data volume
 ├── docker-compose.infrastructure.yml # Nginx, Redis
 ├── docker-compose.application.yml    # appserver, authserver, ofelia, autoheal + staticfiles/media volumes
@@ -28,9 +28,11 @@ Each `include:` entry has `env_file: ${BPP_CONFIGS_DIR}/.env` so `${VAR}` interp
 
 ### Configuration Directory (`BPP_CONFIGS_DIR`)
 
-Configuration lives **outside the repository** (e.g. `~/publikacje-uczelnia/`). Created on first `make` run by `init-configs`. Contents: `.env`, `ssl/`, `rclone/`, `alloy/`, `prometheus/`, `grafana/provisioning/{datasources,dashboards}/`. Bind-mounted directly into containers.
+Configuration lives **outside the repository** (e.g. `~/publikacje-uczelnia/`). Created on first `make` run by `init-configs`. Contents: `.env`, `ssl/`, `rclone/`, `alloy/`, `loki/`, `netdata/{go.d,health.d}/`, `grafana/provisioning/{datasources,dashboards}/`. Bind-mounted directly into containers.
 
-Repo's `defaults/` holds template configs copied in by `init-configs` (without overwriting existing).
+Repo's `defaults/` holds template configs copied in by `init-configs` (without overwriting existing — `copy_if_missing`, so user-tuned configs like `loki/`, `netdata/health.d/`, `netdata/go.d/`, `alloy/` survive upgrades). **Exception within `netdata/`:** `netdata.conf` itself is rendered + force-synced (see below) — tune it via `.env`, not by editing the file.
+
+**Exception — Grafana dashboards, the datasource template, and `netdata.conf` are force-synced.** `grafana/provisioning/dashboards/*`, `grafana/provisioning/datasources/datasources.yaml.tpl`, **and** `netdata/netdata.conf` are overwritten from `defaults/` on every `ensure-config-files` run (i.e. every `make up` / `refresh` / `run`) via `copy_always` (only when content differs). `netdata.conf` is a special case: it's rendered host-side from `defaults/netdata/netdata.conf.tpl` (like `go.d/postgres.conf.tpl`) — `netdata.conf` can't interpolate `${VAR}`, so the deployment's hostname is substituted into `[registry] registry to announce = https://<host>/netdata`. **Why it must force-sync:** that announce URL drives the "View node" button in ntfy alerts — without overwrite, an existing install keeps its stale config-dir `netdata.conf` and the button stays pointed at `registry.my-netdata.io`. User-tunable knobs (dbengine retention) are parametrized via `.env` (`NETDATA_DBENGINE_TIER0_RETENTION_MB`, `NETDATA_DBENGINE_PAGE_CACHE_MB`) so the force-overwrite doesn't wipe manual tuning. The other `netdata/` configs (`health.d/`, `go.d/`, `health_alarm_notify.conf`) stay `copy_if_missing` and survive upgrades. They're shipped, read-only-in-UI artifacts — editing them in the config dir is pointless, so an updated dashboard/datasource in the repo lands on the live deployment automatically with `git pull && make up`, no manual `cp`. **Why the `.tpl` must force-sync:** with `copy_if_missing`, an upgraded install keeps its stale config-dir `.tpl`, so a change like "Grafana connects via the read-only `bpp_monitor` role instead of the app superuser" (or the `deleteDatasources: Prometheus` cleanup) would never reach existing deployments. The rendered `datasources.yaml` (from `scripts/generate-grafana-datasources.sh`, which reads `.env` from disk — **not** make's parse-time export, so a freshly-generated `DJANGO_BPP_PG_MONITOR_PASSWORD` isn't rendered empty on the first `make up`) is the live file; the `.tpl` is its source. Dashboards removed from `defaults/` are left in place (not deleted); user-created UI dashboards live in Grafana's DB and are unaffected.
 
 ### First Run
 
@@ -104,7 +106,7 @@ Grafana uses auth proxy mode behind nginx + authserver (Django). Headers: `X-WEB
 
 ### Logging
 
-**Reduced verbosity**: Prometheus/Loki/Grafana/Alloy all set to `warn` or `error`.
+**Reduced verbosity**: Loki/Grafana/Alloy all set to `warn` or `error`.
 
 **Docker log driver — local rotation**: All services use the `local` driver (binary protobuf framing, smaller than `json-file`) via shared `x-logging` YAML anchor at the top of each compose file. Compression (gzip, via moby `loggerutils`) applies **only to rotated files** — the active log file is uncompressed protobuf + plaintext, so tailing it shows readable text between binary frame markers. Disk savings come from the gzipped rotated segments, not the live file:
 
@@ -131,7 +133,32 @@ Defaults: 150m × 5 = 750MB per container (~3–4GB ceiling for ~20 containers, 
 
 Tuning: edit `$BPP_CONFIGS_DIR/loki/local-config.yaml` + `docker compose restart loki`. Selectors use `{service="<compose-service-name>"}`.
 
-Prometheus retention: 30d / 4GB (separate, in `monitoring.yml`).
+**nginx access log** — glowny ruch loguje sie w formacie `bpp_access` (`defaults/webserver/00-log-format.conf`: combined + `$request_length`/`$request_time`/`$upstream_response_time`) do **dwoch** celow jednoczesnie z `vhost.conf.template`:
+- `access_log /dev/stdout bpp_access;` → Docker → Alloy → Loki → Grafana (`{service="webserver"}`, search/forensics).
+- `access_log /var/log/nginx-shared/bpp_access.log bpp_access;` → wolumen `nginx_access_log` (RO w netdacie) → kolektor web_log (metryki + alerty).
+
+Szumne locationy (`/healthz`, `/static`, `/media`, acme, security-blocks) maja wlasne `access_log off` w `_bpp-locations.conf` i nadpisuja oba sinki. Plik na wolumenie rotuje Ofelia codziennie 04:10 (`scripts/nginx-access-log-rotate.sh`: `mv` na `.1` + `nginx -s reopen`, max 2 generacje) — Docker log driver rotuje tylko stdout/stderr, nie ten plik.
+
+**Netdata** — tiered retention (ostatnie godziny w 1s, dni w 1m, tygodnie/miesiace w 1h) w volume `netdata_lib` (~512MB ceiling per `dbengine tier 0 retention size` w `netdata.conf`). Config `${BPP_CONFIGS_DIR}/netdata/netdata.conf` jest **renderowany z `defaults/netdata/netdata.conf.tpl` i force-syncowany** (patrz "Exception" wyzej) — nie edytuj go recznie, stroj przez `.env` (`NETDATA_DBENGINE_TIER0_RETENTION_MB`, `NETDATA_DBENGINE_PAGE_CACHE_MB`). `[registry]` jest wlaczony i `registry to announce` wskazuje `https://<host>/netdata`, zeby przycisk **"View node"** w powiadomieniu ntfy przekierowywal do lokalnej netdaty zamiast `registry.my-netdata.io` (wymaga jednorazowej wizyty na dashboardzie z danej przegladarki — rejestr zapisuje wtedy URL per cookie). Alerty: wbudowane reguly health w agencie (setki gotowych defaultow); custom alerty w `${BPP_CONFIGS_DIR}/netdata/health.d/`. Push przez `health_alarm_notify.conf` (sourced as bash, kanał ntfy z `${NTFY_SERVER}/${NTFY_TOPIC}`).
+
+**Kolektory `go.d`** (w `${BPP_CONFIGS_DIR}/netdata/go.d/`, nadpisuja wbudowane defaulty mountem RO):
+- `postgres.conf` — metryki PostgreSQL (DSN z `.env`; internal i external mode).
+- `nginx.conf` — live metryki polaczen z endpointu `stub_status`. Endpoint to osobny `server { listen 8090; location = /stub_status { stub_status; } }` w `default.conf.template`. Port 8090 **nie** jest publikowany w compose → osiagalny tylko w sieci dockera (`netdata → webserver:8090`).
+- `web_log.conf` — metryki z parsowania access logu nginx (kody HTTP, metody, bandwidth, percentyle `$request_time`/`$upstream_response_time`) → wbudowane alerty na 5xx/latencje. Zrodlo: plik `/var/log/nginx-shared/bpp_access.log` (format `bpp_access`, `log_type: auto`). To **nie** dubluje Loki — Loki trzyma surowe linie do przeszukiwania, web_log liczy metryki @1s i alertuje na ntfy.
+
+### Slow query monitoring
+
+Dwa kanaly obserwowalnosci wolnych zapytan PG, oba przez istniejaca infre Loki+Grafana:
+
+- **Logi (`log_min_duration_statement=1000`)**: kazde query >1s w logu dbservera → Alloy → Loki (90d retention). Dashboard "Slow queries (log)" w Grafanie. Pelny tekst query + parametry. Naturalna filtracja czasowa (UI time picker).
+- **Statystyki (`pg_stat_statements`)**: agregowane per znormalizowane query (calls, mean/total/stddev exec time). Dashboard "Top 100 queries (pg_stat_statements)" — top N wg sredniej. Agregat od ostatniego `pg_stat_statements_reset()`. Towarzyszacy bar chart "Top 15 by mean execution time" — klik w slupek ustawia zmienna `qid` (data link) i zaweza tabele do danego `queryid`; puste pole `qid` u gory = wszystkie 100. pg_stat_statements **nie ma osi czasu**, wiec cross-filter jest po `queryid`, nie po przedziale czasu.
+
+Bootstrap (jednorazowy, idempotentny): `make pg-monitoring-setup`. Tryb external (dbserver poza compose): skrypt wypisuje SQL do recznego uruchomienia.
+
+**Pozostale dashboardy Grafany** (`defaults/grafana/provisioning/dashboards/`, auto-syncowane na deploy — patrz "Exception — Grafana dashboards are force-synced" wyzej):
+- **"Error Monitoring"** — liczba bledow w czasie (per serwer) + log bledow z Loki. Dropdowny `service`/`container`/`level` filtruja oba panele; klik w serie na wykresie ustawia `var-service` (data link) i zaweza logi; drag-select po wykresie zaweza czas (panel logow respektuje zakres dashboardu); panel "Error Logs" z `enableInfiniteScrolling`.
+- **"PostgreSQL: Maintenance"** — VACUUM/ANALYZE, dead tuples, bloat, cache hit ratio.
+- **"PostgreSQL: Storage & tables"** — rozmiar bazy, najwieksze tabele/indeksy, dead tuples, szacowany bloat.
 
 ## Make Targets
 
@@ -140,8 +167,9 @@ Prometheus retention: 30d / 4GB (separate, in `monitoring.yml`).
 - **Deploy**: `make run` (full pipeline), `make up` / `make up-quick`, `make refresh` (prune + pull + recreate), `make stop`, `make restart-appserver`
 - **DB**: `make migrate` (safely stops denorm workers first), `make db-backup`, `make dbshell`, `make dbshell-psql`, `make upgrade-postgres`
 - **Shell**: `make shell` (appserver), `make shell-python`, `make shell-plus`, `make shell-dbserver`, `make shell-workerserver`, `make createsuperuser`, `make changepassword`
-- **Logs**: `make logs`, `make logs-appserver`, `make logs-celery`, `make logs-dbserver`, `make logs-denorm`, `make ps`, `make health`
+- **Logs**: `make logs`, `make logs-appserver`, `make logs-celery`, `make logs-dbserver`, `make logs-denorm`, `make logs-netdata`, `make ps`, `make health`
 - **Celery**: `make celery-stats`, `make celery-status`, `make denorm-rebuild`, `make denorm-purge-queues`, `make denorm-flush`
+- **Monitoring**: `make ntfy-test` (test push), `make netdata-shell`, `make create-monitoring-user` (raz po wdrozeniu — dla internal mode dbserver)
 - **Config**: `make update-configs`, `make update-ssl-certs`, `make init-configs`, `make configure-resources`, `make generate-snakeoil-certs[-force]`
 - **Maintenance**: `make docker-clean`, `make prune-orphan-volumes`, `make open-docker-volume`, `make rmrf` (dangerous, prompts)
 - **Backup**: `make rclone-sync`, `make rclone-config`, `make rclone-check`, `make backup-cycle`
@@ -155,7 +183,7 @@ Prometheus retention: 30d / 4GB (separate, in `monitoring.yml`).
 
 **Workers**: `workerserver-general` (queue: celery), `workerserver-denorm` (queue: denorm), `celerybeat` (depends on `service_started`, not `_healthy`, for faster startup), `denorm-queue` (PG LISTEN → Celery bridge), `flower` (port 5555, path `/flower`).
 
-**Monitoring**: `prometheus` (30d retention), `loki`, `grafana` (auth proxy), `alloy` (log shipping), `postgres-exporter`, `node-exporter`, `dozzle` (path `/dozzle`).
+**Monitoring**: `netdata` (metryki hosta + Dockera + Postgresa, 1s rozdzielczosc, gotowe alerty out of the box, push na telefon przez ntfy.sh — path `/netdata/`), `loki` + `alloy` (zbieranie i retencja logow per service), `grafana` (frontend do Loki/LogQL — path `/grafana/`), `dozzle` (live tail logow kontenerow — path `/dozzle/`).
 
 **Support**: `ofelia` (Docker cron), `autoheal` (sidecar), `backup-runner` (daily `pg_dump` + tar media + rclone + Rollbar; image `postgres:$DJANGO_BPP_POSTGRESQL_VERSION_MAJOR-alpine`; scheduled by Ofelia label `0 30 2 * * *`; manual: `make backup-cycle`).
 
@@ -163,7 +191,7 @@ Prometheus retention: 30d / 4GB (separate, in `monitoring.yml`).
 
 ### Data Flow
 
-Web: nginx → Django. Background tasks: Django → Celery. DB changes: PG triggers → LISTEN → `denorm-queue` → Celery. Static: nginx serves shared volume. Cron: Ofelia → Django mgmt commands. Logs: containers → Alloy → Loki → Grafana. Metrics: services → Prometheus → Grafana. Auth: nginx → authserver → proxies Grafana/Dozzle.
+Web: nginx → Django. Background tasks: Django → Celery. DB changes: PG triggers → LISTEN → `denorm-queue` → Celery. Static: nginx serves shared volume. Cron: Ofelia → Django mgmt commands. Logs: containers → Alloy → Loki → Grafana. Metryki: kontenery + host + Postgres + nginx (stub_status połączenia, web_log z access logu) → Netdata (1s rozdzielczosc, lokalne UI + alerty); push na ntfy.sh przy alertach. Auth: nginx → authserver → proxies Grafana/Dozzle.
 
 **CRITICAL**: `denorm-queue` must run as a **single instance** to avoid duplicate message processing. Do not scale.
 
@@ -238,9 +266,9 @@ To disable for a specific service: comment out `ofelia.job-exec.restart_self.*` 
 
 All services (except `backup-runner` — ephemeral, ~10 min/day) have `*_MEM_LIMIT` / `*_CPU_LIMIT` env vars so a runaway container can't eat the host. Defaults are sized for an **8 GB host** (smallest reasonable deployment) — stack works out-of-the-box after `git pull && make up`.
 
-**High-risk** (defaults): `dbserver` 2g/2.0, `appserver` 1g/2.0, `workerserver-general` 1g/2.0, `workerserver-denorm` 1g/1.0, `redis` 768m/1.5 (broker + cache + result backend; internal `REDIS_MAXMEMORY` with `allkeys-lru`, must be < Docker limit so eviction beats OOM kill), `loki` 256m/0.5, `prometheus` 512m/1.0.
+**High-risk** (defaults): `dbserver` 2g/2.0, `appserver` 1g/2.0, `workerserver-general` 1g/2.0, `workerserver-denorm` 1g/1.0, `redis` 768m/1.5 (broker + cache + result backend; internal `REDIS_MAXMEMORY` with `allkeys-lru`, must be < Docker limit so eviction beats OOM kill), `loki` 256m/0.5.
 
-**Daemons**: `flower` 768m/0.5 (accumulates Celery task history), `alloy` 384m/0.5, `denorm-queue` 320m/1.0, `celerybeat` 320m/0.25, `authserver` 320m/1.0, `webserver` 256m/2.0 (proxy_buffers 16×16k = 256 KB/conn, +HTTP/3 QUIC TLS), `grafana` 192m/1.0, exporters/dozzle/ofelia 64m/0.25, `autoheal` 32m/0.1.
+**Daemons**: `flower` 768m/0.5 (accumulates Celery task history), `alloy` 384m/0.5, `denorm-queue` 320m/1.0, `celerybeat` 320m/0.25, `authserver` 320m/1.0, `webserver` 256m/2.0 (proxy_buffers 16×16k = 256 KB/conn, +HTTP/3 QUIC TLS), `netdata` 256m/1.0 (`NETDATA_MEM_LIMIT`/`NETDATA_CPU_LIMIT`; `dbengine` tiered storage + auto-discovery wszystkich kontenerow przez Docker socket; jesli host >16GB i chcesz dluzsza historie metryk, podnies do 512m + `NETDATA_DBENGINE_TIER0_RETENTION_MB=2048` w `.env` (netdata.conf jest force-syncowany — nie edytuj go recznie)), `grafana` 192m/1.0, `dozzle`/`ofelia` 64m/0.25, `autoheal` 32m/0.1.
 
 **Tuning**: `make configure-resources` detects host RAM/CPU (Linux `/proc/meminfo`+`nproc`, macOS `sysctl`), proposes proportional split (30% Postgres, 15% Django/workers, …), interactive per-service. Writes `$BPP_CONFIGS_DIR/.env`. Currently covers high-risk only — tune small daemons manually if defaults misbehave.
 
@@ -292,9 +320,11 @@ Working tree must be clean (except README, which the script modifies). No `CHANG
 
 ## Monitoring Access
 
-All behind nginx + authserver auth: `https://<domain>/grafana/`, `/flower/`, `/dozzle/`. Prometheus and Loki are not publicly exposed.
+All behind nginx + authserver auth: `https://<domain>/netdata/`, `/grafana/`, `/flower/`, `/dozzle/`. Loki is not publicly exposed (queried via Grafana only).
 
-For CLI: `make logs-<service>`, `make celery-stats`, `make celery-status`, `make health`, `make ps`.
+For CLI: `make logs-<service>`, `make logs-netdata`, `make celery-stats`, `make celery-status`, `make health`, `make ps`, `make ntfy-test`. Netdata ma wbudowany healthcheck (Docker `HEALTHCHECK` w obrazie) — `make ps` / `docker compose ps` pokazuje jego stan.
+
+**Alerty na komorke**: Netdata wysyla push na publiczny ntfy.sh. Topic (sekret) generowany losowo przy `make init-configs`, przechowywany jako `NTFY_TOPIC` w `${BPP_CONFIGS_DIR}/.env`. Subskrybuj w aplikacji ntfy: `https://ntfy.sh/<NTFY_TOPIC>`. Test wysylki: `make ntfy-test`.
 
 ## Safety
 

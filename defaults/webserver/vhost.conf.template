@@ -55,5 +55,15 @@ server {
     ssl_certificate_key ${VHOST_KEY_PATH};
     ssl_session_timeout 30m;
 
+    # Access log realnego ruchu — dwa cele, jeden format (bpp_access):
+    #   1) /dev/stdout  -> Docker -> Alloy -> Loki -> Grafana (search/forensics)
+    #   2) plik na wspolnym wolumenie -> kolektor netdata web_log (metryki +
+    #      alerty na 5xx/latencje). Plik rotowany codziennie przez Ofelia
+    #      (scripts/nginx-access-log-rotate.sh -> `nginx -s reopen`).
+    # Szumne locationy (healthz, /static, /media, acme, security-blocks) maja
+    # wlasne `access_log off` w _bpp-locations.conf i nadpisuja te dyrektywy.
+    access_log /dev/stdout bpp_access;
+    access_log /var/log/nginx-shared/bpp_access.log bpp_access;
+
     include /etc/nginx/bpp-templates/_bpp-locations.conf;
 }

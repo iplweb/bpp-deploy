@@ -92,63 +92,70 @@ services:
           memory: ${ALLOY_MEM_LIMIT:-384m}
           cpus: "${ALLOY_CPU_LIMIT:-0.5}"
 
-  prometheus:
-    image: prom/prometheus:v3.11.0
+  netdata:
+    image: netdata/netdata:v2.10.3
+    hostname: ${DJANGO_BPP_HOSTNAME:-bpp}
     restart: always
     logging: *default-logging
-    command:
-      - '--config.file=/etc/prometheus/prometheus.yml'
-      - '--storage.tsdb.path=/prometheus'
-      - '--storage.tsdb.retention.time=30d'
-      - '--storage.tsdb.retention.size=4GB'
-      - '--web.enable-lifecycle'
-      - '--log.level=warn'
-    volumes:
-      - prometheus_data:/prometheus
-      - ${BPP_CONFIGS_DIR}/prometheus:/etc/prometheus:ro
-    depends_on:
-      - appserver
-    deploy:
-      resources:
-        limits:
-          memory: ${PROMETHEUS_MEM_LIMIT:-512m}
-          cpus: "${PROMETHEUS_CPU_LIMIT:-1.0}"
-
-  postgres-exporter:
-    image: quay.io/prometheuscommunity/postgres-exporter:v0.19.1
-    restart: always
-    logging: *default-logging
-    environment:
-      DATA_SOURCE_URI: "${DJANGO_BPP_DB_HOST}:${DJANGO_BPP_DB_PORT}/${DJANGO_BPP_DB_NAME}?sslmode=disable"
-      DATA_SOURCE_USER: "${DJANGO_BPP_DB_USER}"
-      DATA_SOURCE_PASS: "${DJANGO_BPP_DB_PASSWORD}"
-    depends_on:
-      dbserver:
-        condition: service_healthy
-    deploy:
-      resources:
-        limits:
-          memory: ${PG_EXPORTER_MEM_LIMIT:-64m}
-          cpus: "${PG_EXPORTER_CPU_LIMIT:-0.25}"
-
-  node-exporter:
-    image: quay.io/prometheus/node-exporter:v1.11.0
-    restart: always
-    logging: *default-logging
-    command:
-      - '--path.rootfs=/host'
-      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
-      - '--no-collector.kernel_hung'
     pid: host
+    cap_add:
+      - SYS_PTRACE
+      - SYS_ADMIN
+    security_opt:
+      - apparmor:unconfined
+    environment:
+      # NTFY_TOPIC eksportowany do agenta - health_alarm_notify.conf
+      # interpoluje go w `DEFAULT_RECIPIENT_NTFY` (sourced as bash).
+      - NTFY_TOPIC=${NTFY_TOPIC:-}
+      - NTFY_SERVER=${DJANGO_BPP_NTFY_SERVER:-https://ntfy.sh}
+      # Wylacz anonimowa telemetrie Netdaty do netdata.cloud.
+      - DO_NOT_TRACK=1
+      - DISABLE_TELEMETRY=1
+      # Wylacz klienta Cloud calkowicie - bez tego dashboard pokazuje
+      # dialog "please connect your agent" przy pierwszym wejsciu.
+      - NETDATA_DISABLE_CLOUD=1
     volumes:
-      - '/:/host:ro,rslave'
+      # Configi (bind-mount z BPP_CONFIGS_DIR, RO).
+      - ${BPP_CONFIGS_DIR}/netdata/netdata.conf:/etc/netdata/netdata.conf:ro
+      - ${BPP_CONFIGS_DIR}/netdata/go.d:/etc/netdata/go.d:ro
+      - ${BPP_CONFIGS_DIR}/netdata/health_alarm_notify.conf:/etc/netdata/health_alarm_notify.conf:ro
+      - ${BPP_CONFIGS_DIR}/netdata/health.d:/etc/netdata/health.d:ro
+      # Persistent state (named volumes).
+      - netdata_lib:/var/lib/netdata
+      - netdata_cache:/var/cache/netdata
+      # Host visibility (RO).
+      - /etc/passwd:/host/etc/passwd:ro
+      - /etc/group:/host/etc/group:ro
+      - /etc/localtime:/etc/localtime:ro
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /etc/os-release:/host/etc/os-release:ro
+      - /var/log:/host/var/log:ro
+      # Root filesystem hosta (RO) — kolektor diskspace.plugin liczy
+      # zajetosc WSZYSTKICH partycji hosta (df: used/avail/% per mountpoint).
+      # Bez tego netdata widzi tylko filesystemy kontenera (overlay + volumes).
+      # `rslave` propaguje mounty pojawiajace sie po starcie kontenera.
+      # NETDATA_HOST_PREFIX NIE ustawiamy — obraz zna konwencje /host/root.
+      - /:/host/root:ro,rslave
+      # Docker socket dla auto-discovery kontenerow + cgroup metryk.
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      # Access log nginx (RO) dla kolektora web_log — patrz go.d/web_log.conf.
+      # Wolumen zadeklarowany w docker-compose.infrastructure.yml (webserver
+      # pisze, netdata czyta).
+      - nginx_access_log:/var/log/nginx-shared:ro
+    # Healthcheck: celowo NIE nadpisujemy — obraz ma wbudowany
+    # HEALTHCHECK /usr/sbin/health.sh (utrzymywany przez netdate, zna
+    # NETDATA_HEALTHCHECK_TARGET, uzywa curl). Poprzedni custom override
+    # wolal `wget`, ktorego w obrazie NIE MA (jest tylko curl/nc) -> kontener
+    # zawsze raportowal `unhealthy` mimo dzialajacej netdaty.
     deploy:
       resources:
         limits:
-          memory: ${NODE_EXPORTER_MEM_LIMIT:-64m}
-          cpus: "${NODE_EXPORTER_CPU_LIMIT:-0.25}"
+          memory: ${NETDATA_MEM_LIMIT:-256m}
+          cpus: "${NETDATA_CPU_LIMIT:-1.0}"
 
 volumes:
   grafana_data:
-  prometheus_data:
   loki_data:
+  netdata_lib:
+  netdata_cache:

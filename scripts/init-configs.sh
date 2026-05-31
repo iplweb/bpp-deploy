@@ -13,7 +13,6 @@ set -euo pipefail
 BPP_CONFIGS_DIR="${1:-}"
 USER_HOME="${2:-$HOME}"
 REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-CONFIG_DEFAULTS_DIR="$REPO_DIR/defaults"
 
 # --- 1. Oblicz domyślną ścieżkę ---
 
@@ -431,6 +430,16 @@ DJANGO_BPP_POSTGRESQL_VERSION_MAJOR=$_dbserver_major
 EOF
     fi
 
+    # Netdata + ntfy.sh: wygeneruj losowy topic (sekret) i ustaw publiczny serwer.
+    # Te same wartosci sa tez dosypywane przez blok migracji w 'else' ponizej dla
+    # istniejacych .envow - tu obslugujemy tylko swiezo wygenerowany plik.
+    _topic="$(openssl rand -hex 16 2>/dev/null || head -c 32 /dev/urandom | xxd -p -c 32)"
+    set_env_var "NTFY_TOPIC" "$_topic" \
+        "Sekretny topic dla push-alertow Netdaty (subskrybuj w app ntfy)"
+    echo "  ! Subskrybuj na telefonie: https://ntfy.sh/$_topic"
+    ensure_env_var "DJANGO_BPP_NTFY_SERVER" "https://ntfy.sh" "" \
+        "Serwer ntfy do alertow (default publiczny ntfy.sh)"
+
     echo "Wygenerowano $ENV_FILE z losowymi haslami."
 
 else
@@ -661,6 +670,19 @@ else
         echo "  + derive DJANGO_BPP_POSTGRESQL_VERSION=$_val z DJANGO_BPP_POSTGRESQL_VERSION_MAJOR"
     fi
 
+    # Migracja: dodaj NTFY_TOPIC dla istniejacych deploymentow (Netdata + ntfy.sh).
+    # Topic jest sekretem - kto zna URL, czyta alerty. openssl rand -hex generuje
+    # 32 znaki, fallback na /dev/urandom dla minimalnych obrazow bez openssl.
+    if ! env_has_var "NTFY_TOPIC"; then
+        _topic="$(openssl rand -hex 16 2>/dev/null || head -c 32 /dev/urandom | xxd -p -c 32)"
+        set_env_var "NTFY_TOPIC" "$_topic" \
+            "Sekretny topic dla push-alertow Netdaty (subskrybuj w app ntfy)"
+        echo "  ! Subskrybuj na telefonie: https://ntfy.sh/$_topic"
+    fi
+
+    ensure_env_var "DJANGO_BPP_NTFY_SERVER" "https://ntfy.sh" "" \
+        "Serwer ntfy do alertow (default publiczny ntfy.sh)"
+
     # W trybie zewnetrznej bazy - upewnij sie ze major version sentinela jest ustawiony.
     if [ "$BPP_EXTERNAL_DB" = "yes" ] && ! env_has_var "DJANGO_BPP_POSTGRESQL_VERSION_MAJOR"; then
         _db_host="$(get_env_var DJANGO_BPP_DB_HOST)"
@@ -736,19 +758,13 @@ if [ ! -f "$ABS_CONFIG/ssl/key.pem" ] || [ ! -f "$ABS_CONFIG/ssl/cert.pem" ]; th
     fi
 fi
 
-# --- 8b. Local overrides (macOS) ---
-
-OVERRIDES_FILE="$REPO_DIR/docker-compose.local_overrides.yml"
-if [ ! -f "$OVERRIDES_FILE" ]; then
-    if [ "$(uname -s)" = "Darwin" ]; then
-        cp "$CONFIG_DEFAULTS_DIR/docker-compose.local_overrides.yml" "$OVERRIDES_FILE"
-        echo "  Utworzono docker-compose.local_overrides.yml (macOS — node-exporter wylaczony)"
-    else
-        # Linux: pusty override, wymagany przez docker-compose.yml include
-        echo "# Linux — no overrides needed" > "$OVERRIDES_FILE"
-        echo "  Utworzono docker-compose.local_overrides.yml (Linux — pusty)"
-    fi
-fi
+# --- 8b. Renderuj configi zalezne od .env ---
+#
+# ensure-config-files.sh renderuje m.in. netdata/go.d/postgres.conf z
+# wartosci .env (DSN trzeba miec hardcodowane bo go.d.plugin nie expanduje
+# ${VAR}). Pierwsze wywolanie w fazie 6 nie mialo jeszcze .env, wiec
+# rendering byl skipniety - powtarzamy teraz.
+BPP_CONFIGS_DIR="$ABS_CONFIG" "$REPO_DIR/scripts/ensure-config-files.sh" >/dev/null
 
 # --- 9. Komunikat końcowy ---
 

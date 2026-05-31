@@ -49,3 +49,24 @@ server {
     access_log off;
     error_log /dev/null;
 }
+
+# Internal nginx status endpoint dla kolektora netdata (go.d/nginx.conf).
+# stub_status zwraca live metryki polaczen (active/reading/writing/waiting,
+# accepts/handled/requests). Kontrola dostepu = izolacja portu: 8090 NIE jest
+# publikowany w docker-compose, wiec endpoint jest osiagalny wylacznie
+# container-to-container w sieci dockera (netdata -> webserver:8090). Brak
+# allow/deny po IP, zeby nie zalezec od konkretnego subnetu bridge'a.
+server {
+    listen 8090;
+    server_name _;
+    access_log off;
+
+    location = /stub_status {
+        stub_status;
+    }
+
+    # Cokolwiek innego na tym porcie = 444 (drop).
+    location / {
+        return 444;
+    }
+}

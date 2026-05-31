@@ -27,6 +27,17 @@ assert_file_contains()  { if grep -q "$2" "$3" 2>/dev/null; then pass "$1"; else
 assert_file_not_contains() { if ! grep -q "$2" "$3" 2>/dev/null; then pass "$1"; else fail "$1 (found '$2')"; fi; }
 assert_file_not_empty() { if [ -s "$2" ]; then pass "$1"; else fail "$1 ($2 is empty)"; fi; }
 
+# rm -rf z fallbackiem na sudo. Potrzebne po testach uzywajacych docker run,
+# ktore zostawiaja pliki nalezace do root (default user w kontenerze) — na
+# Linuxie (GHA Ubuntu) host user != root, wiec plain rm dostaje EACCES.
+# macOS Docker Desktop user-mapuje volumes wiec rm dziala bez sudo. GHA ma
+# passwordless sudo. Lokalnie bez sudo — sudo wisi/faila, fallback na rm
+# pokaze oryginalny blad permission denied (degradacja akceptowalna,
+# user widzi dlaczego cleanup nie zadzialal).
+rm_rf_root() {
+    sudo -n rm -rf "$@" 2>/dev/null || rm -rf "$@"
+}
+
 setup_temp() {
     WORK_DIR=$(mktemp -d)
     REPO_COPY="$WORK_DIR/bpp-deploy"
@@ -102,7 +113,9 @@ test_init_configs_creates_structure() {
     assert_dir_exists "ssl" "$CONFIG_DIR/ssl"
     assert_dir_exists "rclone" "$CONFIG_DIR/rclone"
     assert_dir_exists "alloy" "$CONFIG_DIR/alloy"
-    assert_dir_exists "prometheus" "$CONFIG_DIR/prometheus"
+    assert_dir_exists "netdata" "$CONFIG_DIR/netdata"
+    assert_dir_exists "netdata/go.d" "$CONFIG_DIR/netdata/go.d"
+    assert_dir_exists "netdata/health.d" "$CONFIG_DIR/netdata/health.d"
     assert_dir_exists "grafana datasources" "$CONFIG_DIR/grafana/provisioning/datasources"
     assert_dir_exists "grafana dashboards" "$CONFIG_DIR/grafana/provisioning/dashboards"
 
@@ -122,7 +135,11 @@ test_init_configs_copies_templates() {
     make -C "$REPO_COPY" init-configs BPP_CONFIGS_DIR="$CONFIG_DIR" >/dev/null 2>&1
 
     assert_file_exists "alloy config" "$CONFIG_DIR/alloy/config.alloy"
-    assert_file_exists "prometheus config" "$CONFIG_DIR/prometheus/prometheus.yml"
+    assert_file_exists "netdata.conf" "$CONFIG_DIR/netdata/netdata.conf"
+    assert_file_exists "netdata postgres collector" "$CONFIG_DIR/netdata/go.d/postgres.conf"
+    assert_file_exists "netdata nginx collector" "$CONFIG_DIR/netdata/go.d/nginx.conf"
+    assert_file_exists "netdata web_log collector" "$CONFIG_DIR/netdata/go.d/web_log.conf"
+    assert_file_exists "netdata ntfy notify" "$CONFIG_DIR/netdata/health_alarm_notify.conf"
     assert_file_exists "grafana dashboards.yaml" "$CONFIG_DIR/grafana/provisioning/dashboards/dashboards.yaml"
     assert_file_exists "grafana datasources.yaml.tpl" "$CONFIG_DIR/grafana/provisioning/datasources/datasources.yaml.tpl"
 
@@ -189,9 +206,12 @@ test_init_configs_no_overwrite() {
     # Zapamiętaj oryginalne zawartości
     local original_pass
     original_pass=$(grep 'DJANGO_BPP_DB_PASSWORD=' "$CONFIG_DIR/.env" | cut -d= -f2)
-    # Zmodyfikuj szablonowe pliki, żeby sprawdzić czy nie zostaną nadpisane
+    # Zmodyfikuj szablonowe pliki, żeby sprawdzić czy nie zostaną nadpisane.
+    # UWAGA: netdata.conf jest FORCE-SYNCOWANY (renderowany z netdata.conf.tpl -
+    # announce URL), wiec NIE testujemy go tu. Do sprawdzenia zachowania
+    # user-configa uzywamy health_alarm_notify.conf, ktory pozostaje copy_if_missing.
     echo "# custom alloy config" > "$CONFIG_DIR/alloy/config.alloy"
-    echo "# custom prometheus config" > "$CONFIG_DIR/prometheus/prometheus.yml"
+    echo "# custom netdata notify config" > "$CONFIG_DIR/netdata/health_alarm_notify.conf"
 
     # Drugie uruchomienie — nie powinno nadpisać
     make -C "$REPO_COPY" init-configs BPP_CONFIGS_DIR="$CONFIG_DIR" >/dev/null 2>&1
@@ -207,7 +227,7 @@ test_init_configs_no_overwrite() {
 
     # Sprawdź szablonowe pliki konfiguracyjne
     assert_file_contains "alloy config preserved" "# custom alloy config" "$CONFIG_DIR/alloy/config.alloy"
-    assert_file_contains "prometheus config preserved" "# custom prometheus config" "$CONFIG_DIR/prometheus/prometheus.yml"
+    assert_file_contains "netdata config preserved" "# custom netdata notify config" "$CONFIG_DIR/netdata/health_alarm_notify.conf"
 
     cleanup_temp
 }
@@ -299,7 +319,7 @@ test_compose_bind_mounts() {
         assert_file_contains "$f.yml uses BPP_CONFIGS_DIR" "BPP_CONFIGS_DIR" "$file"
     done
 
-    for vol in ssl_certs rabbitmq_config grafana_provisioning alloy_config prometheus_config rclone_config; do
+    for vol in ssl_certs rabbitmq_config grafana_provisioning alloy_config prometheus_data rclone_config; do
         if grep -rq "^  ${vol}:" "$REPO_DIR"/docker-compose.*.yml 2>/dev/null; then
             fail "Named volume '$vol' still defined"
         else
@@ -405,11 +425,13 @@ _run_nginx_t() {
     shift
     docker run --rm \
         -v "$ngx_dir/templates/default.conf.template:/etc/nginx/templates/default.conf.template:ro" \
+        -v "$ngx_dir/conf.d/00-log-format.conf:/etc/nginx/conf.d/00-log-format.conf:ro" \
         -v "$ngx_dir/conf.d/security-headers.conf:/etc/nginx/conf.d/security-headers.conf:ro" \
         -v "$ngx_dir/bpp-templates/_bpp-locations.conf:/etc/nginx/bpp-templates/_bpp-locations.conf:ro" \
         -v "$ngx_dir/bpp-templates/vhost.conf.template:/etc/nginx/bpp-templates/vhost.conf.template:ro" \
         -v "$ngx_dir/entrypoint/30-render-bpp-vhosts.sh:/docker-entrypoint.d/30-render-bpp-vhosts.sh:ro" \
         -v "$ngx_dir/ssl:/etc/ssl/private:ro" \
+        -v "$ngx_dir/nginx-shared:/var/log/nginx-shared" \
         -v "$ngx_dir/html/maintenance.html:/usr/share/nginx/html/maintenance.html:ro" \
         -e NGINX_ENVSUBST_FILTER=DJANGO_BPP_ \
         "$@" \
@@ -453,9 +475,10 @@ test_nginx_config_valid() {
     ngx_dir=$(mktemp -d)
     mkdir -p "$ngx_dir/templates" "$ngx_dir/conf.d" \
              "$ngx_dir/bpp-templates" "$ngx_dir/entrypoint" \
-             "$ngx_dir/ssl" "$ngx_dir/html"
+             "$ngx_dir/ssl" "$ngx_dir/html" "$ngx_dir/nginx-shared"
 
     cp "$REPO_DIR/defaults/webserver/default.conf.template" "$ngx_dir/templates/"
+    cp "$REPO_DIR/defaults/webserver/00-log-format.conf"    "$ngx_dir/conf.d/"
     cp "$REPO_DIR/defaults/webserver/security-headers.conf" "$ngx_dir/conf.d/"
     cp "$REPO_DIR/defaults/webserver/_bpp-locations.conf"   "$ngx_dir/bpp-templates/"
     cp "$REPO_DIR/defaults/webserver/vhost.conf.template"   "$ngx_dir/bpp-templates/"
@@ -482,7 +505,7 @@ test_nginx_config_valid() {
                     -subj \"/CN=\$h\" >/dev/null 2>&1
             done" || {
         fail "dummy SSL cert generation"
-        rm -rf "$ngx_dir"
+        rm_rf_root "$ngx_dir"
         return
     }
 
@@ -556,7 +579,7 @@ test_nginx_config_valid() {
                 -keyout "/le/live/$h/privkey.pem" -out "/le/live/$h/fullchain.pem" \
                 -subj "/CN=$h" >/dev/null 2>&1
         done
-    ' || { fail "stub LE cert generation"; rm -rf "$ngx_dir"; return; }
+    ' || { fail "stub LE cert generation"; rm_rf_root "$ngx_dir"; return; }
 
     # --- Test 14c: per-host LE certy obecne dla wszystkich hostow ---
     rm -f "$ngx_dir/out"/vhost-*.conf "$ngx_dir/out/rendered-default.conf"
@@ -586,7 +609,7 @@ test_nginx_config_valid() {
     # --- Test 14d: SAN — tylko canonical (pierwszy host) ma LE cert ---
     # Usun per-host certy dla 2-go i 3-go hosta. Zostaje tylko canonical.
     # Wszystkie 3 vhosty powinny wskazywac na canonical fullchain.
-    rm -rf "$ngx_dir/letsencrypt/live/bpp.wizja.pl" "$ngx_dir/letsencrypt/live/bpp.ufam.pl"
+    rm_rf_root "$ngx_dir/letsencrypt/live/bpp.wizja.pl" "$ngx_dir/letsencrypt/live/bpp.ufam.pl"
     rm -f "$ngx_dir/out"/vhost-*.conf "$ngx_dir/out/rendered-default.conf"
     local out_d
     out_d=$(_run_nginx_t "$ngx_dir" \
@@ -614,7 +637,7 @@ test_nginx_config_valid() {
     # --- Test 14e: SSL_MODE=letsencrypt ale BRAK LE certow -> fallback manual ---
     # Soft-fallback to manual paths zeby nginx wstal na snakeoil zanim user
     # wystawi LE cert (typowy first-deploy scenariusz).
-    rm -rf "$ngx_dir/letsencrypt/live/bpp.federacja.pl"
+    rm_rf_root "$ngx_dir/letsencrypt/live/bpp.federacja.pl"
     rm -f "$ngx_dir/out"/vhost-*.conf "$ngx_dir/out/rendered-default.conf"
     local out_e
     out_e=$(_run_nginx_t "$ngx_dir" \
@@ -636,7 +659,7 @@ test_nginx_config_valid() {
         printf '    %s\n' "${out_e//$'\n'/$'\n    '}"
     fi
 
-    rm -rf "$ngx_dir"
+    rm_rf_root "$ngx_dir"
 }
 
 # ============================================================
@@ -690,14 +713,15 @@ test_nginx_runtime() {
             docker stop -t 1 "$app_cid" >/dev/null 2>&1 || true
         fi
         docker network rm "$net_name" >/dev/null 2>&1 || true
-        rm -rf "$ngx_dir"
+        rm_rf_root "$ngx_dir"
     }
     trap _runtime_cleanup RETURN
 
     # Setup mountow webservera
     mkdir -p "$ngx_dir/templates" "$ngx_dir/conf.d" "$ngx_dir/bpp-templates" \
-             "$ngx_dir/entrypoint" "$ngx_dir/ssl" "$ngx_dir/html"
+             "$ngx_dir/entrypoint" "$ngx_dir/ssl" "$ngx_dir/html" "$ngx_dir/nginx-shared"
     cp "$REPO_DIR/defaults/webserver/default.conf.template"   "$ngx_dir/templates/"
+    cp "$REPO_DIR/defaults/webserver/00-log-format.conf"      "$ngx_dir/conf.d/"
     cp "$REPO_DIR/defaults/webserver/security-headers.conf"   "$ngx_dir/conf.d/"
     cp "$REPO_DIR/defaults/webserver/_bpp-locations.conf"     "$ngx_dir/bpp-templates/"
     cp "$REPO_DIR/defaults/webserver/vhost.conf.template"     "$ngx_dir/bpp-templates/"
@@ -763,11 +787,13 @@ PYEOF
             -p "127.0.0.1:0:80/tcp" \
             -p "127.0.0.1:0:443/tcp" \
             -v "$ngx_dir/templates/default.conf.template:/etc/nginx/templates/default.conf.template:ro" \
+            -v "$ngx_dir/conf.d/00-log-format.conf:/etc/nginx/conf.d/00-log-format.conf:ro" \
             -v "$ngx_dir/conf.d/security-headers.conf:/etc/nginx/conf.d/security-headers.conf:ro" \
             -v "$ngx_dir/bpp-templates/_bpp-locations.conf:/etc/nginx/bpp-templates/_bpp-locations.conf:ro" \
             -v "$ngx_dir/bpp-templates/vhost.conf.template:/etc/nginx/bpp-templates/vhost.conf.template:ro" \
             -v "$ngx_dir/entrypoint/30-render-bpp-vhosts.sh:/docker-entrypoint.d/30-render-bpp-vhosts.sh:ro" \
             -v "$ngx_dir/ssl:/etc/ssl/private:ro" \
+            -v "$ngx_dir/nginx-shared:/var/log/nginx-shared" \
             -v "$ngx_dir/webroot:/var/www/certbot:ro" \
             -v "$ngx_dir/html/maintenance.html:/usr/share/nginx/html/maintenance.html:ro" \
             -e NGINX_ENVSUBST_FILTER=DJANGO_BPP_ \

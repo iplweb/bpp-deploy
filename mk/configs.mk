@@ -17,10 +17,7 @@ update-ssl-certs:
 	fi
 
 generate-grafana-datasources:
-	envsubst < $(BPP_CONFIGS_DIR)/grafana/provisioning/datasources/datasources.yaml.tpl \
-		| sed 's/"\([^"]*\)"/\1/g' \
-		> $(BPP_CONFIGS_DIR)/grafana/provisioning/datasources/datasources.yaml
-	@echo "Generated $(BPP_CONFIGS_DIR)/grafana/provisioning/datasources/datasources.yaml"
+	@bash scripts/generate-grafana-datasources.sh
 
 update-configs: generate-grafana-datasources
 	@echo "Configs are bind-mounted from $(BPP_CONFIGS_DIR), no copy needed."

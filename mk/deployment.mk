@@ -22,6 +22,7 @@ refresh: validate-env-quotes prune-orphan-volumes ensure-config-files update-con
 	docker compose rm -f
 	docker compose up -d --remove-orphans
 	docker system prune -f
+	@bash scripts/create-monitoring-user.sh --soft
 	$(MAKE) invalidate
 
 DJANGO_BPP_ENABLE_HTML2DOCX_IMAGE ?= false
@@ -38,6 +39,7 @@ build:
 
 up: validate-env-quotes ensure-config-files update-configs
 	docker compose up -d --wait --force-recreate --remove-orphans
+	@bash scripts/create-monitoring-user.sh --soft
 	@if [ "$(DJANGO_BPP_ENABLE_HTML2DOCX_IMAGE)" = "true" ]; then \
 		docker pull iplweb/html2docx:latest; \
 	fi

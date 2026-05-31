@@ -88,7 +88,7 @@ services:
     logging: *default-logging
     env_file: ${BPP_CONFIGS_DIR}/.env
     environment:
-      DJANGO_BPP_ENABLE_PROMETHEUS: true
+      DJANGO_BPP_ENABLE_PROMETHEUS: ${DJANGO_BPP_ENABLE_PROMETHEUS:-false}
     volumes:
       - staticfiles:/staticroot
       - media:/mediaroot
