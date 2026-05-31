@@ -42,3 +42,11 @@ netdata-shell:
 .PHONY: grant-pg-monitor
 grant-pg-monitor:
 	@bash scripts/grant-pg-monitor.sh
+
+# Konfiguruje monitoring wolnych zapytan PostgreSQL:
+# - log_min_duration_statement = 1000ms (slow queries do logu - Loki dashboard)
+# - pg_stat_statements extension (agregowane stats - Grafana dashboard)
+# Idempotentne. Wymaga restartu dbservera tylko pierwszy raz (shared_preload_libraries).
+.PHONY: pg-monitoring-setup
+pg-monitoring-setup:
+	@bash scripts/pg-monitoring-setup.sh

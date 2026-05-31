@@ -144,6 +144,15 @@ Szumne locationy (`/healthz`, `/static`, `/media`, acme, security-blocks) maja w
 - `nginx.conf` — live metryki polaczen z endpointu `stub_status`. Endpoint to osobny `server { listen 8090; location = /stub_status { stub_status; } }` w `default.conf.template`. Port 8090 **nie** jest publikowany w compose → osiagalny tylko w sieci dockera (`netdata → webserver:8090`).
 - `web_log.conf` — metryki z parsowania access logu nginx (kody HTTP, metody, bandwidth, percentyle `$request_time`/`$upstream_response_time`) → wbudowane alerty na 5xx/latencje. Zrodlo: plik `/var/log/nginx-shared/bpp_access.log` (format `bpp_access`, `log_type: auto`). To **nie** dubluje Loki — Loki trzyma surowe linie do przeszukiwania, web_log liczy metryki @1s i alertuje na ntfy.
 
+### Slow query monitoring
+
+Dwa kanaly obserwowalnosci wolnych zapytan PG, oba przez istniejaca infre Loki+Grafana:
+
+- **Logi (`log_min_duration_statement=1000`)**: kazde query >1s w logu dbservera → Alloy → Loki (90d retention). Dashboard "Slow queries (log)" w Grafanie. Pelny tekst query + parametry. Naturalna filtracja czasowa (UI time picker).
+- **Statystyki (`pg_stat_statements`)**: agregowane per znormalizowane query (calls, mean/total/stddev exec time). Dashboard "Top 100 queries (pg_stat_statements)" — top N wg sredniej. Agregat od ostatniego `pg_stat_statements_reset()`.
+
+Bootstrap (jednorazowy, idempotentny): `make pg-monitoring-setup`. Tryb external (dbserver poza compose): skrypt wypisuje SQL do recznego uruchomienia.
+
 ## Make Targets
 
 `make help` is the source of truth. Notable targets:

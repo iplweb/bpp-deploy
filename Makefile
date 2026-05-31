@@ -138,6 +138,7 @@ help:
 	@echo "    init-configs         - Re-initialize config directory structure"
 	@echo "    configure-resources  - Tune Docker memory/CPU limits for this host"
 	@echo "    grant-pg-monitor     - Grant pg_monitor role to BPP user (once after deploy)"
+	@echo "    pg-monitoring-setup  - konfig log_min_duration_statement=1000 + pg_stat_statements"
 	@echo "    generate-snakeoil-certs - Generate self-signed SSL certificates"
 	@echo "    ssl-letsencrypt-issue   - Issue Let's Encrypt cert (staging; PROD=1 for real cert)"
 	@echo "    ssl-letsencrypt-renew   - Renew Let's Encrypt certs (idempotent, daily Ofelia auto)"
