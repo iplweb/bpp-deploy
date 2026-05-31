@@ -106,7 +106,7 @@ Grafana uses auth proxy mode behind nginx + authserver (Django). Headers: `X-WEB
 
 **Reduced verbosity**: Prometheus/Loki/Grafana/Alloy all set to `warn` or `error`.
 
-**Docker log driver — local rotation**: All services use the `local` driver (binary, zstd-compressed, ~2–4× smaller than `json-file`) via shared `x-logging` YAML anchor at the top of each compose file:
+**Docker log driver — local rotation**: All services use the `local` driver (binary protobuf framing, smaller than `json-file`) via shared `x-logging` YAML anchor at the top of each compose file. Compression (gzip, via moby `loggerutils`) applies **only to rotated files** — the active log file is uncompressed protobuf + plaintext, so tailing it shows readable text between binary frame markers. Disk savings come from the gzipped rotated segments, not the live file:
 
 ```yaml
 x-logging: &default-logging
@@ -118,7 +118,7 @@ x-logging: &default-logging
 
 YAML anchors do **not** cross `include:` boundaries — each of the 7 compose files needs its own `x-logging` definition. This is intentional: zero `daemon.json` host edits, all versioned, no impact on other host containers. **When adding a new service: include `logging: *default-logging` or it will fall back to unrotated `json-file`.**
 
-Defaults: 150m × 5 = 750MB per container (~3–4GB ceiling for ~20 containers, halved by zstd) — buffer until Alloy ships logs to Loki, not time-based retention.
+Defaults: 150m × 5 = 750MB per container (~3–4GB ceiling for ~20 containers, reduced by gzip on rotated segments) — buffer until Alloy ships logs to Loki, not time-based retention.
 
 **Loki — time-based retention per service**: configured in `defaults/loki/local-config.yaml` via `limits_config.retention_stream` keyed on `service` label set by Alloy from `com.docker.compose.service`:
 
