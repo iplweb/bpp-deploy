@@ -758,6 +758,14 @@ if [ ! -f "$ABS_CONFIG/ssl/key.pem" ] || [ ! -f "$ABS_CONFIG/ssl/cert.pem" ]; th
     fi
 fi
 
+# --- 8b. Renderuj configi zalezne od .env ---
+#
+# ensure-config-files.sh renderuje m.in. netdata/go.d/postgres.conf z
+# wartosci .env (DSN trzeba miec hardcodowane bo go.d.plugin nie expanduje
+# ${VAR}). Pierwsze wywolanie w fazie 6 nie mialo jeszcze .env, wiec
+# rendering byl skipniety - powtarzamy teraz.
+BPP_CONFIGS_DIR="$ABS_CONFIG" "$REPO_DIR/scripts/ensure-config-files.sh" >/dev/null
+
 # --- 9. Komunikat końcowy ---
 
 echo ""
