@@ -269,6 +269,7 @@ Przy pierwszym uruchomieniu, jeśli baza danych jest pusta, aplikacja automatycz
 Dodatkowe narzędzia administracyjne i monitoring nie są wystawiane jako osobne porty hosta. Są dostępne przez Nginx pod ścieżkami:
 
 - `https://<hostname>/grafana/`
+- `https://<hostname>/netdata/`
 - `https://<hostname>/flower/`
 - `https://<hostname>/dozzle/`
 
@@ -288,7 +289,8 @@ Dodatkowe narzędzia administracyjne i monitoring nie są wystawiane jako osobne
 │   ├── .env                        # Zmienne aplikacyjne (hasła, hostname)
 │   ├── ssl/                        # Certyfikaty SSL
 │   ├── alloy/                      # Konfiguracja Grafana Alloy
-│   ├── prometheus/                 # Konfiguracja Prometheus
+│   ├── loki/                       # Konfiguracja Loki (retencja logów)
+│   ├── netdata/                    # Konfiguracja Netdata (go.d/, health.d/, alerty ntfy)
 │   ├── grafana/provisioning/       # Dashboardy i datasources Grafana
 │   ├── rclone/                     # Konfiguracja backupów
 │   └── dozzle/                     # Użytkownicy Dozzle
@@ -330,8 +332,10 @@ make upgrade-postgres # Upgrade major wersji PostgreSQL (np. 16.13 -> 18.3)
 make health           # Szybki healthcheck wszystkich usług
 make logs-appserver   # Logi serwera aplikacji
 make logs-celery      # Logi workerów Celery
+make logs-netdata     # Logi Netdaty (metryki + alerty)
 make ps               # Lista kontenerów
 make celery-stats     # Statystyki zadań Celery
+make ntfy-test        # Wyślij testowy push na ntfy (alerty na telefon)
 ```
 
 ### Konfiguracja
@@ -379,7 +383,7 @@ make refresh
 
 #### Limity zasobów (`make configure-resources`)
 
-Podczas pierwszego uruchomienia `make` skrypt `configure-resources` jest odpalany automatycznie — wykrywa RAM i liczbę rdzeni hosta, proponuje proporcjonalny podział budżetu między 7 serwisów wysokiego ryzyka (dbserver, appserver, workerserver-general/denorm, redis, loki, prometheus) i pyta użytkownika o akceptację każdej wartości. Jeżeli odstąpisz od zaproponowanego defaultu dla któregoś serwisu, pozostałe mają swój budżet proporcjonalnie powiększony lub zmniejszony.
+Podczas pierwszego uruchomienia `make` skrypt `configure-resources` jest odpalany automatycznie — wykrywa RAM i liczbę rdzeni hosta, proponuje proporcjonalny podział budżetu między 7 serwisów wysokiego ryzyka (dbserver, appserver, workerserver-general/denorm, redis, loki, netdata) i pyta użytkownika o akceptację każdej wartości. Jeżeli odstąpisz od zaproponowanego defaultu dla któregoś serwisu, pozostałe mają swój budżet proporcjonalnie powiększony lub zmniejszony.
 
 Docker traktuje limit RAM jako **twardy** (przekroczenie → OOM kill), a CPU jako **miękki** (throttling bez zabijania). RAM ustawiaj z zapasem.
 
@@ -520,7 +524,7 @@ make install-docker            # Instalacja Dockera na hoście
 | **celerybeat** | Harmonogram zadań okresowych |
 | **flower** | UI monitorowania Celery (`/flower`) |
 | **grafana** | Dashboardy i wizualizacje (`/grafana`) |
-| **prometheus** | Metryki |
+| **netdata** | Metryki hosta / kontenerów / PostgreSQL + alerty push na ntfy.sh (`/netdata`) |
 | **loki** | Agregacja logów |
 | **alloy** | Kolektor logów z kontenerów Docker |
 | **dozzle** | Przeglądarka logów w czasie rzeczywistym (`/dozzle`) |
@@ -588,7 +592,7 @@ Procedura przeniesienia działającej instancji BPP na nowy host (np. wymiana sp
 
 ### Co **nie** jest backupowane przez `make backup`
 
-`make backup` zapisuje tylko bazę danych i wolumeny mediów. Loki/Prometheus/Grafana (logi i metryki historyczne) **nie są przenoszone** — po starcie na nowym hoście zaczynają od pustego stanu. Jeśli zależy ci na historii monitoringu, skopiuj dodatkowo wolumeny `prometheus_data`, `loki_data` i `grafana_data` (przy zatrzymanym stacku, np. przez `docker run --rm -v <vol>:/data alpine tar czf - /data | ssh nowy-host 'cat > vol.tar.gz'`).
+`make backup` zapisuje tylko bazę danych i wolumeny mediów. Loki/Netdata/Grafana (logi i metryki historyczne) **nie są przenoszone** — po starcie na nowym hoście zaczynają od pustego stanu. Jeśli zależy ci na historii monitoringu, skopiuj dodatkowo wolumeny `loki_data`, `netdata_lib`, `netdata_cache` i `grafana_data` (przy zatrzymanym stacku, np. przez `docker run --rm -v <vol>:/data alpine tar czf - /data | ssh nowy-host 'cat > vol.tar.gz'`).
 
 ## Rozwiązywanie problemów
 

@@ -210,3 +210,75 @@ if [ -f "$_ENV" ] && [ -f "$DEFAULTS_DIR/netdata/go.d/postgres.conf.tpl" ]; then
         echo "    Uzupelnij .env i ponow: make ensure-config-files (lub make refresh)." >&2
     fi
 fi
+
+# Netdata main config: renderowany host-side z netdata.conf.tpl i FORCE-SYNCOWANY
+# (overwrite ZAWSZE, gdy sie rozni - jak dashboardy Grafany). Powod force-sync:
+# `registry to announce` musi zawierac publiczny URL tego hosta (https://<host>/netdata),
+# zeby przycisk "View node" w powiadomieniu ntfy przekierowywal do LOKALNEJ netdaty
+# zamiast do registry.my-netdata.io. netdata.conf NIE interpoluje ${VAR}, wiec hostname
+# wstawiamy tu (jak postgres.conf.tpl). copy_if_missing nie wystarczy - zmiana nigdy by
+# nie trafila na istniejace wdrozenia (maja juz swoj netdata.conf w config dir).
+# Tunowalne knoby (retencja dbengine) parametryzowane przez .env, zeby overwrite nie
+# kasowal recznego strojenia na wiekszych hostach.
+if [ -f "$_ENV" ] && [ -f "$DEFAULTS_DIR/netdata/netdata.conf.tpl" ]; then
+    _nd_get() {
+        local raw
+        raw="$(grep -E "^${1}=" "$_ENV" 2>/dev/null | tail -1 | cut -d= -f2-)" || true
+        raw="${raw#\"}"; raw="${raw%\"}"
+        raw="${raw#\'}"; raw="${raw%\'}"
+        printf '%s' "$raw"
+    }
+    # Kanoniczny host: pierwszy z DJANGO_BPP_HOSTNAMES (CSV, multi-host),
+    # fallback do DJANGO_BPP_HOSTNAME (legacy single). Ta sama logika co letsencrypt.sh.
+    # Pierwszy niepusty token wyluskujemy w czystym bashu (for nad word-splitem) -
+    # bez `| head -1`, ktory pod `set -o pipefail` moze ubic wczesniejszy etap
+    # potoku SIGPIPE-em i przerwac skrypt. Hostname (DNS: alnum/.-) nie zawiera
+    # znakow glob, wiec niecytowane rozwiniecie jest bezpieczne.
+    _ND_HOSTNAMES="$(_nd_get DJANGO_BPP_HOSTNAMES)"
+    _ND_HOSTNAME="$(_nd_get DJANGO_BPP_HOSTNAME)"
+    _ND_SRC="$_ND_HOSTNAMES"
+    [ -n "$_ND_SRC" ] || _ND_SRC="$_ND_HOSTNAME"
+    _ND_NORM="$(printf '%s' "$_ND_SRC" | tr ',' '\n' | tr -d ' \t\r')"
+    _ND_CANON=""
+    for _h in $_ND_NORM; do _ND_CANON="$_h"; break; done
+
+    # Tunowalne (przezywaja force-sync, bo z .env): defaulty = dotychczasowe wartosci.
+    _ND_TIER0="$(_nd_get NETDATA_DBENGINE_TIER0_RETENTION_MB)"; [ -n "$_ND_TIER0" ] || _ND_TIER0="512"
+    _ND_PCACHE="$(_nd_get NETDATA_DBENGINE_PAGE_CACHE_MB)"; [ -n "$_ND_PCACHE" ] || _ND_PCACHE="32"
+
+    # Registry: gdy znamy hosta -> wlasny rejestr + announce na publiczny URL.
+    # Bez hosta (np. .env jeszcze nie wypelniony) -> degradacja do zachowania sprzed
+    # zmiany: rejestr wylaczony, announce na default registry.my-netdata.io.
+    if [ -n "$_ND_CANON" ]; then
+        _ND_REG_ENABLED="yes"
+        _ND_REG_ANNOUNCE="https://${_ND_CANON}/netdata"
+        _ND_REG_HOSTNAME="$_ND_CANON"
+    else
+        _ND_REG_ENABLED="no"
+        _ND_REG_ANNOUNCE="https://registry.my-netdata.io"
+        _ND_REG_HOSTNAME=""
+        echo "  ! UWAGA: brak DJANGO_BPP_HOSTNAMES/DJANGO_BPP_HOSTNAME w .env -" >&2
+        echo "    netdata registry zostaje wylaczony, link 'View node' w ntfy poleci" >&2
+        echo "    na registry.my-netdata.io. Uzupelnij host i ponow make ensure-config-files." >&2
+    fi
+
+    # sed-escape replacementu: backslash MUSI byc pierwszy (jak w renderze postgres.conf).
+    _esc_nd() { printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/[\/&]/\\&/g'; }
+    _nd_dest="$BPP_CONFIGS_DIR/netdata/netdata.conf"
+    _nd_tmp="${_nd_dest}.tmp.$$"
+    sed \
+        -e "s/__DBENGINE_TIER0_RETENTION_MB__/$(_esc_nd "$_ND_TIER0")/g" \
+        -e "s/__DBENGINE_PAGE_CACHE_MB__/$(_esc_nd "$_ND_PCACHE")/g" \
+        -e "s/__REGISTRY_ENABLED__/$(_esc_nd "$_ND_REG_ENABLED")/g" \
+        -e "s/__REGISTRY_ANNOUNCE__/$(_esc_nd "$_ND_REG_ANNOUNCE")/g" \
+        -e "s/__REGISTRY_HOSTNAME__/$(_esc_nd "$_ND_REG_HOSTNAME")/g" \
+        "$DEFAULTS_DIR/netdata/netdata.conf.tpl" > "$_nd_tmp"
+    # cmp przed mv: nadpisujemy tylko realne zmiany (jak copy_always), bez smiecenia
+    # logiem i bez przebudzania netdaty (config jej sie nie zmienil) przy kazdym up.
+    if ! cmp -s "$_nd_tmp" "$_nd_dest" 2>/dev/null; then
+        mv "$_nd_tmp" "$_nd_dest"
+        echo "  ~ zsynchronizowano (render+overwrite): $_nd_dest"
+    else
+        rm -f "$_nd_tmp"
+    fi
+fi
