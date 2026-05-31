@@ -1,5 +1,14 @@
 apiVersion: 1
 
+# Czyszczenie pozostalosci po migracji Prometheus -> Netdata. Grafana trzyma
+# sprovisionowane datasource'y tez we wlasnej bazie (wolumen grafana_data) —
+# samo usuniecie wpisu z tego pliku NIE kasuje datasource'a z UI. deleteDatasources
+# usuwa go jawnie przy starcie. Bezpieczne dla swiezych instalacji (nie istnieje
+# = no-op), naprawia upgrade'owane (znika martwy datasource Prometheus).
+deleteDatasources:
+  - name: Prometheus
+    orgId: 1
+
 datasources:
   - name: Loki
     uid: loki

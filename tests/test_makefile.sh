@@ -137,6 +137,8 @@ test_init_configs_copies_templates() {
     assert_file_exists "alloy config" "$CONFIG_DIR/alloy/config.alloy"
     assert_file_exists "netdata.conf" "$CONFIG_DIR/netdata/netdata.conf"
     assert_file_exists "netdata postgres collector" "$CONFIG_DIR/netdata/go.d/postgres.conf"
+    assert_file_exists "netdata nginx collector" "$CONFIG_DIR/netdata/go.d/nginx.conf"
+    assert_file_exists "netdata web_log collector" "$CONFIG_DIR/netdata/go.d/web_log.conf"
     assert_file_exists "netdata ntfy notify" "$CONFIG_DIR/netdata/health_alarm_notify.conf"
     assert_file_exists "grafana dashboards.yaml" "$CONFIG_DIR/grafana/provisioning/dashboards/dashboards.yaml"
     assert_file_exists "grafana datasources.yaml.tpl" "$CONFIG_DIR/grafana/provisioning/datasources/datasources.yaml.tpl"

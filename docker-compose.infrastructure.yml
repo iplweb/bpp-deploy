@@ -39,6 +39,9 @@ services:
       # dla zapytan ACME, co jest ok bo i tak nikt prawdziwy tam nie chodzi.
       - acme-challenge:/var/www/certbot:ro
       - ./defaults/webserver/default.conf.template:/etc/nginx/templates/default.conf.template:ro
+      # log_format bpp_access (kontekst http) — laduje sie pierwszy (prefix 00-)
+      # przed default.conf/vhost-*.conf, ktore go uzywaja.
+      - ./defaults/webserver/00-log-format.conf:/etc/nginx/conf.d/00-log-format.conf:ro
       - ./defaults/webserver/security-headers.conf:/etc/nginx/conf.d/security-headers.conf:ro
       - ./defaults/webserver/_bpp-locations.conf:/etc/nginx/bpp-templates/_bpp-locations.conf:ro
       - ./defaults/webserver/vhost.conf.template:/etc/nginx/bpp-templates/vhost.conf.template:ro
@@ -46,7 +49,13 @@ services:
       # Let's Encrypt reload helper. NIE w /docker-entrypoint.d/ (uruchomilby
       # sie przy starcie kontenera) - tylko jako exec na zadanie z Ofelia.
       - ./scripts/letsencrypt-reload.sh:/usr/local/bin/letsencrypt-reload.sh:ro
+      # Rotacja access logu czytanego przez netdata web_log (Ofelia job-exec).
+      - ./scripts/nginx-access-log-rotate.sh:/usr/local/bin/nginx-access-log-rotate.sh:ro
       - ./defaults/webserver/maintenance.html:/usr/share/nginx/html/maintenance.html:ro
+      # Access log dla kolektora netdata web_log. Osobny katalog (NIE
+      # /var/log/nginx) zeby nie przeslonic symlinkow access.log->stdout /
+      # error.log->stderr z obrazu nginx. Wspoldzielony RO z kontenerem netdata.
+      - nginx_access_log:/var/log/nginx-shared
     deploy:
       resources:
         limits:
@@ -64,6 +73,11 @@ services:
       # 5 minut po job-run renew (bezpieczny margines na wystawienie certu).
       ofelia.job-exec.letsencrypt_reload.schedule: "0 5 4 * * *"
       ofelia.job-exec.letsencrypt_reload.command: "/usr/local/bin/letsencrypt-reload.sh"
+      # Codzienna rotacja access logu czytanego przez netdata web_log (04:10 —
+      # po reloadzie LE 04:05, zeby nie kolidowac). `nginx -s reopen` odtwarza
+      # plik; netdata wykrywa podmiane inode i czyta dalej.
+      ofelia.job-exec.nginx_access_log_rotate.schedule: "0 10 4 * * *"
+      ofelia.job-exec.nginx_access_log_rotate.command: "/usr/local/bin/nginx-access-log-rotate.sh"
 
   redis:
     image: redis:8.6.2
@@ -100,3 +114,8 @@ volumes:
   # (zapisuje pliki challenge przez --webroot). Ephemeral - tresc challenge
   # zyje sekundami, nic wartosciowego sie nie kumuluje.
   acme-challenge:
+  # Access log nginx (format bpp_access) czytany przez kolektor netdata
+  # web_log. Pisany RW przez webserver, montowany RO do netdaty
+  # (docker-compose.monitoring.yml). Rotowany codziennie przez Ofelia —
+  # max 2 generacje (.log + .log.1), wiec nie rosnie w nieskonczonosc.
+  nginx_access_log:

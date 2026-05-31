@@ -133,6 +133,10 @@ services:
       - /var/log:/host/var/log:ro
       # Docker socket dla auto-discovery kontenerow + cgroup metryk.
       - /var/run/docker.sock:/var/run/docker.sock:ro
+      # Access log nginx (RO) dla kolektora web_log — patrz go.d/web_log.conf.
+      # Wolumen zadeklarowany w docker-compose.infrastructure.yml (webserver
+      # pisze, netdata czyta).
+      - nginx_access_log:/var/log/nginx-shared:ro
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:19999/api/v1/info"]
       interval: 30s

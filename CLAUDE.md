@@ -131,7 +131,18 @@ Defaults: 150m × 5 = 750MB per container (~3–4GB ceiling for ~20 containers, 
 
 Tuning: edit `$BPP_CONFIGS_DIR/loki/local-config.yaml` + `docker compose restart loki`. Selectors use `{service="<compose-service-name>"}`.
 
+**nginx access log** — glowny ruch loguje sie w formacie `bpp_access` (`defaults/webserver/00-log-format.conf`: combined + `$request_length`/`$request_time`/`$upstream_response_time`) do **dwoch** celow jednoczesnie z `vhost.conf.template`:
+- `access_log /dev/stdout bpp_access;` → Docker → Alloy → Loki → Grafana (`{service="webserver"}`, search/forensics).
+- `access_log /var/log/nginx-shared/bpp_access.log bpp_access;` → wolumen `nginx_access_log` (RO w netdacie) → kolektor web_log (metryki + alerty).
+
+Szumne locationy (`/healthz`, `/static`, `/media`, acme, security-blocks) maja wlasne `access_log off` w `_bpp-locations.conf` i nadpisuja oba sinki. Plik na wolumenie rotuje Ofelia codziennie 04:10 (`scripts/nginx-access-log-rotate.sh`: `mv` na `.1` + `nginx -s reopen`, max 2 generacje) — Docker log driver rotuje tylko stdout/stderr, nie ten plik.
+
 **Netdata** — tiered retention (ostatnie godziny w 1s, dni w 1m, tygodnie/miesiace w 1h) w volume `netdata_lib` (~512MB ceiling per `dbengine multihost disk space` w `netdata.conf`). Config w `${BPP_CONFIGS_DIR}/netdata/netdata.conf`. Alerty: wbudowane reguly health w agencie (setki gotowych defaultow); custom alerty w `${BPP_CONFIGS_DIR}/netdata/health.d/`. Push przez `health_alarm_notify.conf` (sourced as bash, kanał ntfy z `${NTFY_SERVER}/${NTFY_TOPIC}`).
+
+**Kolektory `go.d`** (w `${BPP_CONFIGS_DIR}/netdata/go.d/`, nadpisuja wbudowane defaulty mountem RO):
+- `postgres.conf` — metryki PostgreSQL (DSN z `.env`; internal i external mode).
+- `nginx.conf` — live metryki polaczen z endpointu `stub_status`. Endpoint to osobny `server { listen 8090; location = /stub_status { stub_status; } }` w `default.conf.template`. Port 8090 **nie** jest publikowany w compose → osiagalny tylko w sieci dockera (`netdata → webserver:8090`).
+- `web_log.conf` — metryki z parsowania access logu nginx (kody HTTP, metody, bandwidth, percentyle `$request_time`/`$upstream_response_time`) → wbudowane alerty na 5xx/latencje. Zrodlo: plik `/var/log/nginx-shared/bpp_access.log` (format `bpp_access`, `log_type: auto`). To **nie** dubluje Loki — Loki trzyma surowe linie do przeszukiwania, web_log liczy metryki @1s i alertuje na ntfy.
 
 ## Make Targets
 
@@ -164,7 +175,7 @@ Tuning: edit `$BPP_CONFIGS_DIR/loki/local-config.yaml` + `docker compose restart
 
 ### Data Flow
 
-Web: nginx → Django. Background tasks: Django → Celery. DB changes: PG triggers → LISTEN → `denorm-queue` → Celery. Static: nginx serves shared volume. Cron: Ofelia → Django mgmt commands. Logs: containers → Alloy → Loki → Grafana. Metryki: kontenery + host + Postgres → Netdata (1s rozdzielczosc, lokalne UI + alerty); push na ntfy.sh przy alertach. Auth: nginx → authserver → proxies Grafana/Dozzle.
+Web: nginx → Django. Background tasks: Django → Celery. DB changes: PG triggers → LISTEN → `denorm-queue` → Celery. Static: nginx serves shared volume. Cron: Ofelia → Django mgmt commands. Logs: containers → Alloy → Loki → Grafana. Metryki: kontenery + host + Postgres + nginx (stub_status połączenia, web_log z access logu) → Netdata (1s rozdzielczosc, lokalne UI + alerty); push na ntfy.sh przy alertach. Auth: nginx → authserver → proxies Grafana/Dozzle.
 
 **CRITICAL**: `denorm-queue` must run as a **single instance** to avoid duplicate message processing. Do not scale.
 
