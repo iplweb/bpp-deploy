@@ -102,7 +102,9 @@ test_init_configs_creates_structure() {
     assert_dir_exists "ssl" "$CONFIG_DIR/ssl"
     assert_dir_exists "rclone" "$CONFIG_DIR/rclone"
     assert_dir_exists "alloy" "$CONFIG_DIR/alloy"
-    assert_dir_exists "prometheus" "$CONFIG_DIR/prometheus"
+    assert_dir_exists "netdata" "$CONFIG_DIR/netdata"
+    assert_dir_exists "netdata/go.d" "$CONFIG_DIR/netdata/go.d"
+    assert_dir_exists "netdata/health.d" "$CONFIG_DIR/netdata/health.d"
     assert_dir_exists "grafana datasources" "$CONFIG_DIR/grafana/provisioning/datasources"
     assert_dir_exists "grafana dashboards" "$CONFIG_DIR/grafana/provisioning/dashboards"
 
@@ -122,7 +124,9 @@ test_init_configs_copies_templates() {
     make -C "$REPO_COPY" init-configs BPP_CONFIGS_DIR="$CONFIG_DIR" >/dev/null 2>&1
 
     assert_file_exists "alloy config" "$CONFIG_DIR/alloy/config.alloy"
-    assert_file_exists "prometheus config" "$CONFIG_DIR/prometheus/prometheus.yml"
+    assert_file_exists "netdata.conf" "$CONFIG_DIR/netdata/netdata.conf"
+    assert_file_exists "netdata postgres collector" "$CONFIG_DIR/netdata/go.d/postgres.conf"
+    assert_file_exists "netdata ntfy notify" "$CONFIG_DIR/netdata/health_alarm_notify.conf"
     assert_file_exists "grafana dashboards.yaml" "$CONFIG_DIR/grafana/provisioning/dashboards/dashboards.yaml"
     assert_file_exists "grafana datasources.yaml.tpl" "$CONFIG_DIR/grafana/provisioning/datasources/datasources.yaml.tpl"
 
@@ -191,7 +195,7 @@ test_init_configs_no_overwrite() {
     original_pass=$(grep 'DJANGO_BPP_DB_PASSWORD=' "$CONFIG_DIR/.env" | cut -d= -f2)
     # Zmodyfikuj szablonowe pliki, żeby sprawdzić czy nie zostaną nadpisane
     echo "# custom alloy config" > "$CONFIG_DIR/alloy/config.alloy"
-    echo "# custom prometheus config" > "$CONFIG_DIR/prometheus/prometheus.yml"
+    echo "# custom netdata config" > "$CONFIG_DIR/netdata/netdata.conf"
 
     # Drugie uruchomienie — nie powinno nadpisać
     make -C "$REPO_COPY" init-configs BPP_CONFIGS_DIR="$CONFIG_DIR" >/dev/null 2>&1
@@ -207,7 +211,7 @@ test_init_configs_no_overwrite() {
 
     # Sprawdź szablonowe pliki konfiguracyjne
     assert_file_contains "alloy config preserved" "# custom alloy config" "$CONFIG_DIR/alloy/config.alloy"
-    assert_file_contains "prometheus config preserved" "# custom prometheus config" "$CONFIG_DIR/prometheus/prometheus.yml"
+    assert_file_contains "netdata config preserved" "# custom netdata config" "$CONFIG_DIR/netdata/netdata.conf"
 
     cleanup_temp
 }
