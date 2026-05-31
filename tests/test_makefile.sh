@@ -422,11 +422,13 @@ _run_nginx_t() {
     shift
     docker run --rm \
         -v "$ngx_dir/templates/default.conf.template:/etc/nginx/templates/default.conf.template:ro" \
+        -v "$ngx_dir/conf.d/00-log-format.conf:/etc/nginx/conf.d/00-log-format.conf:ro" \
         -v "$ngx_dir/conf.d/security-headers.conf:/etc/nginx/conf.d/security-headers.conf:ro" \
         -v "$ngx_dir/bpp-templates/_bpp-locations.conf:/etc/nginx/bpp-templates/_bpp-locations.conf:ro" \
         -v "$ngx_dir/bpp-templates/vhost.conf.template:/etc/nginx/bpp-templates/vhost.conf.template:ro" \
         -v "$ngx_dir/entrypoint/30-render-bpp-vhosts.sh:/docker-entrypoint.d/30-render-bpp-vhosts.sh:ro" \
         -v "$ngx_dir/ssl:/etc/ssl/private:ro" \
+        -v "$ngx_dir/nginx-shared:/var/log/nginx-shared" \
         -v "$ngx_dir/html/maintenance.html:/usr/share/nginx/html/maintenance.html:ro" \
         -e NGINX_ENVSUBST_FILTER=DJANGO_BPP_ \
         "$@" \
@@ -470,9 +472,10 @@ test_nginx_config_valid() {
     ngx_dir=$(mktemp -d)
     mkdir -p "$ngx_dir/templates" "$ngx_dir/conf.d" \
              "$ngx_dir/bpp-templates" "$ngx_dir/entrypoint" \
-             "$ngx_dir/ssl" "$ngx_dir/html"
+             "$ngx_dir/ssl" "$ngx_dir/html" "$ngx_dir/nginx-shared"
 
     cp "$REPO_DIR/defaults/webserver/default.conf.template" "$ngx_dir/templates/"
+    cp "$REPO_DIR/defaults/webserver/00-log-format.conf"    "$ngx_dir/conf.d/"
     cp "$REPO_DIR/defaults/webserver/security-headers.conf" "$ngx_dir/conf.d/"
     cp "$REPO_DIR/defaults/webserver/_bpp-locations.conf"   "$ngx_dir/bpp-templates/"
     cp "$REPO_DIR/defaults/webserver/vhost.conf.template"   "$ngx_dir/bpp-templates/"
@@ -713,8 +716,9 @@ test_nginx_runtime() {
 
     # Setup mountow webservera
     mkdir -p "$ngx_dir/templates" "$ngx_dir/conf.d" "$ngx_dir/bpp-templates" \
-             "$ngx_dir/entrypoint" "$ngx_dir/ssl" "$ngx_dir/html"
+             "$ngx_dir/entrypoint" "$ngx_dir/ssl" "$ngx_dir/html" "$ngx_dir/nginx-shared"
     cp "$REPO_DIR/defaults/webserver/default.conf.template"   "$ngx_dir/templates/"
+    cp "$REPO_DIR/defaults/webserver/00-log-format.conf"      "$ngx_dir/conf.d/"
     cp "$REPO_DIR/defaults/webserver/security-headers.conf"   "$ngx_dir/conf.d/"
     cp "$REPO_DIR/defaults/webserver/_bpp-locations.conf"     "$ngx_dir/bpp-templates/"
     cp "$REPO_DIR/defaults/webserver/vhost.conf.template"     "$ngx_dir/bpp-templates/"
@@ -780,11 +784,13 @@ PYEOF
             -p "127.0.0.1:0:80/tcp" \
             -p "127.0.0.1:0:443/tcp" \
             -v "$ngx_dir/templates/default.conf.template:/etc/nginx/templates/default.conf.template:ro" \
+            -v "$ngx_dir/conf.d/00-log-format.conf:/etc/nginx/conf.d/00-log-format.conf:ro" \
             -v "$ngx_dir/conf.d/security-headers.conf:/etc/nginx/conf.d/security-headers.conf:ro" \
             -v "$ngx_dir/bpp-templates/_bpp-locations.conf:/etc/nginx/bpp-templates/_bpp-locations.conf:ro" \
             -v "$ngx_dir/bpp-templates/vhost.conf.template:/etc/nginx/bpp-templates/vhost.conf.template:ro" \
             -v "$ngx_dir/entrypoint/30-render-bpp-vhosts.sh:/docker-entrypoint.d/30-render-bpp-vhosts.sh:ro" \
             -v "$ngx_dir/ssl:/etc/ssl/private:ro" \
+            -v "$ngx_dir/nginx-shared:/var/log/nginx-shared" \
             -v "$ngx_dir/webroot:/var/www/certbot:ro" \
             -v "$ngx_dir/html/maintenance.html:/usr/share/nginx/html/maintenance.html:ro" \
             -e NGINX_ENVSUBST_FILTER=DJANGO_BPP_ \
