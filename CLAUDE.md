@@ -2,18 +2,51 @@
 
 Guidance for Claude Code working in this repository.
 
+> **Operator documentation lives in `docs/`** (MkDocs Material, published to
+> [iplweb.github.io/bpp-deploy](https://iplweb.github.io/bpp-deploy/)). This file is
+> **agent steering** — repo conventions, CRITICAL safety rules, contracts and file
+> pointers. When you need a full operational how-to (SSL, PostgreSQL upgrade, monitoring,
+> backups), read the linked `docs/` page rather than duplicating it here.
+>
+> **Keeping docs in sync is a first-class task.** When you change deployment behavior,
+> use the **`docs-sync` skill** (`.claude/skills/docs-sync/`) — it maps what belongs in
+> README vs `docs/` vs this file, and lists which pages to touch for each kind of change.
+
 ## Project Overview
 
 **Django-based academic publication management system (BPP — Bibliografia Publikacji Pracowników)**, deployment configuration only. Django source code lives at `/src/` **inside the Docker containers** — this repo contains Docker Compose orchestration and deployment scripts.
 
 **Stack**: Django + PostgreSQL, Celery + Redis (broker + result backend), Nginx, Ofelia (cron), Netdata (metryki + alerty → ntfy.sh) + Loki + Grafana + Alloy (logi), custom `iplweb/*` images.
 
-## Configuration Architecture
+## Documentation map
 
-### Modular Docker Compose (include directive, v2.20+)
+| Surface | Audience | Owns |
+|---|---|---|
+| `README.md` | New operator on GitHub | Install + first-run config + pointer into docs |
+| `docs/` (MkDocs) | Operator running BPP | All operational + reference detail |
+| `CLAUDE.md` (this file) | AI agents editing the repo | Conventions, CRITICAL rules, contracts, file pointers |
+
+Operator topics and their canonical pages:
+
+- Config architecture / force-sync: `docs/konfiguracja/architektura.md`
+- SSL (manual/Let's Encrypt): `docs/konfiguracja/ssl.md`
+- Multi-host: `docs/konfiguracja/multi-host.md`
+- Resource limits: `docs/konfiguracja/limity-zasobow.md`
+- PostgreSQL versions/upgrade: `docs/konfiguracja/postgresql.md`
+- Make commands: `docs/eksploatacja/komendy.md`
+- Backups / server migration: `docs/eksploatacja/backup-i-rclone.md`, `docs/eksploatacja/przenosiny-serwera.md`
+- Monitoring / logging / slow queries: `docs/monitoring/*`
+- Services / healthchecks / Ofelia jobs: `docs/architektura/*`
+- Backwards-compat contract: `docs/rozwoj/backwards-compatibility.md` (summarized below — read both)
+
+## Configuration Architecture (essentials)
+
+Full detail: `docs/konfiguracja/architektura.md`.
+
+### Modular Docker Compose (`include`, v2.20+)
 
 ```
-docker-compose.yml              # Main orchestration
+docker-compose.yml                    # Main orchestration
 ├── docker-compose.monitoring.yml     # Netdata, Loki, Grafana, Alloy, Dozzle
 ├── docker-compose.database.yml       # PostgreSQL + postgresql_data volume
 ├── docker-compose.infrastructure.yml # Nginx, Redis
@@ -22,312 +55,99 @@ docker-compose.yml              # Main orchestration
 └── docker-compose.backup.yml         # backup-runner
 ```
 
-Volumes are defined in the file that owns them but referenced cross-file (e.g. `staticfiles`/`media` defined in `application.yml`, used by workers).
+Volumes are defined in the file that owns them but referenced cross-file (e.g. `staticfiles`/`media` in `application.yml`, used by workers). Each `include:` has `env_file: ${BPP_CONFIGS_DIR}/.env`. `BPP_CONFIGS_DIR` is read from repo-local `.env` by Compose — `docker compose up` works without `make`.
 
-Each `include:` entry has `env_file: ${BPP_CONFIGS_DIR}/.env` so `${VAR}` interpolation works in included YAML. `BPP_CONFIGS_DIR` is read from repo-local `.env` automatically by Compose — `docker compose up` works directly without `make`.
+### Config dir (`BPP_CONFIGS_DIR`) and `defaults/`
 
-### Configuration Directory (`BPP_CONFIGS_DIR`)
+Configuration lives **outside the repository** (e.g. `~/publikacje-uczelnia/`), created on first `make` by `init-configs`. `defaults/` holds templates copied in by `init-configs` **without overwriting** (`copy_if_missing`) — user-tuned configs survive upgrades.
 
-Configuration lives **outside the repository** (e.g. `~/publikacje-uczelnia/`). Created on first `make` run by `init-configs`. Contents: `.env`, `ssl/`, `rclone/`, `alloy/`, `loki/`, `netdata/{go.d,health.d}/`, `grafana/provisioning/{datasources,dashboards}/`. Bind-mounted directly into containers.
+### CRITICAL: force-synced files (overwritten on every `make up`/`refresh`/`run`)
 
-Repo's `defaults/` holds template configs copied in by `init-configs` (without overwriting existing — `copy_if_missing`, so user-tuned configs like `loki/`, `netdata/health.d/`, `netdata/go.d/`, `alloy/` survive upgrades). **Exception within `netdata/`:** `netdata.conf` itself is rendered + force-synced (see below) — tune it via `.env`, not by editing the file.
+These are overwritten from `defaults/` via `copy_always` (only when content differs):
 
-**Exception — Grafana dashboards, the datasource template, and `netdata.conf` are force-synced.** `grafana/provisioning/dashboards/*`, `grafana/provisioning/datasources/datasources.yaml.tpl`, **and** `netdata/netdata.conf` are overwritten from `defaults/` on every `ensure-config-files` run (i.e. every `make up` / `refresh` / `run`) via `copy_always` (only when content differs). `netdata.conf` is a special case: it's rendered host-side from `defaults/netdata/netdata.conf.tpl` (like `go.d/postgres.conf.tpl`) — `netdata.conf` can't interpolate `${VAR}`, so the deployment's hostname is substituted into `[registry] registry to announce = https://<host>/netdata`. **Why it must force-sync:** that announce URL drives the "View node" button in ntfy alerts — without overwrite, an existing install keeps its stale config-dir `netdata.conf` and the button stays pointed at `registry.my-netdata.io`. User-tunable knobs (dbengine retention) are parametrized via `.env` (`NETDATA_DBENGINE_TIER0_RETENTION_MB`, `NETDATA_DBENGINE_PAGE_CACHE_MB`) so the force-overwrite doesn't wipe manual tuning. The other `netdata/` configs (`health.d/`, `go.d/`, `health_alarm_notify.conf`) stay `copy_if_missing` and survive upgrades. They're shipped, read-only-in-UI artifacts — editing them in the config dir is pointless, so an updated dashboard/datasource in the repo lands on the live deployment automatically with `git pull && make up`, no manual `cp`. **Why the `.tpl` must force-sync:** with `copy_if_missing`, an upgraded install keeps its stale config-dir `.tpl`, so a change like "Grafana connects via the read-only `bpp_monitor` role instead of the app superuser" (or the `deleteDatasources: Prometheus` cleanup) would never reach existing deployments. The rendered `datasources.yaml` (from `scripts/generate-grafana-datasources.sh`, which reads `.env` from disk — **not** make's parse-time export, so a freshly-generated `DJANGO_BPP_PG_MONITOR_PASSWORD` isn't rendered empty on the first `make up`) is the live file; the `.tpl` is its source. Dashboards removed from `defaults/` are left in place (not deleted); user-created UI dashboards live in Grafana's DB and are unaffected.
+- `grafana/provisioning/dashboards/*`
+- `grafana/provisioning/datasources/datasources.yaml.tpl`
+- `netdata/netdata.conf` (rendered host-side from `defaults/netdata/netdata.conf.tpl`)
 
-### First Run
+**Why force-sync:** versioned, read-only-in-UI artifacts must reach existing installs on `git pull && make up`. `netdata.conf` can't interpolate `${VAR}`, so the hostname is substituted into `[registry] registry to announce = https://<host>/netdata` (drives the "View node" button in ntfy alerts). `datasources.yaml.tpl` force-sync is what lets changes like "Grafana connects via read-only `bpp_monitor`" reach old installs. The rendered `datasources.yaml` comes from `scripts/generate-grafana-datasources.sh` (reads `.env` from disk — **not** make's parse-time export, so a freshly-generated `DJANGO_BPP_PG_MONITOR_PASSWORD` isn't rendered empty on first `make up`).
 
-```bash
-make    # First run: prompts for config dir, hostname, admin user/email,
-        # Slack webhook, backup dir, PostgreSQL version. Generates random
-        # passwords. Edit $BPP_CONFIGS_DIR/.env if needed.
-make    # Second run: starts services normally.
-```
-
-### PostgreSQL Version
-
-`dbserver` uses `iplweb/bpp_dbserver:psql-${DJANGO_BPP_POSTGRESQL_VERSION}`, format `MAJOR.MINOR` (e.g. `16.13`, `17.9`, `18.3`). Default `16.13`. Major upgrades require dump/restore — use `make upgrade-postgres`, do **not** edit the variable manually.
-
-`DJANGO_BPP_POSTGRESQL_VERSION_MAJOR` (auto-derived from `_VERSION`) is used by `backup-runner` (`postgres:<major>-alpine` — `pg_dump` must be ≥ server version). External mode (`BPP_DATABASE_COMPOSE=docker-compose.database.external.yml`): both vars hold the major only.
-
-Image tags: https://hub.docker.com/r/iplweb/bpp_dbserver/tags
+User-tunable knobs are parametrized via `.env` (`NETDATA_DBENGINE_TIER0_RETENTION_MB`, `NETDATA_DBENGINE_PAGE_CACHE_MB`) so force-overwrite doesn't wipe manual tuning. **Don't tell users to hand-edit force-synced files — point them at `.env` knobs.** Everything else under the config dir stays `copy_if_missing`. Dashboards removed from `defaults/` are left in place; UI-created Grafana dashboards live in its DB and are unaffected.
 
 ### Staticfiles volume — contract with appserver image
 
-`staticfiles` is populated by `appserver` (mount `/staticroot`) and served by `webserver/nginx` (mount `/var/www/html/staticroot`). Source is `/app/staticroot.baked/` baked into the appserver image at build time (when `node_modules` is available — runtime no longer has it).
+`staticfiles` is populated by `appserver` (mount `/staticroot`) and served by `webserver`/nginx (mount `/var/www/html/staticroot`). Source is `/app/staticroot.baked/` baked into the appserver image at build time. Entrypoint Phase 2 runs `cp -ru /app/staticroot.baked/. "$STATIC_ROOT/"` — seeds an empty volume and tops up newer files on upgrade without deleting. Runtime does **not** run `collectstatic` (fallback only for pre-`.baked` images). `STATIC_ROOT=/staticroot/` in `.env` overrides image default. After `make refresh`/`prune-orphan-volumes`, volume is repopulated from `.baked`.
 
-1. Appserver entrypoint (`docker/appserver/entrypoint-appserver.sh` in `bpp` repo) at Phase 2 runs `cp -ru /app/staticroot.baked/. "$STATIC_ROOT/"`.
-2. `cp -ru` seeds an empty volume **and** tops up newer files on image upgrade without deleting existing content.
-3. Runtime does **not** run `collectstatic` — the `.baked` directory is the same output. Fallback runs `collectstatic` only for pre-`.baked` images.
+### PostgreSQL version vars
 
-`STATIC_ROOT=/staticroot/` in `.env` overrides image default `/app/staticroot`. Backward-compat: entrypoint guards with `if [ -d /app/staticroot.baked ]`. After `make refresh` or `make prune-orphan-volumes`, volume gets repopulated from `.baked`.
-
-### SSL: manual vs Let's Encrypt
-
-`DJANGO_BPP_SSL_MODE` (default `manual`) wybiera, gdzie nginx czyta certy:
-
-- **`manual`** — `$BPP_CONFIGS_DIR/ssl/<host>/{cert,key}.pem` (multi-host) z fallbackiem do `$BPP_CONFIGS_DIR/ssl/{cert,key}.pem` (legacy single). Tu trafiają snakeoil i certy wgrane ręcznie. **LE nigdy nie pisze do `ssl/`** — separacja katalogów chroni manualne certy.
-- **`letsencrypt`** — `$BPP_CONFIGS_DIR/letsencrypt/live/<host>/{fullchain,privkey}.pem` (per-host) z fallbackiem do `live/<canonical>/...` (SAN, jeden cert pod nazwą pierwszego hosta z `HOSTNAMES`/`HOSTNAME`). Dalsze fallbacki do manualnych ścieżek — gdy LE jeszcze nie wystawił, nginx wstaje na snakeoil.
-
-Wybór trybu: edycja `DJANGO_BPP_SSL_MODE` w `$BPP_CONFIGS_DIR/.env` + `make refresh`.
-
-**Wystawienie cert LE** (one-shot, ręcznie):
-
-```bash
-make ssl-letsencrypt-issue           # staging (LE staging API, niezaufany w przeglądarce, test pipeline'u)
-make ssl-letsencrypt-issue PROD=1    # prod (zużywa rate-limit LE!)
-```
-
-W trybie PROD skrypt wykrywa kolizję `mode=manual` i interaktywnie pyta o flip na `letsencrypt`. Non-interactive: `ACTIVATE=1` lub `ACTIVATE=0`. Cert wystawiany jako SAN — jedna `--cert-name` pod `$CANONICAL_HOST` (= pierwszy z listy), wszystkie hosty jako `-d`.
-
-**Codzienny renew**: Ofelia `job-run` na certbot image o 04:00 (label na `appserver` w `application.yml`). `certbot renew` jest idempotentny — pomija certy z >30 dni do wygaśnięcia, exit 0 gdy `letsencrypt/` puste. Po sukcesie deploy-hook tworzy sentinel `letsencrypt/.reload-needed`. Drugi job (Ofelia `job-exec` na webserverze, 04:05) podnosi sentinel, robi `nginx -s reload` i kasuje go. Manualny renew: `make ssl-letsencrypt-renew` (tożsamy flow, od razu).
-
-**ACME location**: `/.well-known/acme-challenge/` w port-80 server bloku `vhost.conf.template` — zawsze aktywny, niezależnie od `SSL_MODE`. Webroot na shared volume `acme-challenge` (RW dla certbota, RO dla nginx). Zero downtime przy issue/renew (webroot challenge, nie standalone).
-
-**Pliki**:
-- `scripts/letsencrypt.sh` — host-side orchestrator (issue/renew, auto-flip mode po prompcie)
-- `scripts/letsencrypt-reload.sh` — exec-owany przez Ofelia w webserverze, sprawdza sentinel
-- `defaults/webserver/30-render-bpp-vhosts.sh` — SSL_MODE-aware cert path resolver
-- `docker-compose.application.yml` — service `certbot` z `profiles: ['letsencrypt']` (start tylko przez `docker compose run`) + Ofelia `job-run` label dla codziennego renew
-- `docker-compose.infrastructure.yml` — webserver bind mount `letsencrypt/` (RW dla sentinela), volume `acme-challenge`, Ofelia `job-exec` label dla reloadu
-
-### Authentication
-
-Grafana uses auth proxy mode behind nginx + authserver (Django). Headers: `X-WEBAUTH-USER`, `X-WEBAUTH-EMAIL`, `X-WEBAUTH-NAME`. Auto-signup as Admin.
-
-### Healthchecks
-
-**Compose-level**: `authserver` (HTTP `/health/`), `redis` (`redis-cli ping`), `grafana` (HTTP `/api/health`).
-
-**Image-level** (Dockerfile `HEALTHCHECK`): `dbserver` (pg_isready), `appserver` (HTTP), `workerserver-general`/`workerserver-denorm` (`celery inspect ping` via Redis broker — flaps when broker connection breaks), `denorm-queue` (`pgrep -f denorm_queue`).
-
-**Reactive restart on unhealthy** (sidecar `autoheal`): Docker does NOT restart containers based on failed healthchecks (`restart: always` only reacts to process exit). `willfarrell/autoheal:1.2.0` (in `application.yml`) monitors containers labeled `autoheal=true` via Docker API and restarts them on `Health.Status=unhealthy`. Currently watched: `workerserver-general`, `workerserver-denorm`, `denorm-queue` — without this, a stuck Celery worker (broken broker connection, kombu reconnect loop) would stay unhealthy forever because the process is still alive.
-
-**Important**: Double-dollar escaping (e.g. `$$DJANGO_BPP_DB_USER`) in healthcheck commands prevents premature variable expansion by Compose.
-
-### Logging
-
-**Reduced verbosity**: Loki/Grafana/Alloy all set to `warn` or `error`.
-
-**Docker log driver — local rotation**: All services use the `local` driver (binary protobuf framing, smaller than `json-file`) via shared `x-logging` YAML anchor at the top of each compose file. Compression (gzip, via moby `loggerutils`) applies **only to rotated files** — the active log file is uncompressed protobuf + plaintext, so tailing it shows readable text between binary frame markers. Disk savings come from the gzipped rotated segments, not the live file:
-
-```yaml
-x-logging: &default-logging
-  driver: "local"
-  options:
-    max-size: "${LOG_MAX_SIZE:-150m}"
-    max-file: "${LOG_MAX_FILE:-5}"
-```
-
-YAML anchors do **not** cross `include:` boundaries — each of the 7 compose files needs its own `x-logging` definition. This is intentional: zero `daemon.json` host edits, all versioned, no impact on other host containers. **When adding a new service: include `logging: *default-logging` or it will fall back to unrotated `json-file`.**
-
-Defaults: 150m × 5 = 750MB per container (~3–4GB ceiling for ~20 containers, reduced by gzip on rotated segments) — buffer until Alloy ships logs to Loki, not time-based retention.
-
-**Loki — time-based retention per service**: configured in `defaults/loki/local-config.yaml` via `limits_config.retention_stream` keyed on `service` label set by Alloy from `com.docker.compose.service`:
-
-| Service | Retention | Why |
-|---|---|---|
-| `appserver` | 90 d | Django logs for incident debugging |
-| `dbserver` | 90 d | slow queries, locks |
-| `webserver` | 180 d | nginx access log, compliance/traffic |
-| (default) | 30 d | workers, infrastructure, monitoring |
-
-Tuning: edit `$BPP_CONFIGS_DIR/loki/local-config.yaml` + `docker compose restart loki`. Selectors use `{service="<compose-service-name>"}`.
-
-**nginx access log** — glowny ruch loguje sie w formacie `bpp_access` (`defaults/webserver/00-log-format.conf`: combined + `$request_length`/`$request_time`/`$upstream_response_time`) do **dwoch** celow jednoczesnie z `vhost.conf.template`:
-- `access_log /dev/stdout bpp_access;` → Docker → Alloy → Loki → Grafana (`{service="webserver"}`, search/forensics).
-- `access_log /var/log/nginx-shared/bpp_access.log bpp_access;` → wolumen `nginx_access_log` (RO w netdacie) → kolektor web_log (metryki + alerty).
-
-Szumne locationy (`/healthz`, `/static`, `/media`, acme, security-blocks) maja wlasne `access_log off` w `_bpp-locations.conf` i nadpisuja oba sinki. Plik na wolumenie rotuje Ofelia codziennie 04:10 (`scripts/nginx-access-log-rotate.sh`: `mv` na `.1` + `nginx -s reopen`, max 2 generacje) — Docker log driver rotuje tylko stdout/stderr, nie ten plik.
-
-**Netdata** — tiered retention (ostatnie godziny w 1s, dni w 1m, tygodnie/miesiace w 1h) w volume `netdata_lib` (~512MB ceiling per `dbengine tier 0 retention size` w `netdata.conf`). Config `${BPP_CONFIGS_DIR}/netdata/netdata.conf` jest **renderowany z `defaults/netdata/netdata.conf.tpl` i force-syncowany** (patrz "Exception" wyzej) — nie edytuj go recznie, stroj przez `.env` (`NETDATA_DBENGINE_TIER0_RETENTION_MB`, `NETDATA_DBENGINE_PAGE_CACHE_MB`). `[registry]` jest wlaczony i `registry to announce` wskazuje `https://<host>/netdata`, zeby przycisk **"View node"** w powiadomieniu ntfy przekierowywal do lokalnej netdaty zamiast `registry.my-netdata.io` (wymaga jednorazowej wizyty na dashboardzie z danej przegladarki — rejestr zapisuje wtedy URL per cookie). Alerty: wbudowane reguly health w agencie (setki gotowych defaultow); custom alerty w `${BPP_CONFIGS_DIR}/netdata/health.d/`. Push przez `health_alarm_notify.conf` (sourced as bash, kanał ntfy z `${NTFY_SERVER}/${NTFY_TOPIC}`).
-
-**Kolektory `go.d`** (w `${BPP_CONFIGS_DIR}/netdata/go.d/`, nadpisuja wbudowane defaulty mountem RO):
-- `postgres.conf` — metryki PostgreSQL (DSN z `.env`; internal i external mode).
-- `nginx.conf` — live metryki polaczen z endpointu `stub_status`. Endpoint to osobny `server { listen 8090; location = /stub_status { stub_status; } }` w `default.conf.template`. Port 8090 **nie** jest publikowany w compose → osiagalny tylko w sieci dockera (`netdata → webserver:8090`).
-- `web_log.conf` — metryki z parsowania access logu nginx (kody HTTP, metody, bandwidth, percentyle `$request_time`/`$upstream_response_time`) → wbudowane alerty na 5xx/latencje. Zrodlo: plik `/var/log/nginx-shared/bpp_access.log` (format `bpp_access`, `log_type: auto`). To **nie** dubluje Loki — Loki trzyma surowe linie do przeszukiwania, web_log liczy metryki @1s i alertuje na ntfy.
-
-### Slow query monitoring
-
-Dwa kanaly obserwowalnosci wolnych zapytan PG, oba przez istniejaca infre Loki+Grafana:
-
-- **Logi (`log_min_duration_statement=1000`)**: kazde query >1s w logu dbservera → Alloy → Loki (90d retention). Dashboard "Slow queries (log)" w Grafanie. Pelny tekst query + parametry. Naturalna filtracja czasowa (UI time picker).
-- **Statystyki (`pg_stat_statements`)**: agregowane per znormalizowane query (calls, mean/total/stddev exec time). Dashboard "Top 100 queries (pg_stat_statements)" — top N wg sredniej. Agregat od ostatniego `pg_stat_statements_reset()`. Towarzyszacy bar chart "Top 15 by mean execution time" — klik w slupek ustawia zmienna `qid` (data link) i zaweza tabele do danego `queryid`; puste pole `qid` u gory = wszystkie 100. pg_stat_statements **nie ma osi czasu**, wiec cross-filter jest po `queryid`, nie po przedziale czasu.
-
-Bootstrap (jednorazowy, idempotentny): `make pg-monitoring-setup`. Tryb external (dbserver poza compose): skrypt wypisuje SQL do recznego uruchomienia.
-
-**Pozostale dashboardy Grafany** (`defaults/grafana/provisioning/dashboards/`, auto-syncowane na deploy — patrz "Exception — Grafana dashboards are force-synced" wyzej):
-- **"Error Monitoring"** — liczba bledow w czasie (per serwer) + log bledow z Loki. Dropdowny `service`/`container`/`level` filtruja oba panele; klik w serie na wykresie ustawia `var-service` (data link) i zaweza logi; drag-select po wykresie zaweza czas (panel logow respektuje zakres dashboardu); panel "Error Logs" z `enableInfiniteScrolling`.
-- **"PostgreSQL: Maintenance"** — VACUUM/ANALYZE, dead tuples, bloat, cache hit ratio.
-- **"PostgreSQL: Storage & tables"** — rozmiar bazy, najwieksze tabele/indeksy, dead tuples, szacowany bloat.
-
-## Make Targets
-
-`make help` is the source of truth. Notable targets:
-
-- **Deploy**: `make run` (full pipeline), `make up` / `make up-quick`, `make refresh` (prune + pull + recreate), `make stop`, `make restart-appserver`
-- **DB**: `make migrate` (safely stops denorm workers first), `make db-backup`, `make dbshell`, `make dbshell-psql`, `make upgrade-postgres`
-- **Shell**: `make shell` (appserver), `make shell-python`, `make shell-plus`, `make shell-dbserver`, `make shell-workerserver`, `make createsuperuser`, `make changepassword`
-- **Logs**: `make logs`, `make logs-appserver`, `make logs-celery`, `make logs-dbserver`, `make logs-denorm`, `make logs-netdata`, `make ps`, `make health`
-- **Celery**: `make celery-stats`, `make celery-status`, `make denorm-rebuild`, `make denorm-purge-queues`, `make denorm-flush`
-- **Monitoring**: `make ntfy-test` (test push), `make netdata-shell`, `make create-monitoring-user` (raz po wdrozeniu — dla internal mode dbserver)
-- **Config**: `make update-configs`, `make update-ssl-certs`, `make init-configs`, `make configure-resources`, `make generate-snakeoil-certs[-force]`
-- **Maintenance**: `make docker-clean`, `make prune-orphan-volumes`, `make open-docker-volume`, `make rmrf` (dangerous, prompts)
-- **Backup**: `make rclone-sync`, `make rclone-config`, `make rclone-check`, `make backup-cycle`
-- **Misc**: `make wait` (wait for GH Actions build then refresh), `make release`, `make version`, `make test-email`, `make invalidate`
-
-## Architecture Overview
-
-### Services
-
-**Core**: `appserver` (Django + migrations), `authserver` (Django auth proxy for nginx — no migrations/collectstatic, starts in seconds), `dbserver` (PostgreSQL + denormalization), `webserver` (Nginx), `redis`.
-
-**Workers**: `workerserver-general` (queue: celery), `workerserver-denorm` (queue: denorm), `celerybeat` (depends on `service_started`, not `_healthy`, for faster startup), `denorm-queue` (PG LISTEN → Celery bridge), `flower` (port 5555, path `/flower`).
-
-**Monitoring**: `netdata` (metryki hosta + Dockera + Postgresa, 1s rozdzielczosc, gotowe alerty out of the box, push na telefon przez ntfy.sh — path `/netdata/`), `loki` + `alloy` (zbieranie i retencja logow per service), `grafana` (frontend do Loki/LogQL — path `/grafana/`), `dozzle` (live tail logow kontenerow — path `/dozzle/`).
-
-**Support**: `ofelia` (Docker cron), `autoheal` (sidecar), `backup-runner` (daily `pg_dump` + tar media + rclone + Rollbar; image `postgres:$DJANGO_BPP_POSTGRESQL_VERSION_MAJOR-alpine`; scheduled by Ofelia label `0 30 2 * * *`; manual: `make backup-cycle`).
-
-**Manual profile** (`profiles: ['manual']`, not started automatically): `workerserver-status` — run via `docker compose run --rm workerserver-status`.
-
-### Data Flow
-
-Web: nginx → Django. Background tasks: Django → Celery. DB changes: PG triggers → LISTEN → `denorm-queue` → Celery. Static: nginx serves shared volume. Cron: Ofelia → Django mgmt commands. Logs: containers → Alloy → Loki → Grafana. Metryki: kontenery + host + Postgres + nginx (stub_status połączenia, web_log z access logu) → Netdata (1s rozdzielczosc, lokalne UI + alerty); push na ntfy.sh przy alertach. Auth: nginx → authserver → proxies Grafana/Dozzle.
-
-**CRITICAL**: `denorm-queue` must run as a **single instance** to avoid duplicate message processing. Do not scale.
+`dbserver` uses `iplweb/bpp_dbserver:psql-${DJANGO_BPP_POSTGRESQL_VERSION}` (`MAJOR.MINOR`, default `16.13`). `DJANGO_BPP_POSTGRESQL_VERSION_MAJOR` (auto-derived) is used by `backup-runner` (`postgres:<major>-alpine`). Major upgrades require dump/restore — use `make upgrade-postgres`, do **not** edit the var manually. Full procedure (rollback, resume): `docs/konfiguracja/postgresql.md`.
 
 ## Critical Deployment Patterns
 
-### Service Dependencies
-- `appserver` starts before workers (handles migrations); workers depend on `appserver` healthy (transitively `dbserver`)
-- `denorm-queue` requires `workerserver-denorm` healthy
-- `celerybeat` uses `service_started` (not `_healthy`) for `appserver` for faster startup
+### Running commands in containers
 
-### Running Commands In Containers
 Images are slim — `uv` is no longer present. Use native `python` / `celery`:
+
 - Django: `python src/manage.py <command>` (CWD is the dir above `src/`)
 - Celery: `celery -A django_bpp.celery_tasks <command>`
 
-### Safe Migrations
+### Safe migrations
+
 `make migrate` automatically: stops denorm workers → runs migrations → restarts workers.
 
-### PostgreSQL Major Version Upgrade
+### CRITICAL: denorm-queue is single-instance
 
-`make upgrade-postgres` (script: `scripts/upgrade-postgres.sh`) does logical dump & restore (e.g. 16.13 → 18.3):
+`denorm-queue` (PG `LISTEN` → Celery bridge) **must** run as a **single instance** to avoid duplicate message processing. **Do not scale.**
 
-1. `make db-backup` — fresh `pg_dump -Fd -j N` tarball in `$DJANGO_BPP_HOST_BACKUP_DIR`
-2. Stop dependent services (app, workers, beat, denorm-queue, flower, authserver)
-3. Stop+rm `dbserver`
-4. Copy volume `${COMPOSE_PROJECT_NAME}_postgresql_data` → `..._pg<old>_<ts>` (kept for manual deletion after verification)
-5. Delete `${COMPOSE_PROJECT_NAME}_postgresql_data` — new container needs an empty volume because PGDATA format is **not** binary-compatible across majors
-6. Bump `DJANGO_BPP_POSTGRESQL_VERSION` (+ `_MAJOR` when consistent) in `$BPP_CONFIGS_DIR/.env`
-7. `docker compose pull dbserver` + `up -d dbserver` → initdb on new major
-8. `pg_restore -Fd -j N` from tarball
-9. `make migrate` + `make up` + smoke-test appserver logs
+### Logging — add `logging` to new services
 
-**Requirements**: image `iplweb/bpp_dbserver:psql-<MAJOR.MINOR>` already pushed (script does not build, only pulls). Disk: ~2.5× PGDATA (tarball + volume copy).
+All services use the `local` log driver via a per-file `x-logging` YAML anchor. **YAML anchors do not cross `include:` boundaries** — each of the 7 compose files defines its own `x-logging`. **When adding a new service: include `logging: *default-logging` or it falls back to unrotated `json-file`.** Full logging/retention detail: `docs/monitoring/logowanie.md`.
 
-**External mode**: script detects and shows 3-step instructions (admin upgrades external DB themselves; script optionally bumps `_VERSION` + `_MAJOR` and recreates sentinel + backup-runner).
+### Healthchecks & autoheal
 
-**Auto-rollback on failed startup**: if new dbserver fails at step [8/10] (init error, healthcheck timeout, incompatible volume layout — e.g. PG18+), script asks `"Wykonac auto-rollback?"`. On confirm: revert `.env` bump, delete broken `postgresql_data`, restore from `BACKUP_VOLUME`, start old dbserver. Backup volume removed after success. Tarball kept as DR.
+Docker does NOT restart on failed healthcheck (`restart: always` only reacts to process exit). Sidecar `autoheal` restarts containers labeled `autoheal=true` on `Health.Status=unhealthy` (watched: `workerserver-general`, `workerserver-denorm`, `denorm-queue`). Double-dollar escaping (`$$DJANGO_BPP_DB_USER`) in healthcheck commands prevents premature Compose expansion. Detail: `docs/architektura/healthchecks-autoheal.md`.
 
-**Resume from a step** (`--from-step=N`): script writes state to `$BPP_CONFIGS_DIR/.upgrade-rollback-<ts>` right after upgrade confirmation (before step 1) and after step 3 appends tarball path. If a step fails (e.g. step 8), resume without redoing dump/volume copy:
+### Service dependencies
 
-```bash
-bash scripts/upgrade-postgres.sh --from-step=8
-# auto-detects newest state file, or pass --rollback-file=<path>
-```
+`appserver` (migrations) before workers; workers depend on `appserver` healthy; `denorm-queue` requires `workerserver-denorm` healthy; `celerybeat` uses `service_started` for `appserver` (faster start). Service table + data flow: `docs/architektura/uslugi.md`.
 
-Failure trap (`on_error`) prints exact resume command. Step 5 fails if `BACKUP_VOLUME` already exists (delete manually); step 9 reports conflicts if data is partially loaded. `--help` for full description.
+### Scheduled jobs / nightly restarts (Ofelia)
 
-**Manual rollback**: old volume + tarball stay. See `$BPP_CONFIGS_DIR/.upgrade-rollback-<ts>` for steps.
+Daily maintenance, SSL renew, log rotation, and staggered 05:00–05:25 nightly restarts (`kill 1` via read-only `docker.sock`) are Ofelia labels in the compose files. Full schedule: `docs/architektura/zadania-ofelia.md`.
 
-### Scheduled Maintenance (Ofelia)
+## Resource Limits
 
-Daily: 22:00 denorm rebuild, 01:30 sitemap, 03:30 rebuild_kolejnosc, 04:30 rebuild_autor_jednostka. Saturday 21:30: PBN sync.
-
-### Nightly Restarts (memory leak mitigation)
-
-Long-running Python procs (gunicorn, Celery) bloat regardless of limits — real memory leak, not burst. Staggered restart 05:00–05:25 (after 02:30 backup, 04:30 rebuild, before working hours):
-
-| Time | Service |
-|---|---|
-| 05:00 | appserver |
-| 05:05 | workerserver-general |
-| 05:10 | workerserver-denorm |
-| 05:15 | flower |
-| 05:20 | celerybeat |
-| 05:25 | denorm-queue |
-
-Mechanism: `ofelia.job-exec.restart_self.command: "kill 1"` — Ofelia execs `kill 1` via `docker.sock` (ro), PID 1 gets SIGTERM, graceful shutdown, `restart: always` resurrects. No new services, socket stays read-only.
-
-To disable for a specific service: comment out `ofelia.job-exec.restart_self.*` labels in the relevant compose file. No env-var toggle — restart is a guarantee, not an option.
-
-## Resource Limits (`deploy.resources.limits`)
-
-All services (except `backup-runner` — ephemeral, ~10 min/day) have `*_MEM_LIMIT` / `*_CPU_LIMIT` env vars so a runaway container can't eat the host. Defaults are sized for an **8 GB host** (smallest reasonable deployment) — stack works out-of-the-box after `git pull && make up`.
-
-**High-risk** (defaults): `dbserver` 2g/2.0, `appserver` 1g/2.0, `workerserver-general` 1g/2.0, `workerserver-denorm` 1g/1.0, `redis` 768m/1.5 (broker + cache + result backend; internal `REDIS_MAXMEMORY` with `allkeys-lru`, must be < Docker limit so eviction beats OOM kill), `loki` 256m/0.5.
-
-**Daemons**: `flower` 768m/0.5 (accumulates Celery task history), `alloy` 384m/0.5, `denorm-queue` 320m/1.0, `celerybeat` 320m/0.25, `authserver` 320m/1.0, `webserver` 256m/2.0 (proxy_buffers 16×16k = 256 KB/conn, +HTTP/3 QUIC TLS), `netdata` 256m/1.0 (`NETDATA_MEM_LIMIT`/`NETDATA_CPU_LIMIT`; `dbengine` tiered storage + auto-discovery wszystkich kontenerow przez Docker socket; jesli host >16GB i chcesz dluzsza historie metryk, podnies do 512m + `NETDATA_DBENGINE_TIER0_RETENTION_MB=2048` w `.env` (netdata.conf jest force-syncowany — nie edytuj go recznie)), `grafana` 192m/1.0, `dozzle`/`ofelia` 64m/0.25, `autoheal` 32m/0.1.
-
-**Tuning**: `make configure-resources` detects host RAM/CPU (Linux `/proc/meminfo`+`nproc`, macOS `sysctl`), proposes proportional split (30% Postgres, 15% Django/workers, …), interactive per-service. Writes `$BPP_CONFIGS_DIR/.env`. Currently covers high-risk only — tune small daemons manually if defaults misbehave.
-
-**No limit**: `backup-runner` (ephemeral), `workerserver-status` (manual profile).
+All services (except `backup-runner`) have `*_MEM_LIMIT`/`*_CPU_LIMIT` env vars, sized for an **8 GB host** by default. `make configure-resources` detects host RAM/CPU and proposes a proportional split. RAM limit is **hard** (OOM kill), CPU is **soft** (throttling). Full table + tuning: `docs/konfiguracja/limity-zasobow.md`.
 
 ## Optional Feature Flags
 
-**`DJANGO_BPP_ENABLE_HTML2DOCX_IMAGE`** (default `false`): when `true`, `make pull`/`make up` pulls `iplweb/html2docx:latest` as a fallback for HTML→DOCX export. Most installs use pandoc in the appserver image — enable only when pandoc fails (unusual HTML tables). Deployment-side flag only, not propagated to Django.
+**`DJANGO_BPP_ENABLE_HTML2DOCX_IMAGE`** (default `false`): when `true`, `make pull`/`make up` pulls `iplweb/html2docx:latest` as a fallback for HTML→DOCX export. Most installs use pandoc in the appserver image — enable only when pandoc fails. Deployment-side flag only, not propagated to Django.
 
 ## Backwards Compatibility and `.env` Migrations — CRITICAL
 
-A new `bpp-deploy` version **must** run on the **old** `$BPP_CONFIGS_DIR/.env` without manual editing. Production deployments update via `git pull && make up` — every required manual step is a potential outage. This applies to:
+A new `bpp-deploy` version **must** run on the **old** `$BPP_CONFIGS_DIR/.env` without manual editing. Production updates via `git pull && make up` — every required manual step is a potential outage. Full contract + code patterns: `docs/rozwoj/backwards-compatibility.md`.
 
-- **Renaming variables** (e.g. `DJANGO_BPP_BACKUP_DIR` → `DJANGO_BPP_HOST_BACKUP_DIR`, `DJANGO_BPP_DBSERVER_PG_VERSION` → `DJANGO_BPP_POSTGRESQL_VERSION`, `DJANGO_BPP_POSTGRESQL_DB_VERSION` → `DJANGO_BPP_POSTGRESQL_VERSION_MAJOR`)
-- **Adding new variables with compose default** — two-tier fallback like `${DJANGO_BPP_POSTGRESQL_VERSION:-${DJANGO_BPP_DBSERVER_PG_VERSION:-16.13}}` keeps old `.env`s working, new ones get `init-configs` value, default as last resort
-- Changing semantics of existing variables; new required variables; restructuring config dirs
+**Mandatory two-layer protection** when renaming/adding/changing variables:
 
-**Mandatory two-layer protection**:
+1. **Fallback in the reader** — Makefile/scripts accept the old name (`ifdef OLD_VAR; NEW_VAR := $(OLD_VAR); endif`). Works immediately after `git pull`, no user action.
+2. **Migration in `scripts/init-configs.sh`** — detect old name and rename in `.env` preserving value, using the stable helpers `env_has_var`, `get_env_var`, `set_env_var` (not custom `grep`/`sed`).
 
-1. **Fallback in the reader** — Makefile/scripts must accept the old name as alternative (`ifdef OLD_VAR; NEW_VAR := $(OLD_VAR); endif`). Works immediately after `git pull`, no user action required.
-2. **Migration in `scripts/init-configs.sh`** — when user runs `make init-configs` (recommended after every upgrade anyway), detect old name and rename in `.env` while preserving value:
+New variables added must have a Compose default (`${VAR:-default}`), ideally a two-tier fallback like `${NEW:-${OLD:-default}}`.
 
-```bash
-if env_has_var "OLD_NAME" && ! env_has_var "NEW_NAME"; then
-    _val="$(get_env_var OLD_NAME)"
-    awk '!/^OLD_NAME=/ && !/^# Dopisano automatycznie.*OLD_NAME/' "$ENV_FILE" > "$ENV_FILE.tmp.$$" \
-        && mv "$ENV_FILE.tmp.$$" "$ENV_FILE"
-    set_env_var "NEW_NAME" "$_val" "Komentarz (migracja z OLD_NAME)"
-    echo "  ~ zmigrowalem OLD_NAME -> NEW_NAME"
-fi
-```
-
-Helpers in `init-configs.sh`: `env_has_var`, `get_env_var` (strips surrounding quotes), `set_env_var` (overwrite or append). Stable signatures — use them instead of custom `grep`/`sed`.
-
-**Don't**: add a new required variable without compose default (`${VAR:-default}`) and without migration; remove an old variable without migration even if "no one should be using it"; assume the user reads release notes and edits `.env` manually; break compatibility in half a release (always: add new name + fallback + migration first; remove old name only years later).
+**Don't**: add a new required var without Compose default + migration; remove an old var without migration even if "no one should use it"; assume the user reads release notes and edits `.env` manually; break compatibility in half a release (always add new name + fallback + migration first; remove old name only years later).
 
 ## Release Process
 
-Calendar versioning: `YYYY.MM.DD` (first of the day) or `YYYY.MM.DD.N` (auto-incremented suffix from 0). E.g. `2026.04.19`, `2026.04.19.0`, `2026.04.19.1`.
-
-`make release` → `scripts/release.sh`:
-1. Compute next version from today's date + existing tags
-2. `sed` README badge `version-X.Y.Z-blue` → new version
-3. `git add README.md && git commit -m "release: $VERSION"`
-4. `git tag $VERSION`
-5. `git push origin main --tags`
-
-Working tree must be clean (except README, which the script modifies). No `CHANGELOG.md` — history is `git log --grep='^release:'`. Calendar versioning: no major/minor/patch decision; signal breaking changes in commit message + README.
-
-## Monitoring Access
-
-All behind nginx + authserver auth: `https://<domain>/netdata/`, `/grafana/`, `/flower/`, `/dozzle/`. Loki is not publicly exposed (queried via Grafana only).
-
-For CLI: `make logs-<service>`, `make logs-netdata`, `make celery-stats`, `make celery-status`, `make health`, `make ps`, `make ntfy-test`. Netdata ma wbudowany healthcheck (Docker `HEALTHCHECK` w obrazie) — `make ps` / `docker compose ps` pokazuje jego stan.
-
-**Alerty na komorke**: Netdata wysyla push na publiczny ntfy.sh. Topic (sekret) generowany losowo przy `make init-configs`, przechowywany jako `NTFY_TOPIC` w `${BPP_CONFIGS_DIR}/.env`. Subskrybuj w aplikacji ntfy: `https://ntfy.sh/<NTFY_TOPIC>`. Test wysylki: `make ntfy-test`.
+Calendar versioning `YYYY.MM.DD[.N]`. `make release` (`scripts/release.sh`): compute next version → `sed` README badge → commit `release: $VERSION` → tag → push `main --tags`. Working tree must be clean (except README). No `CHANGELOG.md` — history is `git log --grep='^release:'`. Detail: `docs/eksploatacja/wydanie.md`.
 
 ## Safety
 
 - Always `make db-backup` before major changes
 - Use `make` targets instead of raw `docker compose` (they handle dependencies)
 - Verify environment-specific config (database markers, backup settings) before destructive operations
+- `make help` is the source of truth for available targets
+
+## Documentation maintenance (for agents)
+
+- Operator how-tos go in `docs/`; install/first-run goes in `README.md` (synced pair with `docs/instalacja/`); agent steering stays here.
+- Use the **`docs-sync` skill** before editing docs — it has the change→files checklist.
+- After editing docs, run `mkdocs build --strict` (catches broken links / nav gaps). The `docs.yml` workflow runs the same on push to `main`.

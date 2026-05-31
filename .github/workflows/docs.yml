@@ -1,0 +1,41 @@
+name: Dokumentacja
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "docs/**"
+      - "mkdocs.yml"
+      - ".github/workflows/docs.yml"
+  # Pozwala odpalić ręcznie z zakładki Actions.
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-deploy:
+    name: Build i publikacja na GitHub Pages
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Cache zależności MkDocs
+        uses: actions/cache@v5
+        with:
+          path: ~/.cache/pip
+          key: mkdocs-${{ hashFiles('docs/requirements.txt') }}
+
+      - name: Instalacja zależności
+        run: pip install -r docs/requirements.txt
+
+      - name: Build (strict — wykrywa zepsute linki i braki w nav)
+        run: mkdocs build --strict
+
+      - name: Publikacja na GitHub Pages
+        run: mkdocs gh-deploy --force

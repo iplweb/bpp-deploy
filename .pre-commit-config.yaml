@@ -7,6 +7,10 @@ repos:
       - id: end-of-file-fixer
       - id: check-yaml
         args: ['--allow-multiple-documents']
+        # mkdocs.yml używa tagów `!!python/name:` (emoji/ikony Material), których
+        # bezpieczny loader check-yaml nie potrafi skonstruować. Waliduje go
+        # natomiast `mkdocs build --strict` (workflow docs.yml).
+        exclude: ^mkdocs\.yml$
       - id: check-merge-conflict
       - id: check-added-large-files
         args: ['--maxkb=500']
