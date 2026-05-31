@@ -148,7 +148,68 @@ services:
           memory: ${NODE_EXPORTER_MEM_LIMIT:-64m}
           cpus: "${NODE_EXPORTER_CPU_LIMIT:-0.25}"
 
+  netdata:
+    image: netdata/netdata:v1.99.0
+    container_name: netdata
+    hostname: ${DJANGO_BPP_HOSTNAME:-bpp}
+    restart: always
+    logging: *default-logging
+    pid: host
+    cap_add:
+      - SYS_PTRACE
+      - SYS_ADMIN
+    security_opt:
+      - apparmor:unconfined
+    environment:
+      # NTFY_TOPIC eksportowany do agenta - health_alarm_notify.conf
+      # interpoluje go w `DEFAULT_RECIPIENT_NTFY` (sourced as bash).
+      - NTFY_TOPIC=${NTFY_TOPIC:-}
+      - NTFY_SERVER=${DJANGO_BPP_NTFY_SERVER:-https://ntfy.sh}
+      # Postgres collector DSN z istniejacych zmiennych .env - dziala
+      # zarowno w trybie internal (host=dbserver) jak i external
+      # (host=external.example.com z .env).
+      - PG_USER=${DJANGO_BPP_DB_USER}
+      - PG_PASSWORD=${DJANGO_BPP_DB_PASSWORD}
+      - PG_HOST=${DJANGO_BPP_DB_HOST}
+      - PG_PORT=${DJANGO_BPP_DB_PORT}
+      - PG_DB=${DJANGO_BPP_DB_NAME}
+      # Wylacz anonimowa telemetrie Netdaty do netdata.cloud.
+      - DO_NOT_TRACK=1
+      - DISABLE_TELEMETRY=1
+    volumes:
+      # Configi (bind-mount z BPP_CONFIGS_DIR, RO).
+      - ${BPP_CONFIGS_DIR}/netdata/netdata.conf:/etc/netdata/netdata.conf:ro
+      - ${BPP_CONFIGS_DIR}/netdata/go.d:/etc/netdata/go.d:ro
+      - ${BPP_CONFIGS_DIR}/netdata/health_alarm_notify.conf:/etc/netdata/health_alarm_notify.conf:ro
+      - ${BPP_CONFIGS_DIR}/netdata/health.d:/etc/netdata/health.d:ro
+      # Persistent state (named volumes).
+      - netdata_lib:/var/lib/netdata
+      - netdata_cache:/var/cache/netdata
+      # Host visibility (RO).
+      - /etc/passwd:/host/etc/passwd:ro
+      - /etc/group:/host/etc/group:ro
+      - /etc/localtime:/etc/localtime:ro
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /etc/os-release:/host/etc/os-release:ro
+      - /var/log:/host/var/log:ro
+      # Docker socket dla auto-discovery kontenerow + cgroup metryk.
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:19999/api/v1/info"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    deploy:
+      resources:
+        limits:
+          memory: ${NETDATA_MEM_LIMIT:-256m}
+          cpus: "${NETDATA_CPU_LIMIT:-1.0}"
+
 volumes:
   grafana_data:
   prometheus_data:
   loki_data:
+  netdata_lib:
+  netdata_cache:
