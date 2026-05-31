@@ -22,12 +22,12 @@ ntfy-test:
 		"$(NTFY_SERVER)/$(NTFY_TOPIC)" >/dev/null
 	@echo "Wyslane. Sprawdz appke ntfy na telefonie."
 
-# Healthcheck endpoint Netdaty (z hosta, przez nginx) - oczekuj 200.
+# Healthcheck Netdaty bezposrednio przez kontener (nginx wymaga auth,
+# wiec test przez localhost zwracal by 302 - mylace).
 health-netdata:
-	@curl -sf -o /dev/null -w "Netdata UI (nginx): HTTP %{http_code}\n" \
-		http://localhost/netdata/api/v1/info || echo "Netdata nieosiagalna przez nginx"
-	@docker compose exec -T netdata wget -qO- http://localhost:19999/api/v1/info \
-		2>/dev/null | head -c 200 && echo "" || echo "Netdata kontener nie odpowiada"
+	@docker compose exec -T netdata wget -qO- http://localhost:19999/api/v1/info 2>/dev/null \
+		| head -c 200 && echo "" \
+		|| echo "Netdata kontener nie odpowiada (sprawdz: make logs-netdata)"
 
 # Live logi netdata.
 logs-netdata:

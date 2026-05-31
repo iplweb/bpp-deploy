@@ -76,10 +76,11 @@ while IFS= read -r -d '' f; do
     copy_if_missing "$f" "$dest"
 done < <(find "$DEFAULTS_DIR/grafana/provisioning" -type f -print0)
 
-# Netdata configi (rekursywnie, copy_if_missing).
+# Netdata configi (rekursywnie, copy_if_missing). .gitkeep wykluczone -
+# jest tylko po to zeby pusty health.d/ trafil do gita.
 while IFS= read -r -d '' f; do
     rel="${f#"$DEFAULTS_DIR/netdata/"}"
     dest="$BPP_CONFIGS_DIR/netdata/$rel"
     mkdir -p "$(dirname "$dest")"
     copy_if_missing "$f" "$dest"
-done < <(find "$DEFAULTS_DIR/netdata" -type f -print0)
+done < <(find "$DEFAULTS_DIR/netdata" -type f -not -name '.gitkeep' -print0)
