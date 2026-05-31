@@ -131,18 +131,23 @@ services:
       - /sys:/host/sys:ro
       - /etc/os-release:/host/etc/os-release:ro
       - /var/log:/host/var/log:ro
+      # Root filesystem hosta (RO) — kolektor diskspace.plugin liczy
+      # zajetosc WSZYSTKICH partycji hosta (df: used/avail/% per mountpoint).
+      # Bez tego netdata widzi tylko filesystemy kontenera (overlay + volumes).
+      # `rslave` propaguje mounty pojawiajace sie po starcie kontenera.
+      # NETDATA_HOST_PREFIX NIE ustawiamy — obraz zna konwencje /host/root.
+      - /:/host/root:ro,rslave
       # Docker socket dla auto-discovery kontenerow + cgroup metryk.
       - /var/run/docker.sock:/var/run/docker.sock:ro
       # Access log nginx (RO) dla kolektora web_log — patrz go.d/web_log.conf.
       # Wolumen zadeklarowany w docker-compose.infrastructure.yml (webserver
       # pisze, netdata czyta).
       - nginx_access_log:/var/log/nginx-shared:ro
-    healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:19999/api/v1/info"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 60s
+    # Healthcheck: celowo NIE nadpisujemy — obraz ma wbudowany
+    # HEALTHCHECK /usr/sbin/health.sh (utrzymywany przez netdate, zna
+    # NETDATA_HEALTHCHECK_TARGET, uzywa curl). Poprzedni custom override
+    # wolal `wget`, ktorego w obrazie NIE MA (jest tylko curl/nc) -> kontener
+    # zawsze raportowal `unhealthy` mimo dzialajacej netdaty.
     deploy:
       resources:
         limits:
