@@ -14,13 +14,28 @@ set -euo pipefail
 ENV_FILE="$BPP_CONFIGS_DIR/.env"
 [ -f "$ENV_FILE" ] || { echo "BLAD: brak $ENV_FILE"; exit 1; }
 
-set -a
-# shellcheck disable=SC1090
-source "$ENV_FILE"
-set +a
+# Read specific vars from .env without sourcing (handles shell-unfriendly
+# values like 'EMAIL=Name <addr@domain>' which break bash source).
+_get_env() {
+    local raw
+    raw="$(grep -E "^${1}=" "$ENV_FILE" 2>/dev/null | tail -1 | cut -d= -f2-)" || true
+    # Strip surrounding double or single quotes if present
+    if [ "${raw#\"}" != "$raw" ] && [ "${raw%\"}" != "$raw" ]; then
+        raw="${raw#\"}"; raw="${raw%\"}"
+    fi
+    if [ "${raw#\'}" != "$raw" ] && [ "${raw%\'}" != "$raw" ]; then
+        raw="${raw#\'}"; raw="${raw%\'}"
+    fi
+    printf '%s' "$raw"
+}
 
-DB_USER="${DJANGO_BPP_DB_USER:?}"
-DB_NAME="${DJANGO_BPP_DB_NAME:?}"
+DB_USER="$(_get_env DJANGO_BPP_DB_USER)"
+DB_NAME="$(_get_env DJANGO_BPP_DB_NAME)"
+
+if [ -z "$DB_USER" ] || [ -z "$DB_NAME" ]; then
+    echo "BLAD: DJANGO_BPP_DB_USER lub DJANGO_BPP_DB_NAME puste w $ENV_FILE" >&2
+    exit 1
+fi
 
 SQL="GRANT pg_monitor TO \"$DB_USER\";"
 

@@ -108,14 +108,6 @@ services:
       # interpoluje go w `DEFAULT_RECIPIENT_NTFY` (sourced as bash).
       - NTFY_TOPIC=${NTFY_TOPIC:-}
       - NTFY_SERVER=${DJANGO_BPP_NTFY_SERVER:-https://ntfy.sh}
-      # Postgres collector DSN z istniejacych zmiennych .env - dziala
-      # zarowno w trybie internal (host=dbserver) jak i external
-      # (host=external.example.com z .env).
-      - PG_USER=${DJANGO_BPP_DB_USER}
-      - PG_PASSWORD=${DJANGO_BPP_DB_PASSWORD}
-      - PG_HOST=${DJANGO_BPP_DB_HOST}
-      - PG_PORT=${DJANGO_BPP_DB_PORT}
-      - PG_DB=${DJANGO_BPP_DB_NAME}
       # Wylacz anonimowa telemetrie Netdaty do netdata.cloud.
       - DO_NOT_TRACK=1
       - DISABLE_TELEMETRY=1

@@ -81,4 +81,42 @@ while IFS= read -r -d '' f; do
     dest="$BPP_CONFIGS_DIR/netdata/$rel"
     mkdir -p "$(dirname "$dest")"
     copy_if_missing "$f" "$dest"
-done < <(find "$DEFAULTS_DIR/netdata" -type f -not -name '.gitkeep' -print0)
+done < <(find "$DEFAULTS_DIR/netdata" -type f -not -name '.gitkeep' -not -name '*.tpl' -print0)
+
+# Render defaults/netdata/go.d/postgres.conf.tpl -> $BPP_CONFIGS_DIR/...
+# go.d.plugin nie expanduje ${VAR} w DSN, wiec rendujemy host-side.
+# Read values directly from .env via grep (source-as-bash pada na
+# niestandardowych wartosciach typu EMAIL='Name <addr@domain>').
+_ENV="$BPP_CONFIGS_DIR/.env"
+if [ -f "$_ENV" ] && [ -f "$DEFAULTS_DIR/netdata/go.d/postgres.conf.tpl" ]; then
+    _get() {
+        local raw
+        raw="$(grep -E "^${1}=" "$_ENV" 2>/dev/null | tail -1 | cut -d= -f2-)" || true
+        if [ "${raw#\"}" != "$raw" ] && [ "${raw%\"}" != "$raw" ]; then
+            raw="${raw#\"}"; raw="${raw%\"}"
+        fi
+        if [ "${raw#\'}" != "$raw" ] && [ "${raw%\'}" != "$raw" ]; then
+            raw="${raw#\'}"; raw="${raw%\'}"
+        fi
+        printf '%s' "$raw"
+    }
+    _PG_USER="$(_get DJANGO_BPP_DB_USER)"
+    _PG_PASSWORD="$(_get DJANGO_BPP_DB_PASSWORD)"
+    _PG_HOST="$(_get DJANGO_BPP_DB_HOST)"
+    _PG_PORT="$(_get DJANGO_BPP_DB_PORT)"
+    _PG_DB="$(_get DJANGO_BPP_DB_NAME)"
+
+    if [ -n "$_PG_USER" ] && [ -n "$_PG_HOST" ] && [ -n "$_PG_DB" ]; then
+        # sed escaping: password moze zawierac /, &, .
+        _esc() { printf '%s' "$1" | sed -e 's/[\/&]/\\&/g'; }
+        _dest="$BPP_CONFIGS_DIR/netdata/go.d/postgres.conf"
+        sed \
+            -e "s/__PG_USER__/$(_esc "$_PG_USER")/g" \
+            -e "s/__PG_PASSWORD__/$(_esc "$_PG_PASSWORD")/g" \
+            -e "s/__PG_HOST__/$(_esc "$_PG_HOST")/g" \
+            -e "s/__PG_PORT__/$(_esc "$_PG_PORT")/g" \
+            -e "s/__PG_DB__/$(_esc "$_PG_DB")/g" \
+            "$DEFAULTS_DIR/netdata/go.d/postgres.conf.tpl" > "$_dest"
+        echo "  ~ wyrenderowano: $_dest"
+    fi
+fi
