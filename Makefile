@@ -166,3 +166,4 @@ endif
 # These targets are available in both first-run and normal modes
 include mk/init.mk
 include mk/remote.mk
+include mk/monitoring.mk
