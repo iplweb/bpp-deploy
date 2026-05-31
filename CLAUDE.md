@@ -30,7 +30,9 @@ Each `include:` entry has `env_file: ${BPP_CONFIGS_DIR}/.env` so `${VAR}` interp
 
 Configuration lives **outside the repository** (e.g. `~/publikacje-uczelnia/`). Created on first `make` run by `init-configs`. Contents: `.env`, `ssl/`, `rclone/`, `alloy/`, `loki/`, `netdata/{go.d,health.d}/`, `grafana/provisioning/{datasources,dashboards}/`. Bind-mounted directly into containers.
 
-Repo's `defaults/` holds template configs copied in by `init-configs` (without overwriting existing).
+Repo's `defaults/` holds template configs copied in by `init-configs` (without overwriting existing — `copy_if_missing`, so user-tuned configs like `loki/`, `netdata/`, `alloy/` survive upgrades).
+
+**Exception — Grafana dashboards are force-synced.** `grafana/provisioning/dashboards/*` are overwritten from `defaults/` on every `ensure-config-files` run (i.e. every `make up` / `refresh` / `run`) via `copy_always` (only when content differs). They're shipped, read-only-in-UI artifacts — editing them in the config dir is pointless, so an updated dashboard in the repo lands on the live deployment automatically with `git pull && make up`, no manual `cp`. Dashboards removed from `defaults/` are left in place (not deleted); user-created UI dashboards live in Grafana's DB and are unaffected.
 
 ### First Run
 
@@ -149,9 +151,14 @@ Szumne locationy (`/healthz`, `/static`, `/media`, acme, security-blocks) maja w
 Dwa kanaly obserwowalnosci wolnych zapytan PG, oba przez istniejaca infre Loki+Grafana:
 
 - **Logi (`log_min_duration_statement=1000`)**: kazde query >1s w logu dbservera → Alloy → Loki (90d retention). Dashboard "Slow queries (log)" w Grafanie. Pelny tekst query + parametry. Naturalna filtracja czasowa (UI time picker).
-- **Statystyki (`pg_stat_statements`)**: agregowane per znormalizowane query (calls, mean/total/stddev exec time). Dashboard "Top 100 queries (pg_stat_statements)" — top N wg sredniej. Agregat od ostatniego `pg_stat_statements_reset()`.
+- **Statystyki (`pg_stat_statements`)**: agregowane per znormalizowane query (calls, mean/total/stddev exec time). Dashboard "Top 100 queries (pg_stat_statements)" — top N wg sredniej. Agregat od ostatniego `pg_stat_statements_reset()`. Towarzyszacy bar chart "Top 15 by mean execution time" — klik w slupek ustawia zmienna `qid` (data link) i zaweza tabele do danego `queryid`; puste pole `qid` u gory = wszystkie 100. pg_stat_statements **nie ma osi czasu**, wiec cross-filter jest po `queryid`, nie po przedziale czasu.
 
 Bootstrap (jednorazowy, idempotentny): `make pg-monitoring-setup`. Tryb external (dbserver poza compose): skrypt wypisuje SQL do recznego uruchomienia.
+
+**Pozostale dashboardy Grafany** (`defaults/grafana/provisioning/dashboards/`, auto-syncowane na deploy — patrz "Exception — Grafana dashboards are force-synced" wyzej):
+- **"Error Monitoring"** — liczba bledow w czasie (per serwer) + log bledow z Loki. Dropdowny `service`/`container`/`level` filtruja oba panele; klik w serie na wykresie ustawia `var-service` (data link) i zaweza logi; drag-select po wykresie zaweza czas (panel logow respektuje zakres dashboardu); panel "Error Logs" z `enableInfiniteScrolling`.
+- **"PostgreSQL: Maintenance"** — VACUUM/ANALYZE, dead tuples, bloat, cache hit ratio.
+- **"PostgreSQL: Storage & tables"** — rozmiar bazy, najwieksze tabele/indeksy, dead tuples, szacowany bloat.
 
 ## Make Targets
 

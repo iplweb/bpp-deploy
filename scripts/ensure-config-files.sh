@@ -65,13 +65,40 @@ copy_if_missing() {
     fi
 }
 
+# Nadpisuje plik ZAWSZE, jesli rozni sie od wersji w defaults/. Dla wersjonowanych
+# artefaktow, ktorych user NIE edytuje recznie - np. provisioned dashboardy Grafany
+# (i tak read-only w UI). Bez tego zaktualizowany dashboard nigdy by nie trafil na
+# zywy deployment przez make up/refresh/run (copy_if_missing pomijaloby istniejacy).
+# cmp: kopiujemy tylko realne zmiany, zeby nie smiecic logiem przy kazdym uruchomieniu.
+copy_always() {
+    local src="$1" dest="$2"
+
+    if [ -d "$dest" ] && ! [ -f "$dest" ]; then
+        if ! rmdir "$dest" 2>/dev/null; then
+            echo "BLAD: $dest istnieje jako niepusty katalog (spodziewany plik)." >&2
+            return 1
+        fi
+    fi
+
+    if ! cmp -s "$src" "$dest" 2>/dev/null; then
+        cp "$src" "$dest"
+        echo "  ~ zsynchronizowano z defaults/ (overwrite): $dest"
+    fi
+}
+
 copy_if_missing "$DEFAULTS_DIR/alloy/config.alloy" "$BPP_CONFIGS_DIR/alloy/config.alloy"
 copy_if_missing "$DEFAULTS_DIR/loki/local-config.yaml" "$BPP_CONFIGS_DIR/loki/local-config.yaml"
 
 while IFS= read -r -d '' f; do
     rel="${f#"$DEFAULTS_DIR/grafana/provisioning/"}"
     dest="$BPP_CONFIGS_DIR/grafana/provisioning/$rel"
-    copy_if_missing "$f" "$dest"
+    case "$rel" in
+        # Dashboardy: shipped, read-only w UI -> zawsze swieze z repo.
+        dashboards/*) copy_always "$f" "$dest" ;;
+        # Reszta (datasources .tpl renderowany osobno przez generate-grafana-datasources,
+        # ewentualne configi tuningowane recznie) -> tylko gdy brak.
+        *)            copy_if_missing "$f" "$dest" ;;
+    esac
 done < <(find "$DEFAULTS_DIR/grafana/provisioning" -type f -print0)
 
 # Netdata configi (rekursywnie, copy_if_missing). .gitkeep wykluczone -
