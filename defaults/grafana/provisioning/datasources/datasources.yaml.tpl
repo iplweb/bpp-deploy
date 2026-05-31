@@ -32,5 +32,10 @@ datasources:
       maxIdleConns: 2
       connMaxLifetime: 14400
     secureJsonData:
-      password: ${DJANGO_BPP_DB_PASSWORD}
-    user: ${DJANGO_BPP_DB_USER}
+      password: ${DJANGO_BPP_PG_MONITOR_PASSWORD}
+    # Read-only `bpp_monitor` (NIE uzytkownik aplikacji BPP). Grafana auto-promuje
+    # zalogowanych do roli Admin, a datasource PostgreSQL pozwala na ad-hoc SQL -
+    # dlatego laczymy sie rola bez DDL/DML (pg_monitor + pg_read_all_data), zeby
+    # panel zapytan nie mogl nic zmodyfikowac w bazie. Role tworzy
+    # `make create-monitoring-user`.
+    user: bpp_monitor

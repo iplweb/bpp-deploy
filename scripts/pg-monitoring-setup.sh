@@ -42,8 +42,13 @@ fi
 
 SLOW_QUERY_MS=1000
 
-# Wykryj tryb external - dbserver w external mode nie jest serwisem compose.
-if ! docker compose ps --services 2>/dev/null | grep -q '^dbserver$'; then
+REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+# Tryb external wykrywamy po BPP_DATABASE_COMPOSE w repo .env (NIE po obecnosci
+# serwisu 'dbserver' - w external mode istnieje serwis-sentinel o tej samej
+# nazwie, wiec heurystyka "czy jest dbserver" dawala falszywy internal i
+# probowala exec psql na sentinelu zamiast pokazac instrukcje).
+DATABASE_COMPOSE="$(grep -E '^BPP_DATABASE_COMPOSE=' "$REPO_DIR/.env" 2>/dev/null | tail -1 | cut -d= -f2- || true)"
+if [ "$DATABASE_COMPOSE" = "docker-compose.database.external.yml" ]; then
     cat <<EOF
 Wykryto tryb external (dbserver nie jest w compose).
 
@@ -67,8 +72,12 @@ EOF
 fi
 
 # Internal mode
+# PGPASSWORD przez -e (nie w argv -> niewidoczne w `ps`); ON_ERROR_STOP=1 zeby
+# blad SQL zwracal != 0 (bez tego psql konczy exit 0 mimo bledu, set -e nie lapie).
+DB_PASSWORD="$(_get_env DJANGO_BPP_DB_PASSWORD)"
 psql_run() {
-    docker compose exec -T dbserver psql -U "$DB_USER" -d "$DB_NAME" -tA -c "$1"
+    docker compose exec -T -e PGPASSWORD="$DB_PASSWORD" dbserver \
+        psql -v ON_ERROR_STOP=1 -U "$DB_USER" -d "$DB_NAME" -tA -c "$1"
 }
 
 echo "1/4 ALTER SYSTEM SET log_min_duration_statement = $SLOW_QUERY_MS"
@@ -88,6 +97,12 @@ else
         new="${current},pg_stat_statements"
     fi
     echo "    dodaje pg_stat_statements - new: '$new'"
+    # Walidacja przed wstawieniem do literalu SQL ALTER SYSTEM: wartosc pochodzi
+    # z SHOW (zywy PG) - nazwy bibliotek to tylko [a-z0-9_,]. Cokolwiek innego =
+    # odmowa, zamiast budowac potencjalnie niebezpieczny SQL.
+    case "$new" in
+        *[!a-z0-9_,]*) echo "BLAD: nieoczekiwane znaki w shared_preload_libraries: '$new'" >&2; exit 1 ;;
+    esac
     psql_run "ALTER SYSTEM SET shared_preload_libraries = '$new';" >/dev/null
     NEEDS_RESTART=1
 fi
@@ -120,6 +135,10 @@ fi
 
 echo "4/4 CREATE EXTENSION pg_stat_statements"
 psql_run "CREATE EXTENSION IF NOT EXISTS pg_stat_statements;" >/dev/null
+
+echo ""
+echo "Tworze/aktualizuje read-only uzytkownika monitoringu (bpp_monitor)..."
+bash "$REPO_DIR/scripts/create-monitoring-user.sh"
 
 echo ""
 echo "DONE."

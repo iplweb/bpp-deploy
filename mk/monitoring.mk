@@ -37,8 +37,14 @@ logs-netdata:
 netdata-shell:
 	docker compose exec netdata bash
 
-# Nadaje role pg_monitor uzytkownikowi BPP (internal) lub wyswietla
-# instrukcje (external). Idempotentne.
+# Tworzy read-only uzytkownika `bpp_monitor` (Grafana datasource + Netdata
+# kolektor postgres). Osobna rola bez DDL/DML - panel SQL w Grafanie nie moze
+# nic zepsuc w bazie. Idempotentne. External: wypisuje SQL do recznego uruchomienia.
+.PHONY: create-monitoring-user
+create-monitoring-user:
+	@bash scripts/create-monitoring-user.sh
+
+# DEPRECATED alias -> create-monitoring-user (zachowane dla kompatybilnosci).
 .PHONY: grant-pg-monitor
 grant-pg-monitor:
 	@bash scripts/grant-pg-monitor.sh

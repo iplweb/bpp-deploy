@@ -115,6 +115,34 @@ done < <(find "$DEFAULTS_DIR/netdata" -type f -not -name '.gitkeep' -not -name '
 # Read values directly from .env via grep (source-as-bash pada na
 # niestandardowych wartosciach typu EMAIL='Name <addr@domain>').
 _ENV="$BPP_CONFIGS_DIR/.env"
+
+# Self-heal sekretow wymaganych przez configi monitoringu. Append-only:
+# NIGDY nie nadpisujemy istniejacych wartosci (zachowujemy to co ustawil
+# init-configs/user), dopisujemy tylko brakujace. Dzieki temu `git pull &&
+# make up` na starym .env (bez tych zmiennych) dziala bez recznych krokow -
+# zgodnie z regula kompatybilnosci wstecznej (patrz CLAUDE.md).
+if [ -f "$_ENV" ]; then
+    _ensure_secret() {
+        # $1 = nazwa zmiennej, $2 = wartosc generowana gdy brak
+        if ! grep -qE "^${1}=" "$_ENV" 2>/dev/null; then
+            # Zapewnij trailing newline zanim dopiszemy - recznie edytowany .env
+            # bez konca-linii inaczej sklei nowa zmienna z ostatnia linia.
+            # $(tail -c1) gubi trailing \n: pusty => ostatni bajt to newline.
+            if [ -s "$_ENV" ] && [ -n "$(tail -c1 "$_ENV")" ]; then
+                printf '\n' >> "$_ENV"
+            fi
+            printf '%s=%s\n' "$1" "$2" >> "$_ENV"
+            echo "  + wygenerowano brakujacy sekret w .env: $1"
+        fi
+    }
+    # Haslo read-only roli monitoringu (Grafana datasource + Netdata postgres).
+    # openssl rand -hex => tylko [0-9a-f]; create-monitoring-user.sh dodatkowo
+    # waliduje alfanumerycznosc (haslo trafia do literalu SQL).
+    _ensure_secret DJANGO_BPP_PG_MONITOR_PASSWORD "$(openssl rand -hex 24)"
+    # Topic ntfy (sekret chroniacy kanal alertow) - gdy stary .env go nie ma.
+    _ensure_secret NTFY_TOPIC "bpp-$(openssl rand -hex 16)"
+fi
+
 if [ -f "$_ENV" ] && [ -f "$DEFAULTS_DIR/netdata/go.d/postgres.conf.tpl" ]; then
     _get() {
         local raw
@@ -127,23 +155,30 @@ if [ -f "$_ENV" ] && [ -f "$DEFAULTS_DIR/netdata/go.d/postgres.conf.tpl" ]; then
         fi
         printf '%s' "$raw"
     }
-    _PG_USER="$(_get DJANGO_BPP_DB_USER)"
-    _PG_PASSWORD="$(_get DJANGO_BPP_DB_PASSWORD)"
+    # DSN dla kolektora postgres laczy sie jako read-only bpp_monitor (NIE
+    # uzytkownik aplikacji) - user wpisany na sztywno w .tpl, tu tylko haslo.
+    _PG_MON_PASSWORD="$(_get DJANGO_BPP_PG_MONITOR_PASSWORD)"
     _PG_HOST="$(_get DJANGO_BPP_DB_HOST)"
     _PG_PORT="$(_get DJANGO_BPP_DB_PORT)"
     _PG_DB="$(_get DJANGO_BPP_DB_NAME)"
 
-    if [ -n "$_PG_USER" ] && [ -n "$_PG_HOST" ] && [ -n "$_PG_DB" ]; then
-        # sed escaping: password moze zawierac /, &, .
-        _esc() { printf '%s' "$1" | sed -e 's/[\/&]/\\&/g'; }
+    if [ -n "$_PG_MON_PASSWORD" ] && [ -n "$_PG_HOST" ] && [ -n "$_PG_DB" ]; then
+        # sed-escape replacementu: backslash MUSI byc pierwszy (inaczej kolejne
+        # podstawienia podwajaja juz wstawione backslashe), dopiero potem / i &.
+        _esc() { printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/[\/&]/\\&/g'; }
         _dest="$BPP_CONFIGS_DIR/netdata/go.d/postgres.conf"
+        # Render do pliku tymczasowego, chmod 600 PRZED podmiana, potem atomowy
+        # mv: DSN zawiera haslo (nie moze byc world-readable), a crash w trakcie
+        # nie zostawia obcietego/pustego configu.
+        _tmp="${_dest}.tmp.$$"
         sed \
-            -e "s/__PG_USER__/$(_esc "$_PG_USER")/g" \
-            -e "s/__PG_PASSWORD__/$(_esc "$_PG_PASSWORD")/g" \
+            -e "s/__PG_MON_PASSWORD__/$(_esc "$_PG_MON_PASSWORD")/g" \
             -e "s/__PG_HOST__/$(_esc "$_PG_HOST")/g" \
             -e "s/__PG_PORT__/$(_esc "$_PG_PORT")/g" \
             -e "s/__PG_DB__/$(_esc "$_PG_DB")/g" \
-            "$DEFAULTS_DIR/netdata/go.d/postgres.conf.tpl" > "$_dest"
+            "$DEFAULTS_DIR/netdata/go.d/postgres.conf.tpl" > "$_tmp"
+        chmod 600 "$_tmp"
+        mv "$_tmp" "$_dest"
         echo "  ~ wyrenderowano: $_dest"
     fi
 fi
