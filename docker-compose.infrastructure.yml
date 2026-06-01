@@ -104,7 +104,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: ${REDIS_MEM_LIMIT:-256m}
+          memory: ${REDIS_MEM_LIMIT:-1g}
           cpus: "${REDIS_CPU_LIMIT:-0.5}"
 
 volumes:
