@@ -20,6 +20,16 @@ To repozytorium zawiera **wyłącznie warstwę wdrożeniową** (Docker Compose, 
 
 To README pokazuje **jak zainstalować i uruchomić system BPP**. Wszystkie pozostałe tematy — konfiguracja, monitoring, backupy, upgrade PostgreSQL, przenosiny serwera, rozwiązywanie problemów — opisuje [pełna dokumentacja](https://iplweb.github.io/bpp-deploy/).
 
+## Wymagania sprzętowe
+
+| Zasób | Minimum | Zalecane |
+|-------|---------|----------|
+| **RAM** | **12 GB** | **16 GB+** |
+| **CPU** | 2 rdzenie | 4+ rdzeni |
+| **Dysk** | 20 GB + miejsce na bazę i backupy | SSD |
+
+Przy 12 GB cały stack się mieści, ale ciasno (baza danych na minimum). Dopiero od 16 GB nadwyżka RAM realnie zasila bazę, aplikację i workery. Podczas pierwszego uruchomienia `make configure-resources` dobiera limity RAM/CPU per usługa pod wykryty host i ostrzega, jeśli host ma poniżej 12 GB. Szczegóły modelu limitów: [Limity zasobów](https://iplweb.github.io/bpp-deploy/konfiguracja/limity-zasobow/).
+
 ## Jak zainstalować i uruchomić system BPP przy pomocy bpp-deploy
 
 Wybierz swój system operacyjny. Po zakończeniu kroków właściwych dla Twojego systemu przejdź do **[wspólnych kroków konfiguracji](#wspólne-kroki-konfiguracji)**, identycznych dla wszystkich platform.

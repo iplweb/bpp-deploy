@@ -1,63 +1,99 @@
 # Limity zasobów
 
-Wszystkie usługi (oprócz `backup-runner` — efemeryczny, ~10 min/dzień) mają zmienne
-`*_MEM_LIMIT` / `*_CPU_LIMIT`, żeby rozszalały kontener nie zjadł hosta. Domyślne
-wartości są dobrane pod **host 8 GB** (najmniejsze rozsądne wdrożenie) — stack działa
+Każdy kontener (poza trzema efemerycznymi — patrz [Bez limitu](#bez-limitu)) ma zmienne
+`*_MEM_LIMIT` / `*_CPU_LIMIT`, żeby rozszalały kontener nie zjadł hosta. RAM jest limitem
+**twardym** (przekroczenie → OOM kill), CPU **miękkim** (throttling). Domyślne wartości
+docierają do każdej instalacji przez `${VAR:-default}` w plikach compose, więc stack działa
 out-of-the-box po `git pull && make up`.
+
+!!! warning "Minimalne wymagania sprzętowe"
+    **Minimum: 12 GB RAM. Zalecane: 16 GB+ RAM.** Suma stałych limitów (~3,3 GB) +
+    minimalne progi usług zmiennych (dbserver/appserver/workery = 6,5 GB) + rezerwa OS
+    (2 GB) daje ~12 GB. Przy 12 GB wszystko się mieści, ale ciasno (dbserver na minimum,
+    zerowa nadwyżka). Dopiero od 16 GB nadwyżka realnie zasila bazę, aplikację i workery.
+    Poniżej 12 GB `configure-resources` ostrzega o ryzyku OOM.
+
+## Model: stałe capy + usługi zmienne
+
+`configure-resources` dzieli usługi na dwie grupy:
+
+- **Stały cap (FIXED)** — usługi o przewidywalnym apetycie na RAM dostają sztywny sufit
+  i są **odejmowane od budżetu w pierwszej kolejności**. Przypisywane automatycznie
+  (bez pytania); dostrajasz je w `.env`, jeśli kiedykolwiek zajdzie potrzeba.
+- **Zmienne (VARIABLE)** — `dbserver`, `appserver` i dwa workery dzielą **pozostałą pulę**
+  (budżet − rezerwa OS − suma stałych capów) według wzoru *floor + waga nadwyżki*.
+
+```
+pula     = (RAM hosta − rezerwa OS) − Σ(stałe capy)
+nadwyżka = pula − Σ(floory)
+każda usługa zmienna = floor + nadwyżka × (waga / 100)
+```
+
+Jeśli `nadwyżka < 0` (host < 12 GB), skrypt przypisuje same floory i ostrzega o
+przekroczeniu budżetu (ryzyko OOM).
 
 ## `make configure-resources`
 
-Podczas pierwszego uruchomienia `make` skrypt `configure-resources` jest odpalany
+Przy pierwszym uruchomieniu `make` skrypt `configure-resources` jest odpalany
 automatycznie — wykrywa RAM i liczbę rdzeni hosta (Linux `/proc/meminfo`+`nproc`,
-macOS `sysctl`), proponuje proporcjonalny podział budżetu między 7 serwisów wysokiego
-ryzyka i pyta o akceptację każdej wartości. Jeśli odstąpisz od defaultu dla któregoś
-serwisu, pozostałe mają budżet proporcjonalnie powiększony lub zmniejszony.
+macOS `sysctl`), przypisuje stałe capy, wylicza podział puli między 4 usługi zmienne
+i pyta o akceptację ich wartości (RAM + CPU). Odstąpienie od defaultu redystrybuuje
+nadwyżkę między pozostałe usługi zmienne. Możesz wrócić w każdej chwili:
+`make configure-resources`.
 
 !!! info "RAM twardy, CPU miękki"
     Docker traktuje limit RAM jako **twardy** (przekroczenie → OOM kill), a CPU jako
     **miękki** (throttling bez zabijania). RAM ustawiaj z zapasem.
 
-Wynik ląduje w `$BPP_CONFIGS_DIR/.env` jako `DBSERVER_MEM_LIMIT`, `APPSERVER_MEM_LIMIT`
-itd. Możesz wrócić i przekonfigurować w każdej chwili: `make configure-resources`.
+Wynik ląduje w `$BPP_CONFIGS_DIR/.env` jako `DBSERVER_MEM_LIMIT`, `REDIS_MEM_LIMIT` itd.
+oraz `REDIS_MAXMEMORY` (≈80% limitu Redisa, żeby eviction `allkeys-lru` wyprzedził
+OOM kill). `.env` staje się jednym źródłem prawdy dla limitów RAM. CPU jest zapisywane
+dla 7 usług (4 zmienne + `redis`/`loki`/`netdata`); pozostałe korzystają z CPU z compose.
 
-`configure-resources` proponuje podział proporcjonalny (np. 30% Postgres, 15%
-Django/workery, …). Obecnie obejmuje serwisy wysokiego ryzyka — małe demony strój
-ręcznie, jeśli defaulty się nie sprawdzą.
+## Usługi ze stałym capem
 
-## Domyślne limity
+| Serwis | RAM | Uwagi |
+|---|---|---|
+| `redis` | 1g | broker + cache + result backend; `REDIS_MAXMEMORY` (`allkeys-lru`) ≈ 80% limitu |
+| `netdata` | 320m | dbengine + auto-discovery; patrz uwaga niżej o retencji |
+| `authserver` | 320m | Django + gunicorn (SSO) |
+| `celerybeat` | 320m | scheduler — pojedynczy proces |
+| `denorm-queue` | 320m | most PG `LISTEN` → Celery, pojedynczy proces |
+| `alloy` | 192m | kolektor logów; podniesione z 128m (spike przy dużym wolumenie) |
+| `loki` | 192m | magazyn logów; podniesione z 128m (spike przy zapytaniach) |
+| `grafana` | 192m | |
+| `flower` | 128m | historia zadań w RAM ograniczona `FLOWER_MAX_TASKS=10000` |
+| `webserver` | 256m | nginx; proxy_buffers + HTTP/3 QUIC |
+| `dozzle` | 64m | przeglądarka logów (Go) |
+| `ofelia` | 64m | scheduler cron (Go) |
+| `autoheal` | 32m | restart kontenerów po unhealthy |
 
-### Wysokie ryzyko
+Razem ≈ **3,3 GB**. Capy te są odejmowane od budżetu, a reszta trafia do usług zmiennych.
 
-| Serwis | RAM | CPU | Uwagi |
-|---|---|---|---|
-| `dbserver` | 2g | 2.0 | |
-| `appserver` | 1g | 2.0 | |
-| `workerserver-general` | 1g | 2.0 | |
-| `workerserver-denorm` | 1g | 1.0 | |
-| `redis` | 768m | 1.5 | broker + cache + result backend; wewn. `REDIS_MAXMEMORY` z `allkeys-lru` musi być < limit Dockera, żeby eviction wyprzedził OOM kill |
-| `loki` | 256m | 0.5 | |
+## Usługi zmienne (dzielą pulę)
 
-### Demony
+| Serwis | Floor (minimum) | Waga nadwyżki |
+|---|---|---|
+| `dbserver` | 1.5g | 40% |
+| `appserver` | 2g | 25% |
+| `workerserver-general` | 1.5g | 20% |
+| `workerserver-denorm` | 1.5g | 15% |
 
-| Serwis | RAM | CPU | Uwagi |
-|---|---|---|---|
-| `flower` | 768m | 0.5 | gromadzi historię zadań Celery |
-| `alloy` | 384m | 0.5 | |
-| `denorm-queue` | 320m | 1.0 | |
-| `celerybeat` | 320m | 0.25 | |
-| `authserver` | 320m | 1.0 | |
-| `webserver` | 256m | 2.0 | proxy_buffers 16×16k = 256 KB/conn, + HTTP/3 QUIC TLS |
-| `netdata` | 256m | 1.0 | `NETDATA_MEM_LIMIT`/`NETDATA_CPU_LIMIT`; dbengine + auto-discovery przez Docker socket |
-| `grafana` | 192m | 1.0 | |
-| `dozzle` / `ofelia` | 64m | 0.25 | |
-| `autoheal` | 32m | 0.1 | |
+`dbserver` dostaje największą wagę (Postgres najlepiej wykorzystuje RAM na
+`shared_buffers` i cache stron). `appserver` ma najwyższy floor — gunicorn akumuluje
+pamięć (stąd nocny restart `kill 1`).
 
-!!! tip "Host > 16 GB"
-    Jeśli host ma więcej RAM i chcesz dłuższej historii metryk, podnieś `netdata` do
-    512m + ustaw `NETDATA_DBENGINE_TIER0_RETENTION_MB=2048` w `.env`
-    (`netdata.conf` jest [force-syncowany](architektura.md#netdataconf-renderowany-host-side) —
-    nie edytuj go ręcznie).
+!!! tip "Netdata: cap kontra retencja"
+    Cap `netdata` (320m) to limit **twardy**. Jeśli wydłużasz historię metryk przez
+    `NETDATA_DBENGINE_TIER0_RETENTION_MB` / `NETDATA_DBENGINE_PAGE_CACHE_MB` w `.env`,
+    **podnieś również `NETDATA_MEM_LIMIT`** — inaczej netdata zostanie ubity przez OOM.
+    Plik `netdata.conf` jest [force-syncowany](architektura.md#netdataconf-renderowany-host-side) —
+    nie edytuj go ręcznie, używaj knobów `.env`.
 
-### Bez limitu
+## Bez limitu
 
-`backup-runner` (efemeryczny), `workerserver-status` (profil `manual`).
+Trzy usługi celowo nie mają limitu RAM:
+
+- `backup-runner` — efemeryczny (`pg_dump`/`restore`/`rclone`, ~10 min/dzień, skoki pamięci)
+- `certbot` — krótko żyjące zadanie SSL (wydanie/odnowienie certyfikatu)
+- `workerserver-status` — `celery status`, profil `manual`, kończy się natychmiast
