@@ -93,9 +93,6 @@ services:
           memory: ${DENORM_QUEUE_MEM_LIMIT:-320m}
           cpus: "${DENORM_QUEUE_CPU_LIMIT:-1.0}"
     labels:
-      # Image healthcheck `pgrep -f denorm_queue` (Dockerfile w bpp/docker/denorm-queue/)
-      # wykryje martwy proces; autoheal sidecar wtedy zrestartuje kontener.
-      autoheal: "true"
       ofelia.enabled: "true"
       # Restart najpozniej w staggered secie - po wszystkich pozostalych, zeby NOTIFY
       # ze swiezo podniesionych worker-denormow mialy do czego trafic.
