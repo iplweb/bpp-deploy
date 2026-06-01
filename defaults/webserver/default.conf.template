@@ -8,9 +8,25 @@
 # _bpp-locations.conf i sa includowane w kazdym vhost server block.
 #
 # Tu mieszka tylko to co jest globalne dla calego nginx-a:
+#   - map $connection_upgrade (WebSocket upgrade, kontekst http)
 #   - HTTP catch-all (drop nieznane Host: nag./IP-only requesty)
 #   - HTTPS catch-all (ssl_reject_handshake dla nieznanych SNI)
 # ============================================================================
+
+# WebSocket connection-upgrade map (kontekst http — wspoldzielony przez
+# wszystkie vhosty). $connection_upgrade = "upgrade" gdy klient negocjuje
+# WebSocket (naglowek Upgrade obecny), "close" dla zwyklego ruchu HTTP.
+# Uzywane przez `proxy_set_header Connection $connection_upgrade;` w blokach
+# proxy (appserver/grafana/dozzle/netdata) zamiast zahardkodowanego "upgrade"
+# — dla nie-WS requestow nie wysylamy mylacego `Connection: upgrade`.
+#
+# Uwaga envsubst: $http_upgrade/$connection_upgrade NIE sa zmiennymi srodowiska,
+# wiec 20-envsubst-on-templates.sh ich nie podmienia (envsubst dostaje jawna
+# liste tylko zdefiniowanych ${VAR}) — przetrwaja jako zmienne runtime nginx.
+map $http_upgrade $connection_upgrade {
+    default upgrade;
+    ''      close;
+}
 
 # Catch-all server block for HTTP traffic with unknown hostnames.
 # Drops connections with 444 (no response) to prevent access via raw IP or
