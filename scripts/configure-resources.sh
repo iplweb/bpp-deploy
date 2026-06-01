@@ -53,16 +53,19 @@ echo "                         cykle powyzej limitu), ale nie jest zabijany."
 echo "                         Oversubscription jest bezpieczne."
 echo ""
 
-if [ "$TOTAL_RAM_GB" -lt 6 ]; then
-    echo "UWAGA: host ma mniej niz 6 GB RAM - limity moga byc zbyt ciasne"
-    echo "       zeby pomiescic caly stack z komfortowa rezerwa."
+if [ "$TOTAL_RAM_GB" -lt 12 ]; then
+    echo "UWAGA: host ma mniej niz 12 GB RAM - minimalne wymaganie BPP."
+    echo "       Limity floor (dbserver/appserver/workery) moga sie nie zmiescic;"
+    echo "       skrypt przypisze floory i ostrzeze o ryzyku OOM. Zalecane 16 GB+."
     echo ""
 fi
 
 # --- Lokalizacja $BPP_CONFIGS_DIR/.env ---
 
 REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-if [ -f "$REPO_DIR/.env" ]; then
+# Juz wyeksportowane BPP_CONFIGS_DIR ma pierwszenstwo (testy + power-userzy);
+# repo-local .env jest fallbackiem.
+if [ -z "${BPP_CONFIGS_DIR:-}" ] && [ -f "$REPO_DIR/.env" ]; then
     # shellcheck disable=SC1091
     . "$REPO_DIR/.env"
 fi
@@ -94,19 +97,48 @@ MEM_BUDGET_MB=$(( BUDGET_GB * 1024 ))
 # granicach CPU_COUNT zeby high-risk services nie zabraly calego hosta.
 CPU_BUDGET="$CPU_COUNT"
 
-# --- Lista serwisow z wagami ---
+# --- Model limitow RAM: FIXED (staly cap) + VARIABLE (floor + waga nadwyzki) ---
 #
-# Format: name:mem_pct:cpu_pct
-# Wagi mem i cpu sumuja sie oddzielnie (ale obie koncza na 100%).
+# Uslugi ze stalym capem sa odejmowane od budzetu w pierwszej kolejnosci,
+# a pozostala pula jest dzielona miedzy uslugi zmienne (dbserver/appserver/
+# workery) wg floor + procentowej wagi nadwyzki. Patrz:
+# docs/superpowers/specs/2026-06-01-resource-limits-redesign-design.md
 
-SERVICES=(
-    "dbserver:30:25"
-    "appserver:15:25"
-    "workerserver-general:15:25"
-    "workerserver-denorm:15:12.5"
-    "redis:13:7.5"
-    "loki:5:2.5"
-    "netdata:7:5"
+# Format: name:cap_mb. Przypisywane automatycznie (bez pytania).
+FIXED_MEM=(
+    "redis:1024"
+    "netdata:320"
+    "authserver:320"
+    "celerybeat:320"
+    "denorm-queue:320"
+    "alloy:192"
+    "loki:192"
+    "grafana:192"
+    "flower:128"
+    "webserver:256"
+    "dozzle:64"
+    "ofelia:64"
+    "autoheal:32"
+)
+
+# Format: name:floor_mb:surplus_weight. Dziela pule po odjeciu fixed.
+VARIABLE_MEM=(
+    "dbserver:1536:40"
+    "appserver:2048:25"
+    "workerserver-general:1536:20"
+    "workerserver-denorm:1536:15"
+)
+
+# CPU bez zmian (zmiana dotyczy RAM): te same 7 uslug i wagi co dotychczas.
+# Format: name:cpu_weight. Sumuja sie do 102.5 (zachowane z poprzedniej wersji).
+CPU_SERVICES=(
+    "dbserver:25"
+    "appserver:25"
+    "workerserver-general:25"
+    "workerserver-denorm:12.5"
+    "redis:7.5"
+    "loki:2.5"
+    "netdata:5"
 )
 
 # --- Helpery ---
@@ -204,54 +236,88 @@ set_env_var() {
     fi
 }
 
-# --- Glowna petla: pytaj + redystrybuuj ---
+# --- Glowna logika: fixed capy -> pula -> uslugi zmienne -> CPU ---
 
 echo "Budzet po rezerwie ${RESERVE_GB} GB dla OS: $(fmt_mb "$MEM_BUDGET_MB") RAM, ${CPU_BUDGET} CPU."
-echo ""
-echo "Enter akceptuje wartosc domyslna. Przy odejsciu od defaultu pozostaly"
-echo "budzet jest proporcjonalnie redystrybuowany na pozostale serwisy."
-echo "RAM: liczba bez sufiksu = MB (np. 500 = 500 MB, 1g = 1024 MB)."
-echo "CPU: ulamek rdzeni (np. 2.0 = dwa pelne rdzenie)."
 echo ""
 
 # Minimalne progi - ponizej Docker odrzuca limit.
 MIN_MEM_MB=64
 MIN_CPU="0.1"
 
-remaining_mem_mb=$MEM_BUDGET_MB
-remaining_cpu=$CPU_BUDGET
-remaining_mem_weight=100
-remaining_cpu_weight=100
-total_used_mem_mb=0
-total_used_cpu="0"
+# (a) Suma fixed capow (stale, niezalezne od hosta).
+fixed_total_mb=0
+for entry in "${FIXED_MEM[@]}"; do
+    IFS=: read -r _svc cap <<< "$entry"
+    fixed_total_mb=$(( fixed_total_mb + cap ))
+done
 
+# (b) Pula dla uslug zmiennych = budzet - fixed. Suma floorow.
+pool_mb=$(( MEM_BUDGET_MB - fixed_total_mb ))
+[ "$pool_mb" -lt 0 ] && pool_mb=0
+floors_total_mb=0
+for entry in "${VARIABLE_MEM[@]}"; do
+    IFS=: read -r _svc floor _w <<< "$entry"
+    floors_total_mb=$(( floors_total_mb + floor ))
+done
+surplus_mb=$(( pool_mb - floors_total_mb ))
+
+echo "Uslugi ze stalym limitem (lacznie $(fmt_mb "$fixed_total_mb")) sa przypisane automatycznie."
+echo "Pozostala pula $(fmt_mb "$pool_mb") jest dzielona miedzy dbserver/appserver/workery"
+echo "(floor + waga nadwyzki: db 40% / app 25% / wg 20% / wd 15%)."
+if [ "$surplus_mb" -lt 0 ]; then
+    echo ""
+    echo "UWAGA: pula ($(fmt_mb "$pool_mb")) jest mniejsza niz suma minimow"
+    echo "       ($(fmt_mb "$floors_total_mb")). Przypisuje minima; suma limitow przekroczy"
+    echo "       budzet - ryzyko OOM. To host ponizej minimum 12 GB. Zalecane 16 GB+."
+fi
+echo ""
+echo "Enter akceptuje wartosc domyslna. RAM bez sufiksu = MB (np. 500, 1g = 1024 MB)."
+echo "CPU: ulamek rdzeni (np. 2.0 = dwa pelne rdzenie)."
+echo ""
+
+# Tylko indeksowane tablice - macOS ma bash 3.2 bez 'declare -A'.
 declare -a RESULT_NAMES
 declare -a RESULT_MEM_MB
-declare -a RESULT_CPU
+declare -a CPU_NAMES
+declare -a CPU_VALS
 
-for entry in "${SERVICES[@]}"; do
-    IFS=: read -r svc mem_w cpu_w <<< "$entry"
+# Lookup po nazwie w rownoleglych tablicach (zastepuje tablice asocjacyjne).
+mem_for() {
+    local q="$1" i
+    for i in "${!RESULT_NAMES[@]}"; do
+        [ "${RESULT_NAMES[$i]}" = "$q" ] && { echo "${RESULT_MEM_MB[$i]}"; return 0; }
+    done
+    return 1
+}
+cpu_for() {
+    local q="$1" i
+    for i in "${!CPU_NAMES[@]}"; do
+        [ "${CPU_NAMES[$i]}" = "$q" ] && { echo "${CPU_VALS[$i]}"; return 0; }
+    done
+    return 1
+}
 
-    # Oblicz defaulty z pozostalego budzetu proporcjonalnie. Clamp do minimow
-    # zeby Docker zaakceptowal limit - jesli budzet sie skonczyl, i tak
-    # proponujemy minimum i pozwalamy uzytkownikowi zmienic recznie.
-    if [ "$remaining_mem_weight" -le 0 ] 2>/dev/null; then
-        default_mem_mb=$MIN_MEM_MB
+# (c) Interaktywny MEM dla uslug zmiennych z redystrybucja nadwyzki.
+remaining_surplus_mb=$surplus_mb
+[ "$remaining_surplus_mb" -lt 0 ] && remaining_surplus_mb=0
+remaining_weight=100
+for entry in "${VARIABLE_MEM[@]}"; do
+    IFS=: read -r svc floor weight <<< "$entry"
+
+    # Default = floor + przydzial z pozostalej nadwyzki wg wagi.
+    if [ "$remaining_weight" -le 0 ]; then
+        default_mem_mb=$floor
     else
-        default_mem_mb=$(LC_ALL=C awk -v r="$remaining_mem_mb" -v w="$mem_w" -v t="$remaining_mem_weight" -v min="$MIN_MEM_MB" \
-            'BEGIN { v = r * w / t; if (v < min) v = min; printf "%d", v + 0.5 }')
+        default_mem_mb=$(LC_ALL=C awk -v f="$floor" -v s="$remaining_surplus_mb" -v w="$weight" -v t="$remaining_weight" \
+            'BEGIN { printf "%d", f + s * w / t + 0.5 }')
     fi
+    [ "$default_mem_mb" -lt "$MIN_MEM_MB" ] && default_mem_mb=$MIN_MEM_MB
 
-    default_cpu=$(LC_ALL=C awk -v r="$remaining_cpu" -v w="$cpu_w" -v t="$remaining_cpu_weight" -v min="$MIN_CPU" \
-        'BEGIN { if (t <= 0) v = min; else v = r * w / t; if (v < min) v = min; printf "%.1f", v }')
-
-    # Pytania.
     mem_answer=""
     mem_mb=0
-    default_mem_display=$(fmt_mb "$default_mem_mb")
     while true; do
-        mem_answer=$(ask_mem "$svc RAM" "$default_mem_mb" "$default_mem_display")
-        # Sama liczba, uzyj jako MB. Inaczej sprobuj parse_mem_mb.
+        mem_answer=$(ask_mem "$svc RAM" "$default_mem_mb" "$(fmt_mb "$default_mem_mb")")
         if [[ "$mem_answer" =~ ^[0-9]+$ ]]; then
             mem_mb="$mem_answer"
         elif ! mem_mb=$(parse_mem_mb "$mem_answer"); then
@@ -265,45 +331,56 @@ for entry in "${SERVICES[@]}"; do
         break
     done
 
+    RESULT_NAMES+=("$svc")
+    RESULT_MEM_MB+=("$mem_mb")
+
+    # Redystrybucja: to co poszlo ponad floor zmniejsza pule nadwyzki.
+    used_surplus=$(( mem_mb - floor ))
+    remaining_surplus_mb=$(( remaining_surplus_mb - used_surplus ))
+    [ "$remaining_surplus_mb" -lt 0 ] && remaining_surplus_mb=0
+    remaining_weight=$(LC_ALL=C awk -v t="$remaining_weight" -v w="$weight" 'BEGIN { printf "%d", t - w + 0.5 }')
+done
+
+# (c2) Fixed: przypisz capy bez pytania.
+for entry in "${FIXED_MEM[@]}"; do
+    IFS=: read -r svc cap <<< "$entry"
+    RESULT_NAMES+=("$svc")
+    RESULT_MEM_MB+=("$cap")
+done
+
+# (d) CPU - logika i wagi bez zmian (zmiana dotyczy tylko RAM).
+remaining_cpu=$CPU_BUDGET
+remaining_cpu_weight=102.5
+for entry in "${CPU_SERVICES[@]}"; do
+    IFS=: read -r svc cpu_w <<< "$entry"
+    default_cpu=$(LC_ALL=C awk -v r="$remaining_cpu" -v w="$cpu_w" -v t="$remaining_cpu_weight" -v min="$MIN_CPU" \
+        'BEGIN { if (t <= 0) v = min; else v = r * w / t; if (v < min) v = min; printf "%.1f", v }')
     cpu_answer=""
     while true; do
         cpu_answer=$(ask "$svc CPU" "$default_cpu")
-        # Akceptuj liczbe calkowita lub float (kropka).
         if ! [[ "$cpu_answer" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
             echo "    Blad: nie rozumiem '$cpu_answer'. Podaj liczbe, np 2.0 lub 1.5." >&2
             continue
         fi
         cpu_answer=$(round1 "$cpu_answer")
-        # Sprawdz minimum przez awk (bash nie robi floatow).
         if LC_ALL=C awk -v v="$cpu_answer" -v m="$MIN_CPU" 'BEGIN { exit (v < m) ? 0 : 1 }'; then
             echo "    Blad: minimum to ${MIN_CPU} CPU (Docker odrzuci mniej)." >&2
             continue
         fi
         break
     done
-
-    RESULT_NAMES+=("$svc")
-    RESULT_MEM_MB+=("$mem_mb")
-    RESULT_CPU+=("$cpu_answer")
-
-    total_used_mem_mb=$(( total_used_mem_mb + mem_mb ))
-    total_used_cpu=$(fcalc "$total_used_cpu" "+" "$cpu_answer")
-
-    # Zaktualizuj pozostaly budzet i wagi.
-    remaining_mem_mb=$(( remaining_mem_mb - mem_mb ))
-    if [ "$remaining_mem_mb" -lt 0 ]; then
-        remaining_mem_mb=0
-    fi
+    CPU_NAMES+=("$svc")
+    CPU_VALS+=("$cpu_answer")
     remaining_cpu=$(fcalc "$remaining_cpu" "-" "$cpu_answer")
-    # Clamp CPU do >= 0.
     remaining_cpu=$(LC_ALL=C awk -v v="$remaining_cpu" 'BEGIN { if (v < 0) v = 0; printf "%.2f", v }')
-
-    remaining_mem_weight=$(fcalc "$remaining_mem_weight" "-" "$mem_w")
-    remaining_mem_weight=$(LC_ALL=C awk -v v="$remaining_mem_weight" 'BEGIN { printf "%d", v + 0.5 }')
-
     remaining_cpu_weight=$(fcalc "$remaining_cpu_weight" "-" "$cpu_w")
-    # CPU wagi moga byc ulamkiem (12.5), zostawiamy precyzyjnie.
 done
+
+# Sumy do podsumowania.
+total_used_mem_mb=0
+for v in "${RESULT_MEM_MB[@]}"; do total_used_mem_mb=$(( total_used_mem_mb + v )); done
+total_used_cpu="0"
+for v in "${CPU_VALS[@]}"; do total_used_cpu=$(fcalc "$total_used_cpu" "+" "$v"); done
 
 echo ""
 echo "Zapisuje do $ENV_FILE..."
@@ -327,25 +404,34 @@ var_prefix_for() {
         redis)                  echo "REDIS" ;;
         loki)                   echo "LOKI" ;;
         netdata)                echo "NETDATA" ;;
+        authserver)             echo "AUTHSERVER" ;;
+        celerybeat)             echo "CELERYBEAT" ;;
+        denorm-queue)           echo "DENORM_QUEUE" ;;
+        alloy)                  echo "ALLOY" ;;
+        grafana)                echo "GRAFANA" ;;
+        flower)                 echo "FLOWER" ;;
+        webserver)              echo "WEBSERVER" ;;
+        dozzle)                 echo "DOZZLE" ;;
+        ofelia)                 echo "OFELIA" ;;
+        autoheal)               echo "AUTOHEAL" ;;
         *) echo "UNKNOWN" ;;
     esac
 }
 
+# MEM dla wszystkich uslug (.env = jedno zrodlo prawdy); CPU tylko dla 7
+# uslug z CPU_SERVICES (reszta korzysta z defaultow compose).
 for i in "${!RESULT_NAMES[@]}"; do
     svc="${RESULT_NAMES[$i]}"
     prefix=$(var_prefix_for "$svc")
     set_env_var "${prefix}_MEM_LIMIT" "${RESULT_MEM_MB[$i]}m"
-    set_env_var "${prefix}_CPU_LIMIT" "${RESULT_CPU[$i]}"
+    if cpu_val=$(cpu_for "$svc"); then
+        set_env_var "${prefix}_CPU_LIMIT" "$cpu_val"
+    fi
 done
 
 # Dodatkowo: wewnetrzny limit Redisa - ~80% Docker limit, zostawia pole
 # dla bufora sieciowego i metadanych.
-redis_mem_mb=""
-for i in "${!RESULT_NAMES[@]}"; do
-    if [ "${RESULT_NAMES[$i]}" = "redis" ]; then
-        redis_mem_mb="${RESULT_MEM_MB[$i]}"
-    fi
-done
+redis_mem_mb=$(mem_for redis || true)
 if [ -n "$redis_mem_mb" ]; then
     redis_maxmem=$(( redis_mem_mb * 80 / 100 ))
     set_env_var "REDIS_MAXMEMORY" "${redis_maxmem}mb"
@@ -355,10 +441,11 @@ echo ""
 echo "Gotowe. Podsumowanie:"
 printf "  %-25s %-10s %s\n" "serwis" "RAM" "CPU"
 for i in "${!RESULT_NAMES[@]}"; do
+    svc="${RESULT_NAMES[$i]}"
     printf "  %-25s %-10s %s\n" \
-        "${RESULT_NAMES[$i]}" \
+        "$svc" \
         "$(fmt_mb "${RESULT_MEM_MB[$i]}")" \
-        "${RESULT_CPU[$i]}"
+        "$(cpu_for "$svc" || echo "—")"
 done
 echo ""
 printf "  %-25s %-10s %s\n" "RAZEM"    "$(fmt_mb "$total_used_mem_mb")" "${total_used_cpu}"

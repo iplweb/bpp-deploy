@@ -961,6 +961,43 @@ PYEOF
 }
 
 # ============================================================
+# TEST: configure-resources — staly cap + uslugi zmienne
+# ============================================================
+# Capy fixed sa niezalezne od RAM hosta, wiec asercja jest deterministyczna
+# na kazdym runnerze. Uslugi zmienne sprawdzamy tylko na obecnosc (wartosc
+# zalezy od RAM hosta / sciezki overcommit przy <12 GB).
+test_configure_resources() {
+    echo "TEST: configure-resources — staly cap + uslugi zmienne"
+    local cfg
+    cfg=$(mktemp -d)
+    printf 'BPP_CONFIGS_DIR=%s\n' "$cfg" > "$cfg/.env"
+
+    # 4 zmienne MEM + 7 CPU = 11 promptow; karmimy nadmiarem pustych linii.
+    if ! printf '\n%.0s' {1..20} \
+        | BPP_CONFIGS_DIR="$cfg" bash "$REPO_DIR/scripts/configure-resources.sh" >/dev/null 2>&1; then
+        fail "configure-resources zwrocil blad"
+        rm -rf "$cfg"; return
+    fi
+
+    assert_file_contains "redis cap 1g"      "REDIS_MEM_LIMIT=1024m"  "$cfg/.env"
+    assert_file_contains "alloy cap 192m"    "ALLOY_MEM_LIMIT=192m"   "$cfg/.env"
+    assert_file_contains "loki cap 192m"     "LOKI_MEM_LIMIT=192m"    "$cfg/.env"
+    assert_file_contains "flower cap 128m"   "FLOWER_MEM_LIMIT=128m"  "$cfg/.env"
+    assert_file_contains "netdata cap 320m"  "NETDATA_MEM_LIMIT=320m" "$cfg/.env"
+    assert_file_contains "grafana cap 192m"  "GRAFANA_MEM_LIMIT=192m" "$cfg/.env"
+    assert_file_contains "dozzle cap 64m"    "DOZZLE_MEM_LIMIT=64m"   "$cfg/.env"
+    assert_file_contains "appserver obecny"  "APPSERVER_MEM_LIMIT="   "$cfg/.env"
+    assert_file_contains "dbserver obecny"   "DBSERVER_MEM_LIMIT="    "$cfg/.env"
+    assert_file_contains "worker-general obecny" "WORKER_GENERAL_MEM_LIMIT=" "$cfg/.env"
+    assert_file_contains "redis maxmemory 819mb" "REDIS_MAXMEMORY=819mb" "$cfg/.env"
+    # CPU pisany tylko dla 7 uslug; fixed-only nie dostaja CPU.
+    assert_file_contains "dbserver CPU obecny"   "DBSERVER_CPU_LIMIT="   "$cfg/.env"
+    assert_file_not_contains "flower bez CPU"    "FLOWER_CPU_LIMIT="     "$cfg/.env"
+
+    rm -rf "$cfg"
+}
+
+# ============================================================
 # Run
 # ============================================================
 
@@ -987,6 +1024,7 @@ test_no_scp_in_configs
 test_init_configs_multihost_skips_hostname
 test_nginx_config_valid
 test_nginx_runtime
+test_configure_resources
 
 echo ""
 echo "========================================"
