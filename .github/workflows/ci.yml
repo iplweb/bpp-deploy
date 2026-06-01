@@ -14,7 +14,12 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      # ubuntu-latest ma dzialajacy Docker daemon — wymuszamy pelne pokrycie:
+      # brak dockera/curla to tu FAIL, nie cichy SKIP (macOS/Windows joby ponizej
+      # nie maja linuksowego daemona, wiec tam skipy srodowiskowe sa OK).
       - name: Uruchom testy
+        env:
+          BPP_REQUIRE_DOCKER: "1"
         run: ./tests/test_makefile.sh
 
   pre-commit:

@@ -52,7 +52,7 @@ db-backup:
 	# bind-mountem z hosta $(DJANGO_BPP_HOST_BACKUP_DIR). Nic nie laduje
 	# w writable layer kontenera, wiec dbserver nie puchnie przy kolejnych
 	# backupach (nawet jesli wywolanie bedzie przerwane).
-	docker compose exec -e PGPASSWORD=$(DJANGO_BPP_DB_PASSWORD) dbserver pg_dump \
+	@docker compose exec -e PGPASSWORD=$(DJANGO_BPP_DB_PASSWORD) dbserver pg_dump \
 		-Fd \
 		-j $(PARALLEL_JOBS) \
 		-h $(DJANGO_BPP_DB_HOST) \
@@ -119,12 +119,12 @@ dbshell:
 	docker compose exec appserver python src/manage.py dbshell
 
 dbshell-psql:
-	docker compose exec -e PGPASSWORD=$(DJANGO_BPP_DB_PASSWORD) dbserver \
+	@docker compose exec -e PGPASSWORD=$(DJANGO_BPP_DB_PASSWORD) dbserver \
 		psql -h $(DJANGO_BPP_DB_HOST) -p $(DJANGO_BPP_DB_PORT) \
 		     -U $(DJANGO_BPP_DB_USER) $(DJANGO_BPP_DB_NAME)
 
 ps-dbserver:
-	docker compose exec -e PGPASSWORD=$(DJANGO_BPP_DB_PASSWORD) dbserver \
+	@docker compose exec -e PGPASSWORD=$(DJANGO_BPP_DB_PASSWORD) dbserver \
 		psql -P pager=off -h $(DJANGO_BPP_DB_HOST) -p $(DJANGO_BPP_DB_PORT) \
 		     -U $(DJANGO_BPP_DB_USER) template1 \
 		     -c 'select pid as process_id, usename as username, datname as database_name, client_addr as client_address, application_name, backend_start, state, state_change, query from pg_stat_activity;'
@@ -137,14 +137,22 @@ restore-db-stop-servers:
 	docker compose stop appserver workerserver-general workerserver-denorm denorm-queue celerybeat
 
 restore-db-remove-db-rebuild-db-rm-backup:
-	docker compose exec -e PGPASSWORD=$(DJANGO_BPP_DB_PASSWORD) dbserver \
+	@if [ "$(YES)" != "1" ]; then \
+		echo "!!! UWAGA: ta operacja BEZPOWROTNIE skasuje baze '$(DJANGO_BPP_DB_NAME)'"; \
+		echo "    (dropdb --force) i odtworzy ja z /local.pgdump."; \
+		echo "    Aby pominac to pytanie w skryptach/automatyzacji: make <target> YES=1"; \
+		printf "    Wpisz 'yes' aby kontynuowac: "; \
+		read ans; \
+		[ "$$ans" = "yes" ] || { echo "Przerwano — baza nietknieta."; exit 1; }; \
+	fi
+	@docker compose exec -e PGPASSWORD=$(DJANGO_BPP_DB_PASSWORD) dbserver \
 		dropdb --force -h $(DJANGO_BPP_DB_HOST) -p $(DJANGO_BPP_DB_PORT) \
 		       -U $(DJANGO_BPP_DB_USER) $(DJANGO_BPP_DB_NAME)
-	docker compose exec -e PGPASSWORD=$(DJANGO_BPP_DB_PASSWORD) dbserver \
+	@docker compose exec -e PGPASSWORD=$(DJANGO_BPP_DB_PASSWORD) dbserver \
 		createdb -h $(DJANGO_BPP_DB_HOST) -p $(DJANGO_BPP_DB_PORT) \
 		         -U $(DJANGO_BPP_DB_USER) $(DJANGO_BPP_DB_NAME)
 	docker compose exec dbserver gzip -d /local.pgdump.gz
-	docker compose exec -e PGPASSWORD=$(DJANGO_BPP_DB_PASSWORD) dbserver \
+	@docker compose exec -e PGPASSWORD=$(DJANGO_BPP_DB_PASSWORD) dbserver \
 		psql -h $(DJANGO_BPP_DB_HOST) -p $(DJANGO_BPP_DB_PORT) \
 		     -U $(DJANGO_BPP_DB_USER) $(DJANGO_BPP_DB_NAME) -f /local.pgdump
 	docker compose exec dbserver rm /local.pgdump

@@ -10,6 +10,7 @@ set -euo pipefail
 REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 PASS=0
 FAIL=0
+SKIP=0
 ERRORS=""
 
 green()  { printf "\033[32m%s\033[0m\n" "$*"; }
@@ -19,7 +20,19 @@ cyan()   { printf "\033[36m%s\033[0m\n" "$*"; }
 
 pass() { green "  PASS: $1"; PASS=$((PASS + 1)); }
 fail() { red "  FAIL: $1"; FAIL=$((FAIL + 1)); ERRORS="${ERRORS}\n  - ${1}"; }
-skip() { cyan "  SKIP: $1"; }
+skip() { cyan "  SKIP: $1"; SKIP=$((SKIP + 1)); }
+
+# Pod BPP_REQUIRE_DOCKER=1 (ustawiane przez linuksowy job CI, ktory MA dockera)
+# brak wymaganego srodowiska to FAIL, nie SKIP — inaczej joby bez dockera
+# (macOS/Windows runnery) raportuja zielono praktycznie nic nie asertujac, a
+# regresja w renderowaniu nginx/ACME przechodzi niezauwazona.
+skip_or_fail() {
+    if [ "${BPP_REQUIRE_DOCKER:-0}" = "1" ]; then
+        fail "$1 [BPP_REQUIRE_DOCKER=1: wymagane srodowisko niedostepne]"
+    else
+        skip "$1"
+    fi
+}
 
 assert_file_exists()    { if [ -f "$2" ]; then pass "$1"; else fail "$1 ($2 not found)"; fi; }
 assert_dir_exists()     { if [ -d "$2" ]; then pass "$1"; else fail "$1 ($2 not found)"; fi; }
@@ -58,7 +71,7 @@ test_first_run_setup() {
     yellow "=== Test 1: First-run setup tworzy .env i konfigurację ==="
 
     if ! command -v docker >/dev/null 2>&1; then
-        skip "docker niedostepny — pomijam setup-path (wymaga 'docker' i 'docker compose')"
+        skip_or_fail "docker niedostepny — pomijam setup-path (wymaga 'docker' i 'docker compose')"
         return
     fi
 
@@ -82,7 +95,7 @@ test_first_run_empty_env() {
     yellow "=== Test 2: Pusty BPP_CONFIGS_DIR triggers setup ==="
 
     if ! command -v docker >/dev/null 2>&1; then
-        skip "docker niedostepny — pomijam setup-path (wymaga 'docker' i 'docker compose')"
+        skip_or_fail "docker niedostepny — pomijam setup-path (wymaga 'docker' i 'docker compose')"
         return
     fi
 
@@ -456,18 +469,18 @@ test_nginx_config_valid() {
     yellow "=== Test 14: nginx -t (legacy single-host + multi-host) ==="
 
     if ! command -v docker >/dev/null 2>&1; then
-        skip "docker niedostepny — pomijam nginx -t"
+        skip_or_fail "docker niedostepny — pomijam nginx -t"
         return
     fi
 
     local docker_os
     docker_os=$(docker info --format '{{.OSType}}' 2>/dev/null) || true
     if [ -z "$docker_os" ]; then
-        skip "docker daemon niedostepny — pomijam nginx -t"
+        skip_or_fail "docker daemon niedostepny — pomijam nginx -t"
         return
     fi
     if [ "$docker_os" != "linux" ]; then
-        skip "docker daemon w trybie '$docker_os' (nie linux) — pomijam nginx -t"
+        skip_or_fail "docker daemon w trybie '$docker_os' (nie linux) — pomijam nginx -t"
         return
     fi
 
@@ -681,21 +694,21 @@ test_nginx_runtime() {
     yellow "=== Test 15: nginx runtime — start, listen, proxy ==="
 
     if ! command -v docker >/dev/null 2>&1; then
-        skip "docker niedostepny — pomijam runtime"
+        skip_or_fail "docker niedostepny — pomijam runtime"
         return
     fi
     local docker_os
     docker_os=$(docker info --format '{{.OSType}}' 2>/dev/null || true)
     if [ -z "$docker_os" ]; then
-        skip "docker daemon niedostepny — pomijam runtime"
+        skip_or_fail "docker daemon niedostepny — pomijam runtime"
         return
     fi
     if [ "$docker_os" != "linux" ]; then
-        skip "docker daemon w trybie '$docker_os' (nie linux) — pomijam runtime"
+        skip_or_fail "docker daemon w trybie '$docker_os' (nie linux) — pomijam runtime"
         return
     fi
     if ! command -v curl >/dev/null 2>&1; then
-        skip "curl niedostepny — pomijam runtime"
+        skip_or_fail "curl niedostepny — pomijam runtime"
         return
     fi
 
@@ -978,10 +991,13 @@ test_nginx_runtime
 echo ""
 echo "========================================"
 if [ "$FAIL" -gt 0 ]; then
-    red "  RESULTS: $PASS passed, $FAIL failed"
+    red "  RESULTS: $PASS passed, $FAIL failed, $SKIP skipped"
     echo -e "  Failures:$ERRORS"
     exit 1
 else
-    green "  RESULTS: $PASS passed, 0 failed"
+    green "  RESULTS: $PASS passed, 0 failed, $SKIP skipped"
+    if [ "$SKIP" -gt 0 ]; then
+        yellow "  (uruchom z BPP_REQUIRE_DOCKER=1, by skipy srodowiskowe traktowac jako FAIL)"
+    fi
 fi
 echo "========================================"
