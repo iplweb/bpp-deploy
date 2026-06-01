@@ -28,7 +28,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: ${WORKER_GENERAL_MEM_LIMIT:-1g}
+          memory: ${WORKER_GENERAL_MEM_LIMIT:-1536m}
           cpus: "${WORKER_GENERAL_CPU_LIMIT:-2.0}"
     labels:
       # Sidecar autoheal restartuje ten kontener gdy image-level healthcheck
@@ -62,7 +62,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: ${WORKER_DENORM_MEM_LIMIT:-1g}
+          memory: ${WORKER_DENORM_MEM_LIMIT:-1536m}
           cpus: "${WORKER_DENORM_CPU_LIMIT:-1.0}"
     labels:
       autoheal: "true"
@@ -157,6 +157,8 @@ services:
       - CELERY_BROKER_URL=redis://redis:6379/${DJANGO_BPP_REDIS_DB_BROKER:-1}
       - FLOWER_PORT=5555
       - FLOWER_URL_PREFIX=/flower
+      # Ogranicza historie zadan trzymana w RAM, zeby limit 128m byl bezpieczny.
+      - FLOWER_MAX_TASKS=${FLOWER_MAX_TASKS:-10000}
     depends_on:
       redis:
         condition: service_healthy
@@ -165,7 +167,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: ${FLOWER_MEM_LIMIT:-768m}
+          memory: ${FLOWER_MEM_LIMIT:-128m}
           cpus: "${FLOWER_CPU_LIMIT:-0.5}"
     labels:
       ofelia.enabled: "true"

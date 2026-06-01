@@ -39,7 +39,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: ${LOKI_MEM_LIMIT:-256m}
+          memory: ${LOKI_MEM_LIMIT:-192m}
           cpus: "${LOKI_CPU_LIMIT:-0.5}"
 
   grafana:
@@ -89,7 +89,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: ${ALLOY_MEM_LIMIT:-384m}
+          memory: ${ALLOY_MEM_LIMIT:-192m}
           cpus: "${ALLOY_CPU_LIMIT:-0.5}"
 
   netdata:
@@ -151,7 +151,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: ${NETDATA_MEM_LIMIT:-256m}
+          memory: ${NETDATA_MEM_LIMIT:-320m}
           cpus: "${NETDATA_CPU_LIMIT:-1.0}"
 
 volumes:
