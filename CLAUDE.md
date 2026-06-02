@@ -77,6 +77,10 @@ User-tunable knobs are parametrized via `.env` (`NETDATA_DBENGINE_TIER0_RETENTIO
 
 `staticfiles` is populated by `appserver` (mount `/staticroot`) and served by `webserver`/nginx (mount `/var/www/html/staticroot`). Source is `/app/staticroot.baked/` baked into the appserver image at build time. Entrypoint Phase 2 runs `cp -ru /app/staticroot.baked/. "$STATIC_ROOT/"` — seeds an empty volume and tops up newer files on upgrade without deleting. Runtime does **not** run `collectstatic` (fallback only for pre-`.baked` images). `STATIC_ROOT=/staticroot/` in `.env` overrides image default. After `make refresh`/`prune-orphan-volumes`, volume is repopulated from `.baked`.
 
+### Media volume — `DJANGO_BPP_MEDIA_ROOT` is required
+
+User uploads land in the `media` volume mounted at `/mediaroot` in every Django container. **`DJANGO_BPP_MEDIA_ROOT=/mediaroot` in `.env` is required** — without it Django falls back to its built-in default (`~/bpp-media` = `/root/bpp-media` in the container), which is **not** on the volume: uploads vanish on recreate and are excluded from backups (`backup-cycle.sh` tars `/mediaroot`). Set in two places (sibling of `STATIC_ROOT`): the fresh-`.env` heredoc + `ensure_env_var` in `scripts/init-configs.sh`, and an append-only self-heal (`_ensure_var`) in `scripts/ensure-config-files.sh` so `git pull && make up` fixes old `.env` files with no manual step. Don't add a new media path without keeping all three in sync. Detail: `docs/konfiguracja/architektura.md`.
+
 ### PostgreSQL version vars
 
 `dbserver` uses `iplweb/bpp_dbserver:psql-${DJANGO_BPP_POSTGRESQL_VERSION}` (`MAJOR.MINOR`, default `16.13`). `DJANGO_BPP_POSTGRESQL_VERSION_MAJOR` (auto-derived) is used by `backup-runner` (`postgres:<major>-alpine`). Major upgrades require dump/restore — use `make upgrade-postgres`, do **not** edit the var manually. Full procedure (rollback, resume): `docs/konfiguracja/postgresql.md`.
