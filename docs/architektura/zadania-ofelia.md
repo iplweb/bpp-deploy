@@ -27,8 +27,7 @@ memory leak, nie burst. Staggered restart **05:00–05:25** (po backupie 02:30 i
 | Czas | Serwis |
 |---|---|
 | 05:00 | appserver |
-| 05:05 | workerserver-general |
-| 05:10 | workerserver-denorm |
+| 05:05 | workerserver |
 | 05:15 | flower |
 | 05:20 | celerybeat |
 | 05:25 | denorm-queue |

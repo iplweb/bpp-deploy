@@ -122,24 +122,29 @@ FIXED_MEM=(
 )
 
 # Format: name:floor_mb:surplus_weight. Dziela pule po odjeciu fixed.
+# Od konsolidacji workerow jest JEDEN worker (`workerserver`, obie kolejki:
+# celery + denorm) - przejmuje laczna wage nadwyzki dwoch poprzednich (20+15=35).
+# Concurrency Celery liczy obraz (domyslnie 75% rdzeni), wiec realny apetyt jednego
+# workera < sumy dwoch poprzednich; floor 1536 z zapasem dla 4-rdzeniowego hosta.
 VARIABLE_MEM=(
     "dbserver:1536:40"
     "appserver:2048:25"
-    "workerserver-general:1536:20"
-    "workerserver-denorm:1536:15"
+    "workerserver:1536:35"
 )
 
-# CPU bez zmian (zmiana dotyczy RAM): te same 7 uslug i wagi co dotychczas.
-# Format: name:cpu_weight. Sumuja sie do 102.5 (zachowane z poprzedniej wersji).
+# CPU (limit miekki). Format: name:cpu_weight. Sumuja sie do CPU_TOTAL_WEIGHT.
+# Po konsolidacji jeden worker przejmuje wage dwoch poprzednich (25+12.5
+# zaokraglone do 30 - reszta puli i tak idzie do dbserver/appserver).
 CPU_SERVICES=(
     "dbserver:25"
     "appserver:25"
-    "workerserver-general:25"
-    "workerserver-denorm:12.5"
+    "workerserver:30"
     "redis:7.5"
     "loki:2.5"
     "netdata:5"
 )
+# Suma wag CPU_SERVICES - uzywane jako startowa pula w redystrybucji.
+CPU_TOTAL_WEIGHT=95
 
 # --- Helpery ---
 
@@ -263,8 +268,8 @@ done
 surplus_mb=$(( pool_mb - floors_total_mb ))
 
 echo "Uslugi ze stalym limitem (lacznie $(fmt_mb "$fixed_total_mb")) sa przypisane automatycznie."
-echo "Pozostala pula $(fmt_mb "$pool_mb") jest dzielona miedzy dbserver/appserver/workery"
-echo "(floor + waga nadwyzki: db 40% / app 25% / wg 20% / wd 15%)."
+echo "Pozostala pula $(fmt_mb "$pool_mb") jest dzielona miedzy dbserver/appserver/worker"
+echo "(floor + waga nadwyzki: db 40% / app 25% / worker 35%)."
 if [ "$surplus_mb" -lt 0 ]; then
     echo ""
     echo "UWAGA: pula ($(fmt_mb "$pool_mb")) jest mniejsza niz suma minimow"
@@ -350,7 +355,7 @@ done
 
 # (d) CPU - logika i wagi bez zmian (zmiana dotyczy tylko RAM).
 remaining_cpu=$CPU_BUDGET
-remaining_cpu_weight=102.5
+remaining_cpu_weight=$CPU_TOTAL_WEIGHT
 for entry in "${CPU_SERVICES[@]}"; do
     IFS=: read -r svc cpu_w <<< "$entry"
     default_cpu=$(LC_ALL=C awk -v r="$remaining_cpu" -v w="$cpu_w" -v t="$remaining_cpu_weight" -v min="$MIN_CPU" \
@@ -385,6 +390,19 @@ for v in "${CPU_VALS[@]}"; do total_used_cpu=$(fcalc "$total_used_cpu" "+" "$v")
 echo ""
 echo "Zapisuje do $ENV_FILE..."
 
+# Sprzatanie po konsolidacji+renamie: jeden worker (`workerserver`) => WORKER_*.
+# Stare WORKER_GENERAL_*/WORKER_DENORM_* nie sa juz uzywane - usuwamy, zeby re-run
+# nie zostawial martwych zmiennych w .env. (init-configs robi migracje wartosci.)
+for _stale in WORKER_GENERAL_MEM_LIMIT WORKER_GENERAL_CPU_LIMIT \
+              WORKER_DENORM_MEM_LIMIT WORKER_DENORM_CPU_LIMIT; do
+    if env_has_var "$_stale"; then
+        _tmp="$ENV_FILE.tmp.$$"
+        awk -v k="$_stale" '$0 !~ "^" k "=" { print }' "$ENV_FILE" > "$_tmp" \
+            && mv "$_tmp" "$ENV_FILE"
+        echo "  ~ usunieto nieuzywana (po konsolidacji workerow): $_stale"
+    fi
+done
+
 # Naglowek sekcji (raz).
 if ! env_has_var "DBSERVER_MEM_LIMIT"; then
     {
@@ -399,8 +417,7 @@ var_prefix_for() {
     case "$1" in
         dbserver)               echo "DBSERVER" ;;
         appserver)              echo "APPSERVER" ;;
-        workerserver-general)   echo "WORKER_GENERAL" ;;
-        workerserver-denorm)    echo "WORKER_DENORM" ;;
+        workerserver)           echo "WORKER" ;;
         redis)                  echo "REDIS" ;;
         loki)                   echo "LOKI" ;;
         netdata)                echo "NETDATA" ;;

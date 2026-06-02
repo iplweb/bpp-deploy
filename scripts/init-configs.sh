@@ -670,6 +670,34 @@ else
         echo "  + derive DJANGO_BPP_POSTGRESQL_VERSION=$_val z DJANGO_BPP_POSTGRESQL_VERSION_MAJOR"
     fi
 
+    # Migracja 2026-06: konsolidacja workerow Celery do jednego serwisu `workerserver`.
+    #   workerserver-general + workerserver-denorm -> workerserver (obie kolejki)
+    #   WORKER_GENERAL_MEM_LIMIT -> WORKER_MEM_LIMIT (z zachowaniem wartosci)
+    #   WORKER_GENERAL_CPU_LIMIT -> WORKER_CPU_LIMIT
+    #   WORKER_DENORM_*          -> usuniete (jeden worker obsluguje obie kolejki)
+    # Compose ma fallback ${WORKER_MEM_LIMIT:-${WORKER_GENERAL_MEM_LIMIT:-...}},
+    # wiec `git pull && make up` dziala od razu; ta migracja tylko porzadkuje .env.
+    if env_has_var "WORKER_GENERAL_MEM_LIMIT" && ! env_has_var "WORKER_MEM_LIMIT"; then
+        _wv="$(get_env_var WORKER_GENERAL_MEM_LIMIT)"
+        set_env_var "WORKER_MEM_LIMIT" "$_wv" \
+            "Limit RAM workera Celery (migracja z WORKER_GENERAL_MEM_LIMIT)"
+        echo "  ~ zmigrowalem WORKER_GENERAL_MEM_LIMIT -> WORKER_MEM_LIMIT"
+    fi
+    if env_has_var "WORKER_GENERAL_CPU_LIMIT" && ! env_has_var "WORKER_CPU_LIMIT"; then
+        _wv="$(get_env_var WORKER_GENERAL_CPU_LIMIT)"
+        set_env_var "WORKER_CPU_LIMIT" "$_wv" \
+            "Limit CPU workera Celery (migracja z WORKER_GENERAL_CPU_LIMIT)"
+        echo "  ~ zmigrowalem WORKER_GENERAL_CPU_LIMIT -> WORKER_CPU_LIMIT"
+    fi
+    for _wstale in WORKER_GENERAL_MEM_LIMIT WORKER_GENERAL_CPU_LIMIT \
+                   WORKER_DENORM_MEM_LIMIT WORKER_DENORM_CPU_LIMIT; do
+        if env_has_var "$_wstale"; then
+            awk -v k="$_wstale" '$0 !~ "^" k "=" { print }' \
+                "$ENV_FILE" > "$ENV_FILE.tmp.$$" && mv "$ENV_FILE.tmp.$$" "$ENV_FILE"
+            echo "  ~ usunieto nieuzywana (po konsolidacji workerow): $_wstale"
+        fi
+    done
+
     # Migracja: dodaj NTFY_TOPIC dla istniejacych deploymentow (Netdata + ntfy.sh).
     # Topic jest sekretem - kto zna URL, czyta alerty. openssl rand -hex generuje
     # 32 znaki, fallback na /dev/urandom dla minimalnych obrazow bez openssl.

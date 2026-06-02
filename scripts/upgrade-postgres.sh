@@ -695,8 +695,7 @@ uniknac konfliktow w trakcie upgrade'u:
 
   appserver              - aplikacja Django (odetnie uzytkownikow)
   authserver             - serwis autoryzacji (nie bedzie mozna sie logowac)
-  workerserver-general   - workery Celery (bieace taski)
-  workerserver-denorm    - workery denormalizacji (czekamy az queue sie oprozni)
+  workerserver           - worker Celery (obie kolejki: celery + denorm)
   celerybeat             - scheduler Celery
   denorm-queue           - LISTEN/NOTIFY bridge
   flower                 - monitoring Celery

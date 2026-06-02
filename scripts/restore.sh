@@ -306,7 +306,7 @@ fi
 echo
 echo "=== Stop dependent services ==="
 run docker compose -f "$REPO_DIR/docker-compose.yml" stop \
-    appserver workerserver-general workerserver-denorm denorm-queue celerybeat flower || true
+    appserver workerserver denorm-queue celerybeat flower || true
 
 # ---- DB restore ---------------------------------------------------------
 if [ "$MEDIA_ONLY" != 1 ]; then

@@ -98,17 +98,21 @@ Images are slim — `uv` is no longer present. Use native `python` / `celery`:
 
 `denorm-queue` (PG `LISTEN` → Celery bridge) **must** run as a **single instance** to avoid duplicate message processing. **Do not scale.**
 
+### Single `workerserver` — both queues
+
+As of June 2026 there is **one** Celery worker, `workerserver` (was `workerserver-general` + `workerserver-denorm`), consuming **both** queues. We set `CELERY_QUEUE: "celery,denorm"` **explicitly** in compose (not relying on the new image default) so the merge works on the **current published image too** — otherwise the `denorm` queue would have no consumer until the new image ships. **No strict priority** — kombu round-robins the queues (deliberate per the BPP single-worker spec: `denorm`/`flush_single` tasks are short). Concurrency (default **75% cores**) and child recycling are configured in the **BPP image** `app.conf` (via `celery_tasks.py`) through `CELERY_WORKER_*` env (`CELERY_WORKER_CONCURRENCY`, `_CONCURRENCY_PERCENT`, `_MAX_MEMORY_PER_CHILD`, `_MAX_TASKS_PER_CHILD`, `_POOL`, `_PREFETCH_MULTIPLIER`) — read only by the June-2026+ image. Env rename (`WORKER_GENERAL_*`→`WORKER_*`, drop `WORKER_DENORM_*`) has the mandatory two-layer protection: Compose fallback `${WORKER_MEM_LIMIT:-${WORKER_GENERAL_MEM_LIMIT:-…}}` + `init-configs` migration (`configure-resources` also recomputes + cleans). Detail: `docs/konfiguracja/limity-zasobow.md#concurrency-celery`.
+
 ### Logging — add `logging` to new services
 
 All services use the `local` log driver via a per-file `x-logging` YAML anchor. **YAML anchors do not cross `include:` boundaries** — each of the 7 compose files defines its own `x-logging`. **When adding a new service: include `logging: *default-logging` or it falls back to unrotated `json-file`.** Full logging/retention detail: `docs/monitoring/logowanie.md`.
 
 ### Healthchecks & autoheal
 
-Docker does NOT restart on failed healthcheck (`restart: always` only reacts to process exit). Sidecar `autoheal` restarts containers labeled `autoheal=true` on `Health.Status=unhealthy` (watched: `workerserver-general`, `workerserver-denorm`). **`denorm-queue` is intentionally NOT autoheal-watched** — its Compose healthcheck is commented out, so it has no health status to react to; it relies on the nightly staggered `kill 1` restart (Ofelia, 05:25) instead. Double-dollar escaping (`$$DJANGO_BPP_DB_USER`) in healthcheck commands prevents premature Compose expansion. Detail: `docs/architektura/healthchecks-autoheal.md`.
+Docker does NOT restart on failed healthcheck (`restart: always` only reacts to process exit). Sidecar `autoheal` restarts containers labeled `autoheal=true` on `Health.Status=unhealthy` (watched: `workerserver`). **`denorm-queue` is intentionally NOT autoheal-watched** — its Compose healthcheck is commented out, so it has no health status to react to; it relies on the nightly staggered `kill 1` restart (Ofelia, 05:25) instead. Double-dollar escaping (`$$DJANGO_BPP_DB_USER`) in healthcheck commands prevents premature Compose expansion. Detail: `docs/architektura/healthchecks-autoheal.md`.
 
 ### Service dependencies
 
-`appserver` (migrations) before workers; workers depend on `appserver` healthy; `denorm-queue` requires `workerserver-denorm` healthy; `celerybeat` uses `service_started` for `appserver` (faster start). Service table + data flow: `docs/architektura/uslugi.md`.
+`appserver` (migrations) before the worker; `workerserver` depends on `appserver` healthy; `denorm-queue` requires `workerserver` healthy; `celerybeat` uses `service_started` for `appserver` (faster start). Service table + data flow: `docs/architektura/uslugi.md`.
 
 ### Scheduled jobs / nightly restarts (Ofelia)
 

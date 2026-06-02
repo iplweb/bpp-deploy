@@ -988,11 +988,48 @@ test_configure_resources() {
     assert_file_contains "dozzle cap 64m"    "DOZZLE_MEM_LIMIT=64m"   "$cfg/.env"
     assert_file_contains "appserver obecny"  "APPSERVER_MEM_LIMIT="   "$cfg/.env"
     assert_file_contains "dbserver obecny"   "DBSERVER_MEM_LIMIT="    "$cfg/.env"
-    assert_file_contains "worker-general obecny" "WORKER_GENERAL_MEM_LIMIT=" "$cfg/.env"
+    # Po konsolidacji+renamie: jeden worker `workerserver` -> WORKER_MEM_LIMIT
+    # (obie kolejki); stare WORKER_GENERAL_*/WORKER_DENORM_* znikaja.
+    assert_file_contains "worker obecny"     "WORKER_MEM_LIMIT="      "$cfg/.env"
+    assert_file_not_contains "brak worker-general" "WORKER_GENERAL_MEM_LIMIT=" "$cfg/.env"
+    assert_file_not_contains "brak worker-denorm"  "WORKER_DENORM_MEM_LIMIT="  "$cfg/.env"
     assert_file_contains "redis maxmemory 819mb" "REDIS_MAXMEMORY=819mb" "$cfg/.env"
-    # CPU pisany tylko dla 7 uslug; fixed-only nie dostaja CPU.
+    # CPU pisany tylko dla 6 uslug zmiennych/wybranych; fixed-only nie dostaja CPU.
     assert_file_contains "dbserver CPU obecny"   "DBSERVER_CPU_LIMIT="   "$cfg/.env"
+    assert_file_contains "worker CPU obecny"     "WORKER_CPU_LIMIT="     "$cfg/.env"
     assert_file_not_contains "flower bez CPU"    "FLOWER_CPU_LIMIT="     "$cfg/.env"
+
+    rm -rf "$cfg"
+}
+
+# ============================================================
+# TEST: configure-resources — konsolidacja+rename workerow
+# ============================================================
+# Stary .env (sprzed konsolidacji) ma WORKER_GENERAL_*/WORKER_DENORM_*. Re-run
+# configure-resources zapisuje jeden WORKER_* i usuwa wszystkie stare nazwy.
+test_configure_resources_worker_consolidation() {
+    echo "TEST: configure-resources — konsolidacja+rename workerow (WORKER_*)"
+    local cfg
+    cfg=$(mktemp -d)
+    {
+        printf 'BPP_CONFIGS_DIR=%s\n' "$cfg"
+        printf 'WORKER_GENERAL_MEM_LIMIT=1700m\n'
+        printf 'WORKER_GENERAL_CPU_LIMIT=2.0\n'
+        printf 'WORKER_DENORM_MEM_LIMIT=1500m\n'
+        printf 'WORKER_DENORM_CPU_LIMIT=1.0\n'
+    } > "$cfg/.env"
+
+    if ! printf '\n%.0s' {1..20} \
+        | BPP_CONFIGS_DIR="$cfg" bash "$REPO_DIR/scripts/configure-resources.sh" >/dev/null 2>&1; then
+        fail "configure-resources zwrocil blad"
+        rm -rf "$cfg"; return
+    fi
+
+    assert_file_contains     "nowy WORKER_MEM_LIMIT"     "WORKER_MEM_LIMIT="         "$cfg/.env"
+    assert_file_not_contains "stary GENERAL usuniety"    "WORKER_GENERAL_MEM_LIMIT=" "$cfg/.env"
+    assert_file_not_contains "stary GENERAL CPU usuniety" "WORKER_GENERAL_CPU_LIMIT=" "$cfg/.env"
+    assert_file_not_contains "stary DENORM usuniety"     "WORKER_DENORM_MEM_LIMIT="  "$cfg/.env"
+    assert_file_not_contains "stary DENORM CPU usuniety" "WORKER_DENORM_CPU_LIMIT="  "$cfg/.env"
 
     rm -rf "$cfg"
 }
@@ -1025,6 +1062,7 @@ test_init_configs_multihost_skips_hostname
 test_nginx_config_valid
 test_nginx_runtime
 test_configure_resources
+test_configure_resources_worker_consolidation
 
 echo ""
 echo "========================================"

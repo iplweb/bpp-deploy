@@ -4,7 +4,7 @@ shell:
 	docker compose exec appserver /bin/bash
 
 shell-workerserver:
-	docker compose exec workerserver-general /bin/bash
+	docker compose exec workerserver /bin/bash
 
 shell-appserver: shell  ## Alias for 'shell'
 
