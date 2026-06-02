@@ -31,6 +31,23 @@ case "$(uname -s)" in
         TOTAL_RAM_GB=$(( TOTAL_RAM_BYTES / 1024 / 1024 / 1024 ))
         CPU_COUNT=$(sysctl -n hw.ncpu)
         ;;
+    MINGW*|MSYS*|CYGWIN*)
+        # Windows (Git Bash / MSYS2 / Cygwin). Runtime MSYS zwykle emuluje
+        # /proc/meminfo i dostarcza nproc; gdy ktoregos brak, degradujemy
+        # lagodnie (zamiast exit 1, ktore wywalalo job CI na windows-latest).
+        # BPP wdraza sie na Linuksie - Windows to tylko srodowisko deweloperskie,
+        # wiec wystarczy zeby skrypt dokonczyl i zapisal .env (capy fixed sa
+        # niezalezne od hosta). RAM=0 -> budzet spadnie do floora ponizej.
+        TOTAL_RAM_KB=$(awk '/MemTotal:/ {print $2; exit}' /proc/meminfo 2>/dev/null || true)
+        if [ -n "${TOTAL_RAM_KB:-}" ]; then
+            TOTAL_RAM_GB=$(( TOTAL_RAM_KB / 1024 / 1024 ))
+        else
+            TOTAL_RAM_GB=0
+        fi
+        # nproc bywa w coreutils Git for Windows; fallback do NUMBER_OF_PROCESSORS
+        # (zawsze ustawione na Windows), a w ostatecznosci 1.
+        CPU_COUNT=$(nproc 2>/dev/null || echo "${NUMBER_OF_PROCESSORS:-1}")
+        ;;
     *)
         echo "Blad: nieobslugiwany system operacyjny: $(uname -s)" >&2
         exit 1
