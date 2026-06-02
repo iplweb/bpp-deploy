@@ -36,10 +36,10 @@ do-migrate:
 	docker compose exec appserver python src/manage.py migrate
 
 stop-denorm-celery:
-	docker compose stop denorm-queue workerserver-general workerserver-denorm celerybeat
+	docker compose stop denorm-queue workerserver celerybeat
 
 start-denorm-celery:
-	docker compose up -d --wait denorm-queue workerserver-general workerserver-denorm celerybeat
+	docker compose up -d --wait denorm-queue workerserver celerybeat
 
 migrate: stop-denorm-celery do-migrate start-denorm-celery
 
@@ -134,7 +134,7 @@ dump-local-postgresql-and-copy-to-remote:
 	docker compose cp local.pgdump.gz dbserver:/
 
 restore-db-stop-servers:
-	docker compose stop appserver workerserver-general workerserver-denorm denorm-queue celerybeat
+	docker compose stop appserver workerserver denorm-queue celerybeat
 
 restore-db-remove-db-rebuild-db-rm-backup:
 	@if [ "$(YES)" != "1" ]; then \

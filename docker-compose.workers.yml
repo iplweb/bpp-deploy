@@ -6,11 +6,34 @@ x-logging: &default-logging
 
 services:
 
-  workerserver-general:
+  workerserver:
+    # JEDEN worker Celery obsluguje OBIE kolejki (celery + denorm). Wczesniej
+    # byly dwa osobne kontenery (workerserver-general + workerserver-denorm),
+    # kazdy forkowal `nproc` dzieci prefork (kazde = pelna kopia Django ~250 MB),
+    # wiec zjadaly ~2x. Konsolidacja oszczedza jedna kopie Django i polowe dzieci.
+    # Zadania kolejki `denorm` (`flush_single`) sa krotkie, wiec spokojnie dziela
+    # jeden worker z kolejka domyslna - bez dedykowanego serwera i bez priorytetu
+    # (kombu robi round-robin po kolejkach; to akceptowalne, patrz spec single-worker).
+    #
+    # CELERY_QUEUE=celery,denorm jest ustawione JAWNIE (a nie polegamy na nowym
+    # domyslnym entrypoincie obrazu), zeby konsolidacja dzialala plynnie takze na
+    # OBECNYM opublikowanym obrazie - inaczej do czasu wydania nowego obrazu kolejka
+    # denorm zostalaby bez konsumenta. Concurrency (domyslnie 75% rdzeni) i recykling
+    # procesow czyta `celery_tasks.py` (app.conf) z env DOPIERO na nowym obrazie;
+    # na starym te zmienne sa ignorowane (nieszkodliwie). Knoby: CELERY_WORKER_*.
     image: iplweb/bpp_workerserver:${DOCKER_VERSION:-latest}
     restart: always
     logging: *default-logging
     env_file: ${BPP_CONFIGS_DIR}/.env
+    environment:
+      CELERY_QUEUE: "celery,denorm"
+      # Recykling procesu-dziecka po przekroczeniu progu RSS (KB) - oddaje pamiec
+      # do OS, tnie narost dlugo zyjacego Pythona. Czytane przez celery_tasks.py
+      # (app.conf) na obrazie z czerwca 2026+. Nadpisywalne w .env.
+      CELERY_WORKER_MAX_MEMORY_PER_CHILD: "${CELERY_WORKER_MAX_MEMORY_PER_CHILD:-300000}"
+      # Opcjonalnie: jawny procent rdzeni (domyslnie 75% w obrazie) lub recykling
+      # po N zadaniach - odkomentuj/ustaw w .env w razie potrzeby:
+      # CELERY_WORKER_CONCURRENCY_PERCENT / CELERY_WORKER_MAX_TASKS_PER_CHILD.
     volumes:
       - staticfiles:/staticroot
       - media:/mediaroot
@@ -28,8 +51,10 @@ services:
     deploy:
       resources:
         limits:
-          memory: ${WORKER_GENERAL_MEM_LIMIT:-1536m}
-          cpus: "${WORKER_GENERAL_CPU_LIMIT:-2.0}"
+          # Fallback do starej nazwy WORKER_GENERAL_* (sprzed konsolidacji+renamu),
+          # zeby `git pull && make up` na starym .env zadzialal bez recznej edycji.
+          memory: ${WORKER_MEM_LIMIT:-${WORKER_GENERAL_MEM_LIMIT:-1536m}}
+          cpus: "${WORKER_CPU_LIMIT:-${WORKER_GENERAL_CPU_LIMIT:-2.0}}"
     labels:
       # Sidecar autoheal restartuje ten kontener gdy image-level healthcheck
       # (`celery inspect ping`) zglosi unhealthy - typowo gdy proces zyje, ale
@@ -39,35 +64,6 @@ services:
       # Nocny restart zbija skumulowany memory leak Celery workera (Python long-running).
       # kill 1 -> SIGTERM do PID 1 -> graceful shutdown -> restart:always wskrzesza.
       ofelia.job-exec.restart_self.schedule: "0 5 5 * * *"
-      ofelia.job-exec.restart_self.command: "kill 1"
-
-  workerserver-denorm:
-    image: iplweb/bpp_workerserver:${DOCKER_VERSION:-latest}
-    restart: always
-    logging: *default-logging
-    env_file: ${BPP_CONFIGS_DIR}/.env
-    environment:
-      CELERY_QUEUE: "denorm"
-    volumes:
-      - staticfiles:/staticroot
-      - media:/mediaroot
-    depends_on:
-      # Musi czekać na appserver, gdyż appserver aktualizuje ewentualnie baze danych.
-      # Czy nawet w ogóle ją buduje...
-      appserver:
-        condition: service_healthy
-      # Patrz workerserver-general - to samo uzasadnienie startup race.
-      redis:
-        condition: service_healthy
-    deploy:
-      resources:
-        limits:
-          memory: ${WORKER_DENORM_MEM_LIMIT:-1536m}
-          cpus: "${WORKER_DENORM_CPU_LIMIT:-1.0}"
-    labels:
-      autoheal: "true"
-      ofelia.enabled: "true"
-      ofelia.job-exec.restart_self.schedule: "0 10 5 * * *"
       ofelia.job-exec.restart_self.command: "kill 1"
 
   denorm-queue:
@@ -85,7 +81,7 @@ services:
     #   retries: 3
     restart: always
     depends_on:
-      workerserver-denorm:
+      workerserver:
         condition: service_healthy
     deploy:
       resources:
@@ -95,7 +91,7 @@ services:
     labels:
       ofelia.enabled: "true"
       # Restart najpozniej w staggered secie - po wszystkich pozostalych, zeby NOTIFY
-      # ze swiezo podniesionych worker-denormow mialy do czego trafic.
+      # ze swiezo podniesionego workera mialy do czego trafic.
       ofelia.job-exec.restart_self.schedule: "0 25 5 * * *"
       ofelia.job-exec.restart_self.command: "kill 1"
 
@@ -105,9 +101,7 @@ services:
     env_file: ${BPP_CONFIGS_DIR}/.env
     entrypoint: celery -A django_bpp.celery_tasks status
     depends_on:
-      workerserver-general:
-        condition: service_healthy
-      workerserver-denorm:
+      workerserver:
         condition: service_healthy
     profiles: ['manual']
 

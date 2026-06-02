@@ -12,7 +12,7 @@
 
 - `dbserver` — `pg_isready`
 - `appserver` — HTTP
-- `workerserver-general` / `workerserver-denorm` — `celery inspect ping` via Redis broker
+- `workerserver` — `celery inspect ping` via Redis broker
   (flapuje, gdy połączenie z brokerem się zrywa)
 - `denorm-queue` — `pgrep -f denorm_queue`
 
@@ -27,7 +27,7 @@ reaguje tylko na wyjście procesu). Sidecar `willfarrell/autoheal:1.2.0` (w
 `application.yml`) monitoruje kontenery z labelem `autoheal=true` przez Docker API i
 restartuje je przy `Health.Status=unhealthy`.
 
-Obecnie obserwowane: `workerserver-general`, `workerserver-denorm`.
+Obecnie obserwowane: `workerserver`.
 
 Bez tego utknięty worker Celery (zerwane połączenie z brokerem, pętla reconnect kombu)
 zostałby `unhealthy` na zawsze, bo proces wciąż żyje.

@@ -16,11 +16,24 @@
 
 | Usługa | Opis |
 |---|---|
-| **workerserver-general** | Ogólne zadania Celery (queue: `celery`) |
-| **workerserver-denorm** | Zadania denormalizacji (queue: `denorm`) |
+| **workerserver** | Jeden worker Celery obsługujący **obie** kolejki: `celery` (ogólne + długie joby) oraz `denorm` (denormalizacja) |
 | **celerybeat** | Harmonogram zadań okresowych (`service_started`, nie `_healthy` — szybszy start) |
 | **denorm-queue** | Bridge PostgreSQL `LISTEN` → Celery |
 | **flower** | UI monitorowania Celery (port 5555, path `/flower`) |
+
+!!! info "Jeden worker, dwie kolejki"
+    Do czerwca 2026 były dwa osobne kontenery (`workerserver-general` +
+    `workerserver-denorm`). Każdy forkował tyle procesów prefork ile rdzeni hosta,
+    więc zżerały ~2× pełna kopia Django. Konsolidacja do **jednego**
+    `workerserver` (`-Q celery,denorm`) oszczędza jedną kopię Django i połowę
+    procesów-dzieci. Zadania kolejki `denorm` (`flush_single`) są krótkie, więc
+    spokojnie współdzielą worker z kolejką domyślną.
+
+    **Bez ścisłego priorytetu** — kombu robi round-robin po kolejkach (świadoma
+    decyzja: zadania denorm są krótkie, nie blokują interaktywnych na długo). Liczba
+    procesów-dzieci (concurrency, domyślnie **75% rdzeni**) i recykling pod kątem
+    pamięci konfigurują się przez zmienne `CELERY_WORKER_*` czytane przez obraz BPP —
+    patrz [Limity zasobów](../konfiguracja/limity-zasobow.md#concurrency-celery).
 
 !!! danger "denorm-queue — pojedyncza instancja"
     `denorm-queue` **musi** działać jako **jedna instancja**, żeby uniknąć podwójnego
@@ -64,5 +77,5 @@
 
 - `appserver` startuje przed workerami (obsługuje migracje); workery zależą od
   `appserver` healthy (tranzytywnie `dbserver`).
-- `denorm-queue` wymaga `workerserver-denorm` healthy.
+- `denorm-queue` wymaga `workerserver` healthy.
 - `celerybeat` używa `service_started` (nie `_healthy`) dla `appserver` — szybszy start.

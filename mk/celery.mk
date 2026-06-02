@@ -4,19 +4,19 @@
        denorm-flush denorm-purge-queues
 
 celery-inspect-report:
-	docker compose exec workerserver-general celery -A django_bpp.celery_tasks inspect report
+	docker compose exec workerserver celery -A django_bpp.celery_tasks inspect report
 
 celery-purge:
-	docker compose exec workerserver-general celery -A django_bpp.celery_tasks purge -f
-	docker compose exec workerserver-denorm celery -A django_bpp.celery_tasks purge -f
+	# Jeden worker obsluguje obie kolejki (celery + denorm) - purge -f czysci wszystkie.
+	docker compose exec workerserver celery -A django_bpp.celery_tasks purge -f
 
 celery-inspect-tasks:
-	docker compose exec workerserver-general celery -A django_bpp.celery_tasks inspect scheduled
-	docker compose exec workerserver-general celery -A django_bpp.celery_tasks inspect active
-	docker compose exec workerserver-general celery -A django_bpp.celery_tasks inspect reserved
-	docker compose exec workerserver-general celery -A django_bpp.celery_tasks inspect revoked
-	docker compose exec workerserver-general celery -A django_bpp.celery_tasks inspect registered
-	docker compose exec workerserver-general celery -A django_bpp.celery_tasks inspect stats
+	docker compose exec workerserver celery -A django_bpp.celery_tasks inspect scheduled
+	docker compose exec workerserver celery -A django_bpp.celery_tasks inspect active
+	docker compose exec workerserver celery -A django_bpp.celery_tasks inspect reserved
+	docker compose exec workerserver celery -A django_bpp.celery_tasks inspect revoked
+	docker compose exec workerserver celery -A django_bpp.celery_tasks inspect registered
+	docker compose exec workerserver celery -A django_bpp.celery_tasks inspect stats
 
 celery-stats:
 	docker compose exec appserver celery -A django_bpp.celery_tasks inspect active

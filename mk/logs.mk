@@ -4,7 +4,7 @@ logs:
 	docker compose logs -f
 
 logs-celery:
-	docker compose logs workerserver-general workerserver-denorm -f
+	docker compose logs workerserver -f
 
 logs-appserver:
 	docker compose logs appserver -f
