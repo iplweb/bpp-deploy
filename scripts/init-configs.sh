@@ -342,6 +342,12 @@ DJANGO_BPP_HOSTNAME=$BPP_HOSTNAME
 DOCKER_VERSION=latest
 DJANGO_BPP_CSRF_EXTRA_ORIGINS=https://$BPP_HOSTNAME
 STATIC_ROOT=/staticroot/
+# Media (pliki uploadowane przez uzytkownikow) musza ladowac na wolumen
+# 'media' montowany pod /mediaroot we wszystkich kontenerach Django. Bez tej
+# zmiennej Django bierze swoj domyslny MEDIA_ROOT (~/bpp-media = /root/bpp-media
+# w kontenerze), ktory NIE jest na wolumenie - pliki gina przy recreate i nie
+# trafiaja do backupu.
+DJANGO_BPP_MEDIA_ROOT=/mediaroot
 DJANGO_SETTINGS_MODULE=django_bpp.settings.production
 
 # === Google (opcjonalne) ===
@@ -548,6 +554,11 @@ else
     fi
     ensure_env_var "DOCKER_VERSION" "latest" "" "Aplikacja"
     ensure_env_var "STATIC_ROOT" "/staticroot/" "" "Pliki statyczne"
+    # Bez DJANGO_BPP_MEDIA_ROOT Django uzywa swojego domyslu (~/bpp-media =
+    # /root/bpp-media w kontenerze), poza wolumenem 'media' (/mediaroot) - pliki
+    # uzytkownikow gina przy recreate i nie sa backupowane. /mediaroot = punkt
+    # montowania wolumenu we wszystkich kontenerach Django.
+    ensure_env_var "DJANGO_BPP_MEDIA_ROOT" "/mediaroot" "" "Pliki media (upload)"
     ensure_env_var "DJANGO_SETTINGS_MODULE" \
         "django_bpp.settings.production" "" "Django settings"
     ensure_env_var "DJANGO_BPP_GOOGLE_ANALYTICS_PROPERTY_ID" "" \

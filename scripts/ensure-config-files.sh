@@ -127,12 +127,17 @@ _ENV="$BPP_CONFIGS_DIR/.env"
 # make up` na starym .env (bez tych zmiennych) dziala bez recznych krokow -
 # zgodnie z regula kompatybilnosci wstecznej (patrz CLAUDE.md).
 if [ -f "$_ENV" ]; then
-    _ensure_secret() {
-        # $1 = nazwa zmiennej, $2 = wartosc generowana gdy brak LUB pusta.
-        # Niepusta wartosc (VAR=cos) -> nic nie robimy. Pusta linia (VAR=)
-        # traktujemy jak brak, bo inaczej create-monitoring-user / ntfy
-        # dostaja pusty sekret; grep "^VAR=" lapal tez taki przypadek i nigdy
-        # nie regenerowal. Wymagamy >=1 znaku po '=' (.+).
+    # Append-only self-heal pojedynczej zmiennej w .env. Wspolna logika dla
+    # sekretow (losowych) i zmiennych o stalej wartosci: gdy brak LUB pusta
+    # (VAR=) -> dopisujemy VAR=wartosc; niepusta (VAR=cos) -> nie ruszamy.
+    # NIGDY nie nadpisujemy wartosci ustawionej przez init-configs/usera. $3 to
+    # gotowy komunikat logu (bez wartosci, zeby nie wyciekl sekret).
+    _ensure_var() {
+        # $1 = nazwa zmiennej, $2 = wartosc dopisywana gdy brak LUB pusta.
+        # Pusta linia (VAR=) traktujemy jak brak, bo inaczej np.
+        # create-monitoring-user / ntfy dostaja pusty sekret; grep "^VAR="
+        # lapal tez taki przypadek i nigdy nie regenerowal. Wymagamy >=1 znaku
+        # po '=' (.+).
         if grep -qE "^${1}=.+" "$_ENV" 2>/dev/null; then
             return 0
         fi
@@ -149,14 +154,25 @@ if [ -f "$_ENV" ]; then
             printf '\n' >> "$_ENV"
         fi
         printf '%s=%s\n' "$1" "$2" >> "$_ENV"
-        echo "  + wygenerowano brakujacy sekret w .env: $1"
+        echo "$3"
     }
+    # Sekret losowy: wartosc NIGDY nie trafia do logu (komunikat bez $2).
+    _ensure_secret() { _ensure_var "$1" "$2" "  + wygenerowano brakujacy sekret w .env: $1"; }
+
     # Haslo read-only roli monitoringu (Grafana datasource + Netdata postgres).
     # openssl rand -hex => tylko [0-9a-f]; create-monitoring-user.sh dodatkowo
     # waliduje alfanumerycznosc (haslo trafia do literalu SQL).
     _ensure_secret DJANGO_BPP_PG_MONITOR_PASSWORD "$(openssl rand -hex 24)"
     # Topic ntfy (sekret chroniacy kanal alertow) - gdy stary .env go nie ma.
     _ensure_secret NTFY_TOPIC "bpp-$(openssl rand -hex 16)"
+    # Media root: stala wartosc = punkt montowania wolumenu 'media' (/mediaroot)
+    # we wszystkich kontenerach Django. Bez niej Django bierze swoj domyslny
+    # MEDIA_ROOT (~/bpp-media = /root/bpp-media w kontenerze), POZA wolumenem -
+    # pliki uzytkownikow gina przy recreate i nie sa backupowane. Stare .env
+    # (sprzed dodania tej zmiennej) dostaja ja tutaj na zwyklym `make up`,
+    # bez koniecznosci recznego `make init-configs`.
+    _ensure_var DJANGO_BPP_MEDIA_ROOT "/mediaroot" \
+        "  + dopisano brakujace DJANGO_BPP_MEDIA_ROOT=/mediaroot w .env"
 fi
 
 if [ -f "$_ENV" ] && [ -f "$DEFAULTS_DIR/netdata/go.d/postgres.conf.tpl" ]; then

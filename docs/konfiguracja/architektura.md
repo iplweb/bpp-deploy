@@ -89,6 +89,31 @@ przez `webserver`/nginx (mount `/var/www/html/staticroot`). Źródłem jest
 `STATIC_ROOT=/staticroot/` w `.env` nadpisuje domyślne `/app/staticroot` z obrazu.
 Po `make refresh` lub `make prune-orphan-volumes` wolumen jest ponownie wypełniany z `.baked`.
 
+## Media (pliki uploadowane) — `DJANGO_BPP_MEDIA_ROOT`
+
+Pliki wgrywane przez użytkowników (załączniki, PDF-y, eksporty) trafiają do wolumenu
+`media`, montowanego pod `/mediaroot` we **wszystkich** kontenerach Django (appserver,
+authserver, workery Celery; `backup-runner` montuje go read-only).
+
+`DJANGO_BPP_MEDIA_ROOT=/mediaroot` w `.env` jest **wymagane**. Bez niego Django bierze
+swój wbudowany domyślny `MEDIA_ROOT` (`~/bpp-media`, czyli `/root/bpp-media` w
+kontenerze), który **nie leży na wolumenie** — pliki użytkowników:
+
+- znikają przy każdym `docker compose up`/`recreate` (są w warstwie kontenera, nie w
+  wolumenie),
+- **nie trafiają do backupu** (`backup-cycle.sh` taruje `/mediaroot`, nie `/root`).
+
+Zmienna jest ustawiana automatycznie:
+
+- **nowe instalacje** — wpisywana do `.env` przez `make init-configs` (obok
+  `STATIC_ROOT`),
+- **istniejące instalacje** — dopisywana (append-only, nie nadpisuje wartości ustawionej
+  ręcznie) przez `scripts/ensure-config-files.sh` przy każdym `make up`/`refresh`, więc
+  `git pull && make up` na starym `.env` naprawia ją bez ręcznych kroków.
+
+Możesz nadpisać wartość ręcznie w `.env` (np. inny punkt montowania) — self-heal jej nie
+ruszy. **Bez cudzysłowów** — `validate-env-quotes` odrzuca wartości w cudzysłowach.
+
 ## Pierwsze uruchomienie — dwa przebiegi `make`
 
 ```bash
