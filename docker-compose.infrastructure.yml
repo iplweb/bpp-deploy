@@ -7,7 +7,7 @@ x-logging: &default-logging
 services:
 
   webserver:
-    image: nginx:1.29.7
+    image: nginx:1.30.2
     restart: always
     logging: *default-logging
     env_file: ${BPP_CONFIGS_DIR}/.env

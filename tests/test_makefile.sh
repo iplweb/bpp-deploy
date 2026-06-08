@@ -422,7 +422,7 @@ test_init_configs_multihost_skips_hostname() {
 # ============================================================
 # TEST 14: nginx config (legacy single-host + multi-host)
 # ============================================================
-# Spina oficjalny obraz nginx:1.29.7, mountuje pelen stack templatow
+# Spina oficjalny obraz nginx:1.30.2, mountuje pelen stack templatow
 # (default + vhost + locations + entrypoint script renderujacy vhosty),
 # uruchamia caly entrypoint chain (10/15/20/30) i wywoluje nginx -t.
 # Test sprawdza dwa tryby: legacy single-host (DJANGO_BPP_HOSTNAME +
@@ -449,7 +449,7 @@ _run_nginx_t() {
         -e NGINX_ENVSUBST_FILTER=DJANGO_BPP_ \
         "$@" \
         --entrypoint sh \
-        nginx:1.29.7 \
+        nginx:1.30.2 \
         -c '
             for f in /docker-entrypoint.d/*.sh; do
                 [ -x "$f" ] || continue
@@ -506,7 +506,7 @@ test_nginx_config_valid() {
     docker run --rm \
         -v "$ngx_dir/ssl:/ssl" \
         --entrypoint sh \
-        nginx:1.29.7 \
+        nginx:1.30.2 \
         -c "apt-get update >/dev/null 2>&1 && apt-get install -y openssl >/dev/null 2>&1 && \
             openssl req -x509 -newkey rsa:2048 -nodes -days 1 \
                 -keyout /ssl/key.pem -out /ssl/cert.pem \
@@ -584,7 +584,7 @@ test_nginx_config_valid() {
 
     mkdir -p "$ngx_dir/letsencrypt/live"
 
-    docker run --rm -v "$ngx_dir/letsencrypt:/le" --entrypoint sh nginx:1.29.7 -c '
+    docker run --rm -v "$ngx_dir/letsencrypt:/le" --entrypoint sh nginx:1.30.2 -c '
         apt-get update >/dev/null 2>&1 && apt-get install -y openssl >/dev/null 2>&1
         for h in bpp.federacja.pl bpp.wizja.pl bpp.ufam.pl; do
             mkdir -p "/le/live/$h"
@@ -743,7 +743,7 @@ test_nginx_runtime() {
     chmod +x "$ngx_dir/entrypoint/30-render-bpp-vhosts.sh"
 
     # Generuj certy: legacy ssl/{cert,key}.pem + per-host ssl/<h>/{cert,key}.pem
-    docker run --rm -v "$ngx_dir/ssl:/ssl" --entrypoint sh nginx:1.29.7 -c '
+    docker run --rm -v "$ngx_dir/ssl:/ssl" --entrypoint sh nginx:1.30.2 -c '
         apt-get update >/dev/null 2>&1 && apt-get install -y openssl >/dev/null 2>&1
         openssl req -x509 -newkey rsa:2048 -nodes -days 1 \
             -keyout /ssl/key.pem -out /ssl/cert.pem \
@@ -812,7 +812,7 @@ PYEOF
             -e NGINX_ENVSUBST_FILTER=DJANGO_BPP_ \
             -e DJANGO_BPP_HOSTNAMES="$hostnames" \
             -e DJANGO_BPP_HOSTNAME="$single_host" \
-            nginx:1.29.7) || return 1
+            nginx:1.30.2) || return 1
         if [ -z "$cid" ]; then return 1; fi
         for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
             p80=$(docker port "$cid" 80/tcp 2>/dev/null | head -1 | sed 's/.*://')
