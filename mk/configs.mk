@@ -1,4 +1,4 @@
-.PHONY: update-ssl-certs generate-grafana-datasources update-configs configure-resources ensure-config-files
+.PHONY: update-ssl-certs generate-grafana-datasources update-configs configure-resources ensure-config-files zaspawaj-wersje
 
 # Non-interactive guard przed `make up`: dokopiowuje brakujace pliki z defaults/
 # do $BPP_CONFIGS_DIR (np. gdy nowy release dodaje kolejny bind-mount, a user
@@ -24,3 +24,9 @@ update-configs: generate-grafana-datasources
 
 configure-resources:
 	@./scripts/configure-resources.sh
+
+# Przypina DOCKER_VERSION w $(BPP_CONFIGS_DIR)/.env do wersji CalVer, na
+# ktorej faktycznie chodzi appserver (lub jawnej: TAG=202606.1386).
+# Szczegoly i kontrakt: docs/eksploatacja/komendy.md, CLAUDE.md.
+zaspawaj-wersje:
+	@TAG="$(TAG)" bash scripts/zaspawaj-wersje.sh

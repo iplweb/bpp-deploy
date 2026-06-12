@@ -145,6 +145,8 @@ help:
 	@echo "    test-letsencrypt        - Unit-tests dla scripts/letsencrypt.sh (mocked docker, no network)"
 	@echo "    validate-env-quotes  - Sprawdz czy .env nie zawiera wartosci w cudzyslowach"
 	@echo "    fix-env-quotes       - Auto-strip cudzyslowy z .env (z backupem .bak.<ts>)"
+	@echo "    zaspawaj-wersje      - Przypnij DOCKER_VERSION do wersji dzialajacego appservera (lub TAG=...)"
+	@echo "    test-docker-versions - Unit-testy logiki wersji obrazow (mock curl/docker, no network)"
 	@echo ""
 	@echo "  Host management:"
 	@echo "    base-host-update-upgrade - Update system packages"
