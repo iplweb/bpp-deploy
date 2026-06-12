@@ -204,6 +204,21 @@ rc=0; BPP_CONFIGS_DIR="$cfg" MOCK_APPSERVER_RUNNING=0 bash "$ZW" >/dev/null 2>&1
 assert_nonzero "$rc" "zaspawaj: appserver nie dziala -> exit != 0"
 assert_file_not_contains "$cfg/.env" "DOCKER_VERSION" "zaspawaj: .env nietkniety gdy appserver nie dziala"
 
+# ===================== Testy test-upgrade.sh (--clean) =====================
+echo ""
+echo "== test-upgrade.sh --clean =="
+TU="$REPO_DIR/scripts/test-upgrade.sh"
+
+: > "$DOCKER_LOG"
+rc=0; bash "$TU" --clean >/dev/null 2>&1 || rc=$?
+assert_exit 0 "$rc" "test-upgrade --clean: exit 0"
+assert_file_contains "$DOCKER_LOG" "rm -f bpp-shadow-dbserver bpp-shadow-redis" "--clean: usuwa kontenery shadow"
+assert_file_contains "$DOCKER_LOG" "volume rm -f bpp-shadow-pgdata" "--clean: usuwa wolumen shadow"
+assert_file_contains "$DOCKER_LOG" "network rm bpp-shadow" "--clean: usuwa siec shadow"
+
+rc=0; bash -n "$TU" || rc=$?
+assert_exit 0 "$rc" "test-upgrade.sh: poprawna skladnia (bash -n)"
+
 # ======================= Podsumowanie =======================
 echo ""
 echo "Wynik: PASS=$PASS FAIL=$FAIL"
