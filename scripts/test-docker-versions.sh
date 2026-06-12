@@ -150,6 +150,60 @@ assert_eq "sha256:aaa" "$out" "running_repo_digest: digest z dzialajacego konten
 rc=0; MOCK_APPSERVER_RUNNING=0 running_repo_digest appserver >/dev/null 2>&1 || rc=$?
 assert_nonzero "$rc" "running_repo_digest: kontener nie dziala -> exit != 0"
 
+# ===================== Testy zaspawaj-wersje.sh =====================
+echo ""
+echo "== zaspawaj-wersje.sh =="
+ZW="$REPO_DIR/scripts/zaspawaj-wersje.sh"
+
+make_env() {  # make_env <nazwa> -> sciezka swiezego katalogu konfiguracyjnego
+    local dir="$TEST_ROOT/configs-$1"
+    mkdir -p "$dir"
+    cat > "$dir/.env" <<'ENVEOF'
+DJANGO_BPP_DB_NAME=bpp
+DJANGO_BPP_DB_USER=bpp
+DJANGO_BPP_DB_PASSWORD=sekret
+ENVEOF
+    printf '%s' "$dir"
+}
+
+# 1. Jawny TAG, poprawny i istniejacy -> wpis w .env, exit 0
+cfg="$(make_env tag-ok)"
+rc=0; BPP_CONFIGS_DIR="$cfg" TAG=202606.1386 bash "$ZW" >/dev/null 2>&1 || rc=$?
+assert_exit 0 "$rc" "zaspawaj: TAG poprawny -> exit 0"
+assert_file_contains "$cfg/.env" "DOCKER_VERSION=202606.1386" "zaspawaj: DOCKER_VERSION zapisany"
+
+# 2. TAG o zlym formacie -> exit != 0, .env nietkniety
+cfg="$(make_env tag-bad)"
+rc=0; BPP_CONFIGS_DIR="$cfg" TAG=latest bash "$ZW" >/dev/null 2>&1 || rc=$?
+assert_nonzero "$rc" "zaspawaj: TAG=latest odrzucony (nie-CalVer)"
+assert_file_not_contains "$cfg/.env" "DOCKER_VERSION" "zaspawaj: .env nietkniety po blednym TAG"
+
+# 3. TAG nieistniejacy na Hubie -> exit != 0, .env nietkniety
+cfg="$(make_env tag-missing)"
+rc=0; BPP_CONFIGS_DIR="$cfg" TAG=209912.1 CURL_TAG_EXISTS=0 bash "$ZW" >/dev/null 2>&1 || rc=$?
+assert_nonzero "$rc" "zaspawaj: TAG nieistniejacy na Hubie odrzucony"
+assert_file_not_contains "$cfg/.env" "DOCKER_VERSION" "zaspawaj: .env nietkniety po nieistniejacym TAG"
+
+# 4. Bez TAG: wersja rozwiazana z digestu dzialajacego appservera
+cfg="$(make_env running)"
+rc=0; BPP_CONFIGS_DIR="$cfg" bash "$ZW" >/dev/null 2>&1 || rc=$?
+assert_exit 0 "$rc" "zaspawaj: bez TAG -> exit 0 (digest dzialajacego appservera)"
+assert_file_contains "$cfg/.env" "DOCKER_VERSION=202606.1386" "zaspawaj: wersja z digestu sha256:aaa"
+
+# 5. Istniejacy DOCKER_VERSION jest nadpisywany (idempotentne przybicie)
+cfg="$(make_env overwrite)"
+echo "DOCKER_VERSION=202601.1" >> "$cfg/.env"
+rc=0; BPP_CONFIGS_DIR="$cfg" TAG=202606.1386 bash "$ZW" >/dev/null 2>&1 || rc=$?
+assert_exit 0 "$rc" "zaspawaj: nadpisanie istniejacej wartosci -> exit 0"
+assert_file_contains "$cfg/.env" "DOCKER_VERSION=202606.1386" "zaspawaj: nowa wartosc zapisana"
+assert_file_not_contains "$cfg/.env" "DOCKER_VERSION=202601.1" "zaspawaj: stara wartosc usunieta"
+
+# 6. Appserver nie dziala (i brak TAG) -> exit != 0, .env nietkniety
+cfg="$(make_env not-running)"
+rc=0; BPP_CONFIGS_DIR="$cfg" MOCK_APPSERVER_RUNNING=0 bash "$ZW" >/dev/null 2>&1 || rc=$?
+assert_nonzero "$rc" "zaspawaj: appserver nie dziala -> exit != 0"
+assert_file_not_contains "$cfg/.env" "DOCKER_VERSION" "zaspawaj: .env nietkniety gdy appserver nie dziala"
+
 # ======================= Podsumowanie =======================
 echo ""
 echo "Wynik: PASS=$PASS FAIL=$FAIL"
