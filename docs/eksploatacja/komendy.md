@@ -123,63 +123,13 @@ make install-docker            # Instalacja Dockera na hoście
 
 ## Aktualizacje i wersje obrazów
 
-### `make zaspawaj-wersje` — pinowanie wersji obrazów iplweb
-
-Domyślnie obrazy `iplweb/bpp_*` jadą na ruchomym tagu `latest` — każdy
-`make pull` może podmienić wersję. `zaspawaj-wersje` utrwala w
-`$BPP_CONFIGS_DIR/.env` zmienną `DOCKER_VERSION=<tag CalVer>` odpowiadającą
-wersji, na której **faktycznie chodzi** kontener `appserver` (nie tej, na
-którą wskazuje lokalny tag `latest` — po `make pull` bez recreate te dwie
-mogą się różnić).
-
 ```bash
-make zaspawaj-wersje                  # wersja z działającego appservera
-make zaspawaj-wersje TAG=202606.1386  # jawny tag
+make zaspawaj-wersje          # Przypnij DOCKER_VERSION do wersji działającego appservera
+make zaspawaj-wersje TAG=...  # Przypnij jawnie podaną wersję (tag CalVer)
+make test-upgrade             # Próba generalna: migracje kandydata na kopii bazy
+make test-upgrade TAG=...     # Próba generalna jawnie wskazanego kandydata
+make test-upgrade-clean       # Sprzątnięcie shadow stacka po nieudanej próbie
 ```
 
-Po zaspawaniu `restart`, awaryjny recreate i nocne restarty Ofelii trzymają
-się przypiętej wersji. Aktualizacja na nowszą wersję wymaga jawnej decyzji:
-
-```bash
-make zaspawaj-wersje TAG=<nowy> && make pull && make up
-```
-
-Zmienna obejmuje 5 obrazów iplweb (`bpp_appserver`, `bpp_authserver`,
-`bpp_workerserver`, `bpp_denorm_queue`, `bpp_beatserver`). Pozostałe obrazy
-(nginx, redis, grafana, …) są przypięte na sztywno w plikach compose;
-PostgreSQL ma własną `DJANGO_BPP_POSTGRESQL_VERSION`.
-
-### `make test-upgrade` — próba generalna migracji
-
-Sprawdza, czy migracje bazodanowe obrazu-kandydata przechodzą na **kopii
-produkcyjnej bazy**, zanim czegokolwiek dotkniesz na produkcji:
-
-1. pobiera obraz-kandydat **po tagu wersji** (lokalny `latest` nietknięty),
-2. robi świeży `make db-backup` (błąd backupu przerywa całość),
-3. stawia shadow stack (`bpp-shadow-dbserver` + `bpp-shadow-redis`) na
-   osobnej sieci, poza projektem Compose, z przyciętymi limitami zasobów,
-4. restoruje dump do shadow-bazy,
-5. uruchamia `manage.py migrate` obrazem-kandydatem (entrypoint nadpisany —
-   nic poza migracją się nie uruchamia).
-
-```bash
-make test-upgrade                  # kandydat = najnowszy tag CalVer z Docker Huba
-make test-upgrade TAG=202606.1386  # jawny kandydat
-```
-
-**Sukces** → shadow stack jest sprzątany, exit 0. **Porażka** → shadow stack
-zostaje do inspekcji (`docker exec -it bpp-shadow-dbserver psql ...`);
-sprzątasz przez `make test-upgrade-clean`.
-
-Wymagania: wolne miejsce na dysku ≈ 2,5× rozmiar bazy (kontrolowane przed
-startem; wymuszenie pominięcia kontroli: `SKIP_DISK_CHECK=1`). Próba
-obciąża CPU/IO hosta na czas dump+restore — na małych hostach uruchamiaj
-poza godzinami szczytu.
-
-Typowy przepływ bezpiecznej aktualizacji na zaspawanym hoście:
-
-```bash
-make test-upgrade                          # migracje kandydata przechodzą?
-make zaspawaj-wersje TAG=<kandydat>        # przypnij nową wersję
-make pull && make up                       # właściwy deploy (health-gate --wait)
-```
+Pełny opis przepływu bezpiecznej aktualizacji (pinowanie wersji, shadow stack,
+rollback): [Aktualizacje i wersje obrazów](aktualizacje.md).
