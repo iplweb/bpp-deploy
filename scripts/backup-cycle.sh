@@ -16,11 +16,12 @@
 #
 # Exit codes:
 #   0 - pelny sukces
-#   1 - pg_dump lub tar bazy failed
+#   1 - pg_dump lub tar bazy failed; takze nieoczekiwany blad dowolnej
+#       innej komendy (trap ERR -> fail "unexpected-error")
 #   2 - tar media failed
 #   3 - rclone sync failed (lokalne backupy zostaly utworzone)
 
-set -o pipefail
+set -Eeuo pipefail
 
 TIMESTAMP="$(date +%Y%m%d-%H%M%S)"
 START_TS=$(date +%s)
@@ -66,15 +67,23 @@ JSON
 }
 
 fail() {
+    trap - ERR
     local step="$1" code="$2"
     log "FAIL: $step (exit=$code)"
     local tail_log
-    tail_log="$(tail -c 2000 "$LOG")"
+    tail_log="$(tail -c 2000 "$LOG" 2>/dev/null || true)"
     notify_rollbar error "Backup FAIL on ${DJANGO_BPP_HOSTNAME:-unknown}: step=$step exit=$code
 Log tail:
 $tail_log"
     exit "$code"
 }
+
+# set -e zamienialby ciche kontynuowanie w cicha smierc BEZ notyfikacji
+# Rollbar - dlatego nieoczekiwane bledy (komendy poza jawnym `if !`/`|| fail`)
+# kierujemy przez trap ERR do fail(). Kroki krytyczne (pg_dump, tar, rclone)
+# maja wlasne guardy z dokladna nazwa kroku i exit code'em - warunki if/||
+# nie odpalaja trapu. set -E przenosi trap do funkcji i subshelli.
+trap 'fail "unexpected-error" 1' ERR
 
 # --- 1. pg_dump bazy do /backup (bind-mount hosta) ---
 log "pg_dump $DJANGO_BPP_DB_NAME from $DJANGO_BPP_DB_HOST:$DJANGO_BPP_DB_PORT..."
@@ -109,7 +118,11 @@ prune_type() {
         | sort -r \
         | tail -n +$((KEEP_LAST + 1)) \
         | while IFS= read -r f; do
-            [ -n "$f" ] && log "prune: removing $f" && rm -f "$f"
+            [ -n "$f" ] || continue
+            log "prune: removing $f"
+            # Nieudane prune to ostrzezenie, nie powod by przerwac backup
+            # przed rclone sync.
+            rm -f "$f" || log "WARN: nie udalo sie usunac $f"
         done
 }
 log "local rotation: keep last $KEEP_LAST per type"

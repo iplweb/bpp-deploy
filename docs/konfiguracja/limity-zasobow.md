@@ -36,7 +36,7 @@ przekroczeniu budżetu (ryzyko OOM).
 
 Przy pierwszym uruchomieniu `make` skrypt `configure-resources` jest odpalany
 automatycznie — wykrywa RAM i liczbę rdzeni hosta (Linux `/proc/meminfo`+`nproc`,
-macOS `sysctl`), przypisuje stałe capy, wylicza podział puli między 4 usługi zmienne
+macOS `sysctl`), przypisuje stałe capy, wylicza podział puli między 3 usługi zmienne
 i pyta o akceptację ich wartości (RAM + CPU). Odstąpienie od defaultu redystrybuuje
 nadwyżkę między pozostałe usługi zmienne. Możesz wrócić w każdej chwili:
 `make configure-resources`.
@@ -48,7 +48,7 @@ nadwyżkę między pozostałe usługi zmienne. Możesz wrócić w każdej chwili
 Wynik ląduje w `$BPP_CONFIGS_DIR/.env` jako `DBSERVER_MEM_LIMIT`, `REDIS_MEM_LIMIT` itd.
 oraz `REDIS_MAXMEMORY` (≈80% limitu Redisa, żeby eviction `allkeys-lru` wyprzedził
 OOM kill). `.env` staje się jednym źródłem prawdy dla limitów RAM. CPU jest zapisywane
-dla 7 usług (4 zmienne + `redis`/`loki`/`netdata`); pozostałe korzystają z CPU z compose.
+dla 6 usług (3 zmienne + `redis`/`loki`/`netdata`); pozostałe korzystają z CPU z compose.
 
 ## Usługi ze stałym capem
 
@@ -57,7 +57,7 @@ dla 7 usług (4 zmienne + `redis`/`loki`/`netdata`); pozostałe korzystają z CP
 | `redis` | 1g | broker + cache + result backend; `REDIS_MAXMEMORY` (`allkeys-lru`) ≈ 80% limitu |
 | `netdata` | 320m | dbengine + auto-discovery; patrz uwaga niżej o retencji |
 | `authserver` | 320m | Django + gunicorn (SSO) |
-| `celerybeat` | 320m | scheduler — pojedynczy proces |
+| `celerybeat` | 480m | scheduler — pojedynczy proces; podniesione z 320m (Django + broker potrafiły dobić do twardego capu → OOM) |
 | `denorm-queue` | 320m | most PG `LISTEN` → Celery, pojedynczy proces |
 | `alloy` | 192m | kolektor logów; podniesione z 128m (spike przy dużym wolumenie) |
 | `loki` | 192m | magazyn logów; podniesione z 128m (spike przy zapytaniach) |

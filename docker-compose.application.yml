@@ -133,9 +133,11 @@ services:
       # Nocny restart zbija skumulowany memory leak gunicorna (appserver potrafi puchnac
       # do kilkunastu GiB po kilku dniach uptime). kill 1 -> SIGTERM do PID 1 ->
       # graceful shutdown gunicorna -> Docker restart:always wskrzesza kontener.
-      # Staggered wzgledem workerow (05:05, 05:10, 05:15, 05:20, 05:25) zeby nie
-      # zrestartowac calego stacka naraz. Okno 05:00 jest puste - po backup (02:30),
-      # rebuild_kolejnosc (03:30), rebuild_autor_jednostka (04:30), przed godzinami pracy.
+      # Staggered wzgledem workerow (workerserver 05:05, flower 05:15,
+      # celerybeat 05:20, denorm-queue 05:25) zeby nie zrestartowac calego
+      # stacka naraz. Slot 05:00 (appserver) jest wolny od innych jobow - po
+      # backup (02:30), rebuild_kolejnosc (03:30), rebuild_autor_jednostka
+      # (04:30), przed godzinami pracy.
       ofelia.job-exec.restart_self.schedule: "0 0 5 * * *"
       ofelia.job-exec.restart_self.command: "kill 1"
 

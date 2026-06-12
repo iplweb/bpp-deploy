@@ -1,6 +1,20 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Working tree musi byc czysty (poza README.md, ktore zaraz sami zmienimy
+# i zacommitujemy). Bez tego guardu `git add README.md && git commit`
+# zabralby do release-commita takze przypadkowo zastage'owane zmiany.
+if ! git diff --cached --quiet; then
+    echo "ERROR: staging area nie jest pusty - commitnij lub odstage'uj przed release." >&2
+    git status --short >&2
+    exit 1
+fi
+if ! git diff --quiet -- . ':(exclude)README.md'; then
+    echo "ERROR: working tree ma niezacommitowane zmiany (poza README.md)." >&2
+    git status --short >&2
+    exit 1
+fi
+
 TODAY=$(date +%Y.%m.%d)
 SUFFIX=0
 

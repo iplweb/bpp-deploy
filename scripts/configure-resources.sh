@@ -126,7 +126,7 @@ FIXED_MEM=(
     "redis:1024"
     "netdata:320"
     "authserver:320"
-    "celerybeat:320"
+    "celerybeat:480"
     "denorm-queue:320"
     "alloy:192"
     "loki:192"

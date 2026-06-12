@@ -1,4 +1,4 @@
-.PHONY: all run refresh up up-quick up-appserver up-webserver up-rclone stop rmrf restart restart-appserver health check-quic validate-env-quotes fix-env-quotes test-validate-env-quotes
+.PHONY: all run refresh up up-quick up-appserver up-webserver stop rmrf restart restart-appserver health check-quic validate-env-quotes fix-env-quotes test-validate-env-quotes
 
 all: run
 
@@ -63,9 +63,6 @@ up-quick: validate-env-quotes ensure-config-files pull
 
 up-webserver: validate-env-quotes
 	docker compose up -d webserver
-
-up-rclone: validate-env-quotes
-	docker compose up -d --wait rclone
 
 restart-appserver: validate-env-quotes
 	docker compose restart appserver

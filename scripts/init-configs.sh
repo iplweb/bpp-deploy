@@ -33,8 +33,12 @@ printf "Sciezka [%s]: " "$DEFAULT_CONFIG_DIR"
 read -r INPUT_DIR || true
 INPUT_DIR="${INPUT_DIR:-$DEFAULT_CONFIG_DIR}"
 
-# Expand tilde
-INPUT_DIR=$(eval echo "$INPUT_DIR")
+# Expand tilde (bez eval - wklejona sciezka z backtickami/`$()` nie moze
+# sie wykonac jako kod)
+case "$INPUT_DIR" in
+    "~")   INPUT_DIR="$HOME" ;;
+    "~/"*) INPUT_DIR="$HOME/${INPUT_DIR#\~/}" ;;
+esac
 
 # Absolutna ścieżka. Jesli katalog istnieje - uzyj `cd && pwd` (najbardziej
 # niezawodne). Jesli nie istnieje - zrob absolutyzacje recznie, bo dirname

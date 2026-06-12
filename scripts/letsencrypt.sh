@@ -28,8 +28,11 @@ if [ ! -f "$REPO_DIR/.env" ]; then
     echo "ERROR: brak $REPO_DIR/.env. Uruchom 'make init-configs' najpierw." >&2
     exit 1
 fi
-# shellcheck disable=SC1091
-. "$REPO_DIR/.env"
+# BPP_CONFIGS_DIR czytamy grepem, nie source'em - .env nie jest skryptem
+# shellowym i nie powinien byc wykonywany (konwencja repo: get_env_var/grep).
+BPP_CONFIGS_DIR="$(grep -E '^BPP_CONFIGS_DIR=' "$REPO_DIR/.env" | tail -1 | cut -d= -f2- || true)"
+BPP_CONFIGS_DIR="${BPP_CONFIGS_DIR#\"}"; BPP_CONFIGS_DIR="${BPP_CONFIGS_DIR%\"}"
+BPP_CONFIGS_DIR="${BPP_CONFIGS_DIR#\'}"; BPP_CONFIGS_DIR="${BPP_CONFIGS_DIR%\'}"
 
 if [ -z "${BPP_CONFIGS_DIR:-}" ]; then
     echo "ERROR: BPP_CONFIGS_DIR nie jest ustawione w $REPO_DIR/.env." >&2
@@ -204,10 +207,8 @@ cmd_issue() {
     cmd_preflight
 
     local mode_label="STAGING"
-    local staging_flag=("--staging")
     if [ "$PROD" = "1" ]; then
         mode_label="PROD"
-        staging_flag=()
     fi
 
     echo ">>> Wystawiam cert ($mode_label):"
@@ -220,15 +221,22 @@ cmd_issue() {
     echo "    email: $LE_EMAIL"
     echo ""
 
-    if ! run_certbot certonly \
-            --webroot -w /var/www/certbot \
-            "${d_args[@]}" \
-            --cert-name "$CANONICAL_HOST" \
-            --email "$LE_EMAIL" \
-            --agree-tos -n \
-            --keep-until-expiring \
-            --expand \
-            "${staging_flag[@]}"; then
+    # Jedna, nigdy niepusta tablica argumentow. Celowo BEZ osobnej tablicy
+    # na sam --staging: ekspansja pustej tablicy pod `set -u` to fatalny
+    # "unbound variable" w bash < 4.4 (macOS ma systemowego basha 3.2).
+    local certbot_args=(certonly
+        --webroot -w /var/www/certbot
+        "${d_args[@]}"
+        --cert-name "$CANONICAL_HOST"
+        --email "$LE_EMAIL"
+        --agree-tos -n
+        --keep-until-expiring
+        --expand)
+    if [ "$PROD" != "1" ]; then
+        certbot_args+=(--staging)
+    fi
+
+    if ! run_certbot "${certbot_args[@]}"; then
         echo "" >&2
         echo "BLAD: certbot nie wystawil certu." >&2
         exit 1

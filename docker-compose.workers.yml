@@ -131,7 +131,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: ${CELERYBEAT_MEM_LIMIT:-320m}
+          memory: ${CELERYBEAT_MEM_LIMIT:-480m}
           cpus: "${CELERYBEAT_CPU_LIMIT:-0.25}"
     labels:
       # Sidecar autoheal restartuje celerybeat gdy broker probe zglosi unhealthy
