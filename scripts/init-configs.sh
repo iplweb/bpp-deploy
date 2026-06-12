@@ -35,6 +35,7 @@ INPUT_DIR="${INPUT_DIR:-$DEFAULT_CONFIG_DIR}"
 
 # Expand tilde (bez eval - wklejona sciezka z backtickami/`$()` nie moze
 # sie wykonac jako kod)
+# shellcheck disable=SC2088  # wzorce case dopasowuja LITERALNA tylde z inputu usera
 case "$INPUT_DIR" in
     "~")   INPUT_DIR="$HOME" ;;
     "~/"*) INPUT_DIR="$HOME/${INPUT_DIR#\~/}" ;;

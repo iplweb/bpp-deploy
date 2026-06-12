@@ -45,6 +45,7 @@ if [ "${1:-}" = "--clean" ]; then
     exit 0
 fi
 
+# shellcheck disable=SC2317  # wywolywane posrednio przez trap ERR
 print_inspect_help() {
     echo "" >&2
     echo "Shadow stack ZOSTAJE do inspekcji:" >&2
@@ -145,6 +146,7 @@ fi
 # --- [3/6] Backup produkcyjnej bazy ---
 echo "=== [3/6] Backup produkcyjnej bazy (make db-backup) ==="
 make -C "$REPO_DIR" db-backup
+# shellcheck disable=SC2012  # nazwy dumpow kontrolowane (db-backup-<ts>.tar.gz), bez bialych znakow
 BACKUP_TAR_PATH="$(ls -t "$BACKUP_DIR"/db-backup-*.tar.gz 2>/dev/null | head -1)"
 if [ -z "$BACKUP_TAR_PATH" ]; then
     echo "BLAD: nie znalazlem swiezego dumpa w $BACKUP_DIR" >&2
