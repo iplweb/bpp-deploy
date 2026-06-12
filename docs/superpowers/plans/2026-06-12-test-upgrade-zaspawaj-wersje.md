@@ -512,7 +512,7 @@ echo "  make zaspawaj-wersje TAG=<nowy> && make pull && make up"
 - [ ] **Step 4: Uruchom testy — mają przejść**
 
 Run: `bash scripts/test-docker-versions.sh`
-Expected: `PASS=20 FAIL=0`, exit 0.
+Expected: `PASS=22 FAIL=0`, exit 0.
 
 - [ ] **Step 5: Commit**
 
@@ -610,7 +610,7 @@ assert_exit 0 "$rc" "test-upgrade.sh: poprawna skladnia (bash -n)"
 - [ ] **Step 2: Uruchom testy — sekcja `--clean` ma polec**
 
 Run: `bash scripts/test-docker-versions.sh`
-Expected: dotychczasowe 20 PASS, FAIL-e w sekcji test-upgrade, exit != 0.
+Expected: dotychczasowe 22 PASS, FAIL-e w sekcji test-upgrade, exit != 0.
 
 - [ ] **Step 3: Zaimplementuj `scripts/test-upgrade.sh`**
 
@@ -849,7 +849,7 @@ fi
 - [ ] **Step 4: Uruchom testy — mają przejść**
 
 Run: `bash scripts/test-docker-versions.sh`
-Expected: `PASS=25 FAIL=0`, exit 0.
+Expected: `PASS=27 FAIL=0`, exit 0.
 
 - [ ] **Step 5: Commit**
 
@@ -1056,4 +1056,4 @@ git commit -m "fix(test-upgrade): poprawki po weryfikacji"
 
 - **Spec coverage:** lib (Task 1), zaspawaj-wersje + tryby błędu (Task 2–3), test-upgrade + clean + gwarancje nienaruszalności + kontrola dysku (Task 4–5), docs + CLAUDE.md + mkdocs strict (Task 6), testy w konwencji repo + manualny staging (Task 1–4, 7). Kompatybilność wsteczna: żadnych nowych wymaganych zmiennych; `${DOCKER_VERSION:-latest}` nietknięte.
 - **Placeholder scan:** brak TBD/TODO; każdy krok ma pełny kod lub dokładną komendę.
-- **Type consistency:** nazwy funkcji lib (`resolve_latest_calver`, `resolve_digest_to_calver`, `verify_tag_exists`, `running_repo_digest`) i zmiennych shadow (`bpp-shadow-*`) spójne między taskami; liczby PASS narastają 9 → 20 → 25.
+- **Type consistency:** nazwy funkcji lib (`resolve_latest_calver`, `resolve_digest_to_calver`, `verify_tag_exists`, `running_repo_digest`) i zmiennych shadow (`bpp-shadow-*`) spójne między taskami; liczby PASS narastają 9 → 22 → 27.
