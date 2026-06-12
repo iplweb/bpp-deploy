@@ -95,6 +95,7 @@ nav:
       - PostgreSQL — wersje i upgrade: konfiguracja/postgresql.md
   - Eksploatacja:
       - Najważniejsze komendy: eksploatacja/komendy.md
+      - Aktualizacje i wersje obrazów: eksploatacja/aktualizacje.md
       - Baza danych: eksploatacja/baza-danych.md
       - Backup i rclone: eksploatacja/backup-i-rclone.md
       - Przenosiny serwera: eksploatacja/przenosiny-serwera.md

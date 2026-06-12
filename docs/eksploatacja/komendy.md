@@ -120,3 +120,16 @@ make base-host-update-upgrade  # Aktualizacja systemu (apt update + full-upgrade
 make base-host-reboot          # Restart hosta
 make install-docker            # Instalacja Dockera na hoście
 ```
+
+## Aktualizacje i wersje obrazów
+
+```bash
+make zaspawaj-wersje          # Przypnij DOCKER_VERSION do wersji działającego appservera
+make zaspawaj-wersje TAG=...  # Przypnij jawnie podaną wersję (tag CalVer)
+make test-upgrade             # Próba generalna: migracje kandydata na kopii bazy
+make test-upgrade TAG=...     # Próba generalna jawnie wskazanego kandydata
+make test-upgrade-clean       # Sprzątnięcie shadow stacka po nieudanej próbie
+```
+
+Pełny opis przepływu bezpiecznej aktualizacji (pinowanie wersji, shadow stack,
+rollback): [Aktualizacje i wersje obrazów](aktualizacje.md).

@@ -1,4 +1,4 @@
-.PHONY: all run refresh up up-quick up-appserver up-webserver stop rmrf restart restart-appserver health check-quic validate-env-quotes fix-env-quotes test-validate-env-quotes
+.PHONY: all run refresh up up-quick up-appserver up-webserver stop rmrf restart restart-appserver health check-quic validate-env-quotes fix-env-quotes test-validate-env-quotes test-upgrade test-upgrade-clean
 
 all: run
 
@@ -78,3 +78,13 @@ check-quic:
 	@bash scripts/check-quic-port.sh $(HOST)
 
 run: pull build update-configs up test-email
+
+# Proba generalna aktualizacji: backup -> shadow stack (dbserver+redis poza
+# projektem Compose) -> restore -> migrate obrazem-kandydatem. Produkcja
+# (kontenery, wolumeny, lokalny tag :latest, .env) pozostaje nietknieta.
+# Uwaga: NIE mylic z test-upgrade-postgres (unit-testy upgrade'u PG).
+test-upgrade: validate-env-quotes
+	@TAG="$(TAG)" bash scripts/test-upgrade.sh
+
+test-upgrade-clean:
+	@bash scripts/test-upgrade.sh --clean

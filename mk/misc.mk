@@ -1,4 +1,4 @@
-.PHONY: clean wait debug-show-current-settings
+.PHONY: clean wait debug-show-current-settings test-docker-versions
 
 clean:
 	-find . -name '*~' -o -name '\#*' -o -name '.*~' | xargs rm -f
@@ -8,3 +8,6 @@ wait:
 
 debug-show-current-settings:
 	docker compose exec appserver python src/manage.py debug_setup_initial_data --show-current
+
+test-docker-versions:
+	@bash scripts/test-docker-versions.sh

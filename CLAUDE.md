@@ -85,6 +85,22 @@ User uploads land in the `media` volume mounted at `/mediaroot` in every Django 
 
 `dbserver` uses `iplweb/bpp_dbserver:psql-${DJANGO_BPP_POSTGRESQL_VERSION}` (`MAJOR.MINOR`, default `16.13`). `DJANGO_BPP_POSTGRESQL_VERSION_MAJOR` (auto-derived) is used by `backup-runner` (`postgres:<major>-alpine`). Major upgrades require dump/restore — use `make upgrade-postgres`, do **not** edit the var manually. Full procedure (rollback, resume): `docs/konfiguracja/postgresql.md`.
 
+### Image version pinning (`DOCKER_VERSION`) and upgrade rehearsal
+
+`DOCKER_VERSION` pins the 5 `iplweb/bpp_*` images (default `latest` — compose
+fallback `${DOCKER_VERSION:-latest}` must stay for backwards compat).
+`make zaspawaj-wersje` welds the version **actually running in the appserver
+container** (not the local `latest` tag) into `.env` via the stable
+`set_env_var` helper; updating a pinned host requires an explicit
+`make zaspawaj-wersje TAG=<new>`. `make test-upgrade` is the migration
+rehearsal: fresh `db-backup` → shadow stack (`bpp-shadow-*`, plain
+`docker run` outside the Compose project) → `pg_restore` → candidate-image
+`manage.py migrate` with overridden entrypoint. It must never touch
+production containers, volumes, the local `latest` tag, or `.env`. Candidate
+images are pulled **by version tag**, never via `:latest`. Shared
+digest↔CalVer logic lives in `scripts/lib-docker-versions.sh`
+(tests: `make test-docker-versions`). Detail: `docs/eksploatacja/komendy.md`.
+
 ## Critical Deployment Patterns
 
 ### Running commands in containers
