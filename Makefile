@@ -92,6 +92,8 @@ help:
 	@echo "    refresh              - Full refresh (prune, pull, recreate)"
 	@echo "    restart-appserver    - Restart application server only"
 	@echo "    wait                 - Wait for Docker build, then pull and restart"
+	@echo "    test-upgrade         - Proba generalna: migracje kandydata na kopii bazy (TAG=...)"
+	@echo "    test-upgrade-clean   - Sprzatniecie shadow stacka po nieudanym test-upgrade"
 	@echo ""
 	@echo "  Database:"
 	@echo "    migrate              - Run Django migrations (stops workers safely)"
