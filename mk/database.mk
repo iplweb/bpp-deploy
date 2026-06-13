@@ -87,15 +87,23 @@ media-backup:
 #
 # Uzycie:
 #   make restore                          # najnowsza para db+media, z safety-backup
-#   make restore PICK=1                   # interaktywny wybor (fzf jesli jest)
+#   make restore PICK=1                   # interaktywny wybor (pary ORAZ pliki .sql)
 #   make restore TIMESTAMP=20260428-140218 # konkretna para
-#   make restore DB_ONLY=1                # tylko baza
+#   make restore DBFILE=/.../db.sql       # pojedynczy plik DB (auto-detekcja formatu)
+#   make restore DBFILE=/.../db.dump DBFORMAT=custom  # wymus format
+#   make restore DB_ONLY=1                # tylko baza (z pary)
 #   make restore MEDIA_ONLY=1             # tylko media
 #   make restore NO_SAFETY=1              # pomin safety-backup biezacego stanu
 #   make restore YES=1                    # noninteractive (auto-yes na confirm)
 RESTORE_FLAGS :=
 ifdef TIMESTAMP
   RESTORE_FLAGS += --timestamp=$(TIMESTAMP)
+endif
+ifdef DBFILE
+  RESTORE_FLAGS += --db-file=$(DBFILE)
+endif
+ifdef DBFORMAT
+  RESTORE_FLAGS += --db-format=$(DBFORMAT)
 endif
 ifdef PICK
   RESTORE_FLAGS += --pick
