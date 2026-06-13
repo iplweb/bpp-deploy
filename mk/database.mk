@@ -4,7 +4,8 @@
        restore-db-stop-servers restore-db-remove-db-rebuild-db-rm-backup \
        restore-remote-db-from-dump restore-remote-db-from-dump-dont-backup \
        upgrade-postgres test-upgrade-postgres \
-       push-local-bpp-db-to-remote
+       push-local-bpp-db-to-remote \
+       migrate-collation-dump migrate-collation-fix migrate-collation-load
 
 # Katalog backupow na hoscie. Nowa nazwa: DJANGO_BPP_HOST_BACKUP_DIR
 # (stara: DJANGO_BPP_BACKUP_DIR - fallback dla deploymentow ktore jeszcze
@@ -174,3 +175,42 @@ upgrade-postgres:
 # obrazy (psql-16.13 i psql-18.3) sa pullowane przez test + skrypt.
 test-upgrade-postgres:
 	@bash scripts/test-upgrade-postgres.sh
+
+# Migracja kolacji libc pl_PL -> stockowy postgres. Trzy kroki (thin wrappery
+# na scripts/pg-collation-migrate-{1-dump,2-fix,3-load}.sh). Pelny opis:
+# docs/eksploatacja/migracja-collation-stock-pg.md.
+#   make migrate-collation-dump  [STOP_APP=1] [YES=1]
+#   make migrate-collation-fix   TARBALL=/.../db-backup-*.tar.gz
+#   make migrate-collation-load  SQLGZ=/.../*-nocollation.sql.gz [RECREATE=1] [YES=1]
+COLLATION_DUMP_FLAGS :=
+ifdef STOP_APP
+  COLLATION_DUMP_FLAGS += --stop-app
+endif
+ifdef YES
+  COLLATION_DUMP_FLAGS += --yes
+endif
+
+migrate-collation-dump:
+	@bash scripts/pg-collation-migrate-1-dump.sh $(COLLATION_DUMP_FLAGS)
+
+migrate-collation-fix:
+	@if [ -z "$(TARBALL)" ]; then \
+		echo "Uzycie: make migrate-collation-fix TARBALL=/.../db-backup-YYYYMMDD-HHMMSS.tar.gz" >&2; \
+		exit 1; \
+	fi
+	@bash scripts/pg-collation-migrate-2-fix.sh "$(TARBALL)"
+
+COLLATION_LOAD_FLAGS :=
+ifdef RECREATE
+  COLLATION_LOAD_FLAGS += --recreate-volume
+endif
+ifdef YES
+  COLLATION_LOAD_FLAGS += --yes
+endif
+
+migrate-collation-load:
+	@if [ -z "$(SQLGZ)" ]; then \
+		echo "Uzycie: make migrate-collation-load SQLGZ=/.../db-backup-...-nocollation.sql.gz [RECREATE=1]" >&2; \
+		exit 1; \
+	fi
+	@bash scripts/pg-collation-migrate-3-load.sh "$(SQLGZ)" $(COLLATION_LOAD_FLAGS)
