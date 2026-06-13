@@ -13,27 +13,69 @@ services:
 
   dbserver:
     logging: *default-logging
-    # Tag iplweb/bpp_dbserver:psql-<MAJOR.MINOR> wybierany przez
-    # DJANGO_BPP_POSTGRESQL_VERSION w $BPP_CONFIGS_DIR/.env. Dwuwarstwowy
-    # fallback: nowa nazwa -> stara (DJANGO_BPP_DBSERVER_PG_VERSION, sprzed
-    # rename w 2026-04-18) -> default 16.13 jako safety net dla deploymentow
+    # Stock PostgreSQL (oficjalny obraz Debianowy) + autotune bind-mountowany z
+    # repo (./dbserver/). Obraz iplweb/bpp_dbserver jest WYCOFANY - jego jedynym
+    # dodatkiem ponad stockowego postgresa byl autotune, ktory teraz montujemy na
+    # obraz oficjalny (zero buildu, zero python3). Tag wybiera
+    # DJANGO_BPP_POSTGRESQL_VERSION (MAJOR.MINOR, np. 16.13) w $BPP_CONFIGS_DIR/.env.
+    # Dwuwarstwowy fallback: nowa nazwa -> stara (DJANGO_BPP_DBSERVER_PG_VERSION,
+    # sprzed rename 2026-04-18) -> default 16.13 jako safety net dla deploymentow
     # ktore nie przeszly jeszcze przez init-configs po upgrade repo. Nowe
-    # konfiguracje dostaja wartosc z init-configs. Pelna lista tagow:
-    # https://hub.docker.com/r/iplweb/bpp_dbserver/tags
-    image: iplweb/bpp_dbserver:psql-${DJANGO_BPP_POSTGRESQL_VERSION:-${DJANGO_BPP_DBSERVER_PG_VERSION:-16.13}}
+    # konfiguracje dostaja wartosc z init-configs. Tagi: https://hub.docker.com/_/postgres
+    image: postgres:${DJANGO_BPP_POSTGRESQL_VERSION:-${DJANGO_BPP_DBSERVER_PG_VERSION:-16.13}}
     restart: always
+    # Service-level env_file wstrzykuje .env do RUNTIME kontenera. UWAGA:
+    # include-level env_file w docker-compose.yml sluzy TYLKO interpolacji
+    # compose i NIE trafia do kontenera - dlatego potrzebny jest ten wpis. Daje
+    # autotune'owi knoby POSTGRESQL_* i jest spojny z sentinelem
+    # (docker-compose.database.external.yml) oraz backup-runnerem.
+    env_file: ${BPP_CONFIGS_DIR}/.env
+    # Wrapper autotune: inicjuje baze (docker-ensure-initdb.sh), generuje
+    # /postgresql_optimized.conf (czyta limit cgroup ~95%), exec-uje standardowy
+    # entrypoint. Shebang #!/usr/bin/env bash => obraz Debianowy, NIE -alpine
+    # (alpine nie ma basha). command: postgres trafia jako "$@" do entrypointu.
+    entrypoint: ["bash", "/usr/local/bin/docker-entrypoint-autotune.sh"]
+    command: ["postgres"]
     environment:
       POSTGRES_DB: ${DJANGO_BPP_DB_NAME}
       POSTGRES_USER: ${DJANGO_BPP_DB_USER}
       POSTGRES_PASSWORD: ${DJANGO_BPP_DB_PASSWORD}
+      # KRYTYCZNE: stock postgres:18+ domyslnie ustawia PGDATA na
+      # /var/lib/postgresql/<major>/docker. Bez tego pinu istniejacy volume
+      # zostalby zignorowany, a baza zainicjowana od zera (utrata danych!).
+      # Mount zostaje na /var/lib/postgresql/data - NIE zmieniaj na
+      # /var/lib/postgresql mimo nowego VOLUME w obrazie 18+.
+      PGDATA: /var/lib/postgresql/data
+      # Stosowane TYLKO przy pustym PGDATA (swieza instalacja): kolacja ICU pl-PL
+      # dla poprawnego sortowania polskich znakow. Istniejace klastry zachowuja
+      # swoja oryginalna kolacje - ten arg nigdy nie re-kolacjonuje danych.
+      POSTGRES_INITDB_ARGS: "--locale-provider=icu --icu-locale=pl-PL"
     volumes:
+      # Autotune bind-mountowany z repo (read-only). To wersjonowany kod, nie
+      # konfiguracja usera - git pull aktualizuje go bez force-sync. Brak chmod +x
+      # nie szkodzi: skrypty sa wywolywane przez interpreter (bash / sh), nie exec.
+      - ./dbserver/docker-entrypoint-autotune.sh:/usr/local/bin/docker-entrypoint-autotune.sh:ro
+      - ./dbserver/autotune.sh:/autotune.sh:ro
       - postgresql_data:/var/lib/postgresql/data
       # Katalog na backupy, bind-mount z hosta. Kierujemy tu pg_dump/tar
       # zamiast pisac do /tmp w writable layer kontenera - inaczej dlugo
       # zyjacy dbserver by puchnal o rozmiar backupu przy kazdym wywolaniu.
       - ${DJANGO_BPP_HOST_BACKUP_DIR}:/backup
+    healthcheck:
+      # Stock postgres nie ma wbudowanego HEALTHCHECK (dawny obraz iplweb mial go
+      # w Dockerfile). appserver/authserver maja depends_on: dbserver:
+      # service_healthy, wiec healthcheck jest WYMAGANY. Uzywamy POSTGRES_USER/
+      # POSTGRES_DB (jawnie w environment: powyzej, wiec ZAWSZE obecne, niezaleznie
+      # od env_file). Podwojny $$ chroni przed ekspansja przez Compose - zmienna
+      # czytana w kontenerze w runtime, nie w parse-time.
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
     # Limity zasobow - domyslne wartosci dla 8 GB hosta; `make configure-resources`
-    # wylicza wartosci proporcjonalne do rzeczywistego rozmiaru hosta.
+    # wylicza wartosci proporcjonalne do rzeczywistego rozmiaru hosta. Autotune
+    # czyta ten limit cgroup (memory) i skaluje shared_buffers/work_mem (~95%).
     deploy:
       resources:
         limits:

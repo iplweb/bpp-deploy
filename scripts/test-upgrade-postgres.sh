@@ -2,7 +2,7 @@
 #
 # Integration test dla scripts/upgrade-postgres.sh.
 #
-# Scenariusz: upgrade iplweb/bpp_dbserver:psql-16.13 -> :psql-18.3.
+# Scenariusz: upgrade postgres:16.13 -> postgres:18.3 (stock obraz + autotune).
 #
 # Test buduje izolowana piaskownice:
 #   - wlasny COMPOSE_PROJECT_NAME (unikalny per run)
@@ -83,17 +83,33 @@ trap cleanup EXIT INT TERM
 cat > "$TEST_COMPOSE" <<'COMPOSE_EOF'
 services:
   dbserver:
-    # iplweb/bpp_dbserver jest zbudowany tylko dla linux/amd64 - na ARM Mac
-    # bez platform: musieli bysmy liczyc na auto qemu, ktorego nie ma.
-    platform: linux/amd64
-    image: iplweb/bpp_dbserver:psql-${DJANGO_BPP_POSTGRESQL_VERSION:-16.13}
+    # Stock postgres jest multi-arch (amd64 + arm64) => brak platform: i brak
+    # DOCKER_DEFAULT_PLATFORM, test leci natywnie na ARM Mac. Mirror produkcji
+    # (docker-compose.database.yml): autotune bind-mount z repo (${DBSERVER_DIR}),
+    # PGDATA pin, healthcheck. Healthcheck jest WYMAGANY - wait_for_healthy w
+    # upgrade-postgres.sh czyta .State.Health.Status, a stock postgres nie ma
+    # wbudowanego HEALTHCHECK (dawny obraz iplweb mial go w Dockerfile).
+    image: postgres:${DJANGO_BPP_POSTGRESQL_VERSION:-16.13}
+    env_file: ${BPP_CONFIGS_DIR}/.env
+    entrypoint: ["bash", "/usr/local/bin/docker-entrypoint-autotune.sh"]
+    command: ["postgres"]
     environment:
       POSTGRES_DB: ${DJANGO_BPP_DB_NAME}
       POSTGRES_USER: ${DJANGO_BPP_DB_USER}
       POSTGRES_PASSWORD: ${DJANGO_BPP_DB_PASSWORD}
+      PGDATA: /var/lib/postgresql/data
+      POSTGRES_INITDB_ARGS: "--locale-provider=icu --icu-locale=pl-PL"
     volumes:
+      - ${DBSERVER_DIR}/docker-entrypoint-autotune.sh:/usr/local/bin/docker-entrypoint-autotune.sh:ro
+      - ${DBSERVER_DIR}/autotune.sh:/autotune.sh:ro
       - postgresql_data:/var/lib/postgresql/data
       - ${DJANGO_BPP_HOST_BACKUP_DIR}:/backup
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
 
 volumes:
   postgresql_data:
@@ -118,16 +134,12 @@ EOF
 export BPP_CONFIGS_DIR="$TEST_CONFIGS"
 export COMPOSE_PROJECT_NAME="$TEST_PROJECT"
 export COMPOSE_FILE="$TEST_COMPOSE"
-# iplweb/bpp_dbserver jest dostarczany tylko jako linux/amd64. Na ARM Mac
-# (M1/M2/M3) musimy to powiedziec Dockerowi explicite. Skrypt w kroku 1 robi
-# `docker pull <image>` bez --platform; DOCKER_DEFAULT_PLATFORM dziala na
-# docker pull i docker compose, wiec jedna zmienna zalatwia oba.
-if [ -z "${DOCKER_DEFAULT_PLATFORM:-}" ]; then
-    _arch="$(uname -m)"
-    case "$_arch" in
-        arm64|aarch64) export DOCKER_DEFAULT_PLATFORM=linux/amd64 ;;
-    esac
-fi
+# Autotune bind-mountowany z repo - absolutna sciezka, bo compose rozwiazuje
+# wzgledne sciezki wzgledem katalogu pliku compose (tu: $TEST_ROOT, nie repo).
+# Eksport => upgrade-postgres.sh (proces potomny) zobaczy ja przy docker compose.
+export DBSERVER_DIR="$REPO_DIR/dbserver"
+# Stock postgres jest multi-arch => NIE ustawiamy DOCKER_DEFAULT_PLATFORM (dawny
+# iplweb/bpp_dbserver byl tylko linux/amd64 i wymagal tego na ARM Mac).
 set -a
 # shellcheck disable=SC1090
 . "$TEST_ENV"

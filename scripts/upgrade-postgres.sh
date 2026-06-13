@@ -11,10 +11,10 @@
 #   6. pg_restore -Fd -j N z tarballa
 #   7. make migrate, make up, smoke test
 #
-# Wybor dump & restore zamiast pg_upgrade jest swiadomy: obraz iplweb/bpp_dbserver
-# ma tylko jeden major Postgresa baked in, wiec pg_upgrade in-place wymagalby
-# dedykowanego upgrade-image z dwiema binariami. Logical dump wykorzystuje
-# istniejacy `make db-backup` i jest forward-compatible przez wiele majorow.
+# Wybor dump & restore zamiast pg_upgrade jest swiadomy: kazdy obraz postgres:<ver>
+# ma tylko jeden major Postgresa, wiec pg_upgrade in-place wymagalby dedykowanego
+# obrazu z dwiema binariami. Logical dump wykorzystuje istniejacy `make db-backup`
+# i jest forward-compatible przez wiele majorow.
 #
 # Tryb external (BPP_DATABASE_COMPOSE=docker-compose.database.external.yml) ma
 # wlasna, drastycznie prostsza sciezke - upgrade prawdziwej bazy robi admin po
@@ -24,8 +24,10 @@
 #   - Docker Compose v2.20+ (juz wymagane przez include w docker-compose.yml)
 #   - Wystarczajaco miejsca na hoscie na: tarball pg_dump + drugi volume z kopia
 #     starego PGDATA. Dla DB rozmiaru X potrzeba ~2.5 * X wolnego miejsca.
-#   - Upstream image iplweb/bpp_dbserver:<TAG> z nowym majorem MUSI byc juz
-#     wypchniety na Docker Hub. Skrypt nie buduje obrazu.
+#   - Obraz postgres:<TAG> z nowym majorem - oficjalny obraz Docker, wszystkie
+#     majory sa zawsze dostepne (nie trzeba juz czekac na publikacje wlasnego
+#     obrazu). Krok 1 robi pre-flight `docker pull` i wylapie literowke w wersji.
+#     Skrypt nie buduje obrazu.
 #
 # Wywolanie: `make upgrade-postgres` lub bezposrednio `bash scripts/upgrade-postgres.sh`.
 #
@@ -504,7 +506,7 @@ EOF
         echo "BLAD: --noinput wymaga --new-version=X.Y (skad wziac docelowa wersje?)." >&2
         exit 1
     else
-        echo "Dostepne tagi (psql-<ver>): https://hub.docker.com/r/iplweb/bpp_dbserver/tags"
+        echo "Dostepne tagi: https://hub.docker.com/_/postgres"
         read -r -p "Nowa wersja dbservera (format MAJOR.MINOR, np. 18.3): " NEW_POSTGRESQL_VERSION
     fi
     if [ -z "$NEW_POSTGRESQL_VERSION" ]; then
@@ -549,7 +551,7 @@ EOF
     echo "Plik stanu: $ROLLBACK_FILE"
 fi
 
-NEW_DBSERVER_IMAGE="iplweb/bpp_dbserver:psql-${NEW_POSTGRESQL_VERSION}"
+NEW_DBSERVER_IMAGE="postgres:${NEW_POSTGRESQL_VERSION}"
 
 # Trap z duzym banerem na wypadek awarii po krytycznym kroku (gdy
 # auto_rollback nie zostal wywolany - np. przerwanie Ctrl-C, blad w obcym

@@ -1,8 +1,17 @@
 # PostgreSQL — wersje i upgrade
 
-Kontener `dbserver` używa obrazu `iplweb/bpp_dbserver:psql-${DJANGO_BPP_POSTGRESQL_VERSION}`,
-format `MAJOR.MINOR` (np. `16.13`, `17.9`, `18.3`). Wersja jest sterowana zmienną
-`DJANGO_BPP_POSTGRESQL_VERSION` w `$BPP_CONFIGS_DIR/.env`. Domyślnie `16.13`.
+Kontener `dbserver` używa **oficjalnego obrazu** `postgres:${DJANGO_BPP_POSTGRESQL_VERSION}`
+(wariant Debian, nie `-alpine`), format `MAJOR.MINOR` (np. `16.13`, `17.9`, `18.3`). Wersja
+jest sterowana zmienną `DJANGO_BPP_POSTGRESQL_VERSION` w `$BPP_CONFIGS_DIR/.env`. Domyślnie
+`16.13`.
+
+> **Skąd autotune?** Wcześniej `dbserver` używał własnego obrazu `iplweb/bpp_dbserver` —
+> jest on **wycofany**, a jego jedynym dodatkiem ponad stockowego postgresa był *autotune*.
+> Teraz montujemy dwa skrypty autotune (`dbserver/autotune.sh`,
+> `dbserver/docker-entrypoint-autotune.sh` — wersjonowane w repo, bind-mount read-only) na
+> obraz oficjalny. Wrapper inicjuje bazę, generuje `/postgresql_optimized.conf` dopasowany
+> do limitu pamięci kontenera (`DBSERVER_MEM_LIMIT`, ~95%) i startuje normalnie. Bez buildu,
+> bez `python3`. Szczegóły strojenia: [Limity zasobów](limity-zasobow.md).
 
 `DJANGO_BPP_POSTGRESQL_VERSION_MAJOR` (auto-derived z `_VERSION`) jest używana przez
 `backup-runner` (`postgres:<major>-alpine` — `pg_dump` musi być ≥ wersji serwera).
@@ -10,7 +19,15 @@ W trybie external obie zmienne trzymają tylko major.
 
 Wybór wersji następuje przy pierwszym uruchomieniu `make` — `init-configs` zapyta
 `Wersja PostgreSQL [16.13]:`. Lista tagów:
-[hub.docker.com/r/iplweb/bpp_dbserver/tags](https://hub.docker.com/r/iplweb/bpp_dbserver/tags).
+[hub.docker.com/_/postgres](https://hub.docker.com/_/postgres).
+
+!!! note "Kolacja (sortowanie) i PGDATA"
+    Świeża inicjalizacja bazy używa `POSTGRES_INITDB_ARGS=--locale-provider=icu
+    --icu-locale=pl-PL` (poprawne sortowanie polskich znaków). Dotyczy to **tylko nowych
+    instalacji** — istniejące wolumeny zachowują swoją oryginalną kolację, ten argument
+    nigdy nie re-kolacjonuje danych. `PGDATA` jest przypięte do `/var/lib/postgresql/data`:
+    stock `postgres:18+` domyślnie używa innej ścieżki, więc bez pinu istniejący wolumen
+    zostałby zignorowany, a baza zainicjowana od zera.
 
 !!! warning
     Upgrade major wymaga dump/restore — użyj `make upgrade-postgres`, **nie** edytuj
@@ -53,8 +70,8 @@ Skrypt (`scripts/upgrade-postgres.sh`) interaktywnie wykonuje kroki:
 
 ### Wymagania
 
-- Obraz `iplweb/bpp_dbserver:psql-<MAJOR.MINOR>` już opublikowany na Docker Hub (skrypt
-  tylko pobiera, nie buduje).
+- Obraz `postgres:<MAJOR.MINOR>` — oficjalny obraz Docker, wszystkie majory są zawsze
+  dostępne (krok 1 robi `docker pull` i wyłapie literówkę w wersji; skrypt nie buduje obrazu).
 - Wolne miejsce: ~2.5× rozmiar PGDATA (tarball + kopia wolumenu).
 - Stack musi być uruchomiony (`make up`), żeby wykonać `pg_dump`.
 
