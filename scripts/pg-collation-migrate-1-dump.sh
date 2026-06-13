@@ -16,6 +16,14 @@
 # nic nie daje. Plain SQL = zaden binarny posrednik. Wynikowy .sql jest
 # tez normalnym, ladowalnym backupem.
 #
+# --no-owner --no-privileges: zrzut bez `ALTER ... OWNER TO <rola>` i bez
+# GRANT/REVOKE. Docelowy SWIEZY cluster ma tylko superusera POSTGRES_USER
+# (np. `postgres`) i NIE ma ról ze starego klastra (np. `bpp`) — per-bazowy
+# pg_dump ról nie zrzuca (sa cluster-level). Bez tych flag load padal na
+# "role bpp does not exist". Obiekty obejmuje na wlasnosc user ladujacy,
+# Django laczy sie jako ten sam superuser. (Pojedynczy pg_dump i tak NIGDY
+# nie tworzy userow — CREATE ROLE robi tylko pg_dumpall --globals.)
+#
 # Jesli na hoscie jest `pv`, dump pokazuje pasek postepu (estymata rozmiaru
 # z pg_database_size). Bez pv leci bez paska — `pv` jest opcjonalne.
 #
@@ -101,9 +109,9 @@ fi
 # i tak nie jest strata: load w kroku 3 to jednowatkowy psql. -T wylacza
 # pseudo-TTY, wiec strumien nie jest psuty translacja CR/LF. pipefail (z set -o)
 # wylapie blad pg_dump mimo pv po prawej stronie potoku.
-echo ">> pg_dump -Fp (zrodlo: stary cluster) -> ${OUT_PATH}" >&2
+echo ">> pg_dump -Fp --no-owner --no-privileges (zrodlo: stary cluster) -> ${OUT_PATH}" >&2
 dc exec -T -e "PGPASSWORD=${DJANGO_BPP_DB_PASSWORD}" dbserver pg_dump \
-    -Fp \
+    -Fp --no-owner --no-privileges \
     -h "${DJANGO_BPP_DB_HOST}" -p "${DJANGO_BPP_DB_PORT}" \
     -U "${DJANGO_BPP_DB_USER}" "${DJANGO_BPP_DB_NAME}" \
     | "${PROGRESS[@]}" > "$PARTIAL"

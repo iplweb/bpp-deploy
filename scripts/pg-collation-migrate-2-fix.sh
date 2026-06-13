@@ -11,11 +11,16 @@
 # Wynik: <nazwa>-nocollation.sql w katalogu backupow — wejscie kroku 3.
 #
 # WAZNE — nazwa kolacji jest case-insensitive i moze byc w cudzyslowie albo
-# bez. Realne bazy maja `public.pl_pl` (male litery, bez cudzyslowu,
-# locale='pl_PL.utf8') ORAZ/LUB `public."pl_PL"` (0001_collation). Dlatego
-# wzorzec uzywa klas znakowych [pP][lL]_[pP][lL] i opcjonalnego cudzyslowu —
-# lapie KAZDY wariant. (Wczesniejsza wersja matchowala tylko `pl_PL` i
-# przepuszczala `pl_pl` -> load padal na "could not create locale pl_PL.utf8".)
+# bez. Realne bazy maja `public."pl_PL.utf8"` (cytowana, z kropka i .utf8 w
+# srodku), albo `public.pl_pl` (male litery), albo `public."pl_PL"`
+# (0001_collation). Wzorzec: (public.)? ( "pl_PL<sufiks>" | goly pl_pl ),
+# dowolny case przez klasy [pP][lL] — lapie KAZDY wariant.
+#
+# UWAGA: ownerow i przywilejow (OWNER TO / GRANT / REVOKE) ten krok NIE
+# rusza. Zrzut z kroku 1 robi `pg_dump --no-owner --no-privileges`, wiec rol
+# nie ma juz w tekscie (per-bazowy pg_dump i tak nie zrzuca rol — sa cluster-
+# level — przez co load do swiezego klastra padalby na "role ... does not
+# exist"). Jesli masz STARY zrzut sprzed tej flagi: zrob nowy dump kroku 1.
 #
 # To czysta transformacja tekstu na hoscie: sed in -> out, bez gzipa, bez
 # pg_restore, bez obrazu postgres, bez tar (krok 1 daje juz plain SQL).
@@ -29,7 +34,7 @@ REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 . "$REPO_DIR/scripts/lib-pg-collation-migrate.sh"
 
 if [ $# -lt 1 ] || [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ]; then
-    sed -n '2,27p' "$0"; exit 0
+    sed -n '2,29p' "$0"; exit 0
 fi
 
 SRC_SQL="$1"
@@ -70,7 +75,7 @@ sed -E \
 # Weryfikacja: zadnych aktywnych odwolan do kolacji pl_PL (dowolny case).
 # Nie zlapie stringa '0443_drop_pl_PL_collation' z django_migrations (brak
 # ^CREATE COLLATION / ` COLLATE ` przed nazwa).
-echo ">> Weryfikacja: zadnych pozostalosci kolacji pl_PL w wyniku..." >&2
+echo ">> Weryfikacja: brak pozostalosci kolacji pl_PL w wyniku..." >&2
 RESIDUAL_RE='^(CREATE|ALTER|COMMENT ON) COLLATION (public\.)?"?[pP][lL]_[pP][lL]| COLLATE (public\.)?"?[pP][lL]_[pP][lL]'
 if grep -nE "$RESIDUAL_RE" "$OUT_SQL" >/dev/null 2>&1; then
     echo "BLAD: w wyniku nadal sa odwolania do kolacji pl_PL:" >&2
