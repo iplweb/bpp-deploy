@@ -86,8 +86,12 @@ fi
 
 # Sanity: zrzut sprzed migracji bpp 0442 ma jeszcze plpython3u, ktorego stock
 # postgres nie ma -> load padnie. Ostrzegamy (nie blokujemy).
-if grep -qiE 'plpython3u|LANGUAGE plpython' "$OUT_SQL"; then
-    echo "!! OSTRZEZENIE: zrzut zawiera plpython3u (sprzed migracji bpp 0442)." >&2
+# WAZNE: szukamy REALNEGO uzycia (CREATE EXTENSION ... plpython / LANGUAGE
+# plpython w funkcjach), a NIE samego slowa "plpython" — bo to lapie nazwy
+# migracji w danych django_migrations (np. 0440_port_plpython_to_plpgsql,
+# 0442_drop_plpython3u), dajac falszywy alarm na zrzutach JUZ po migracji.
+if grep -qiE '^CREATE[[:space:]]+EXTENSION[[:space:]].*plpython|LANGUAGE[[:space:]]+plpython' "$OUT_SQL"; then
+    echo "!! OSTRZEZENIE: zrzut zawiera REALNE uzycie plpython (CREATE EXTENSION / LANGUAGE)." >&2
     echo "   Stock postgres go nie ma -> krok 3 padnie. Zrob NOWY zrzut po" >&2
     echo "   wdrozeniu wersji aplikacji z migracja 0442 (DROP EXTENSION plpython3u)." >&2
 fi
