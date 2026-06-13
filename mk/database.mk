@@ -180,8 +180,8 @@ test-upgrade-postgres:
 # na scripts/pg-collation-migrate-{1-dump,2-fix,3-load}.sh). Pelny opis:
 # docs/eksploatacja/migracja-collation-stock-pg.md.
 #   make migrate-collation-dump  [STOP_APP=1] [YES=1]
-#   make migrate-collation-fix   DUMPGZ=/.../db-backup-*.sql.gz
-#   make migrate-collation-load  SQLGZ=/.../*-nocollation.sql.gz [RECREATE=1] [YES=1]
+#   make migrate-collation-fix   DUMPSQL=/.../db-backup-*.sql
+#   make migrate-collation-load  SQL=/.../*-nocollation.sql [RECREATE=1] [YES=1]
 COLLATION_DUMP_FLAGS :=
 ifdef STOP_APP
   COLLATION_DUMP_FLAGS += --stop-app
@@ -194,11 +194,11 @@ migrate-collation-dump:
 	@bash scripts/pg-collation-migrate-1-dump.sh $(COLLATION_DUMP_FLAGS)
 
 migrate-collation-fix:
-	@if [ -z "$(DUMPGZ)" ]; then \
-		echo "Uzycie: make migrate-collation-fix DUMPGZ=/.../db-backup-YYYYMMDD-HHMMSS.sql.gz" >&2; \
+	@if [ -z "$(DUMPSQL)" ]; then \
+		echo "Uzycie: make migrate-collation-fix DUMPSQL=/.../db-backup-YYYYMMDD-HHMMSS.sql" >&2; \
 		exit 1; \
 	fi
-	@bash scripts/pg-collation-migrate-2-fix.sh "$(DUMPGZ)"
+	@bash scripts/pg-collation-migrate-2-fix.sh "$(DUMPSQL)"
 
 COLLATION_LOAD_FLAGS :=
 ifdef RECREATE
@@ -209,8 +209,8 @@ ifdef YES
 endif
 
 migrate-collation-load:
-	@if [ -z "$(SQLGZ)" ]; then \
-		echo "Uzycie: make migrate-collation-load SQLGZ=/.../db-backup-...-nocollation.sql.gz [RECREATE=1]" >&2; \
+	@if [ -z "$(SQL)" ]; then \
+		echo "Uzycie: make migrate-collation-load SQL=/.../db-backup-...-nocollation.sql [RECREATE=1]" >&2; \
 		exit 1; \
 	fi
-	@bash scripts/pg-collation-migrate-3-load.sh "$(SQLGZ)" $(COLLATION_LOAD_FLAGS)
+	@bash scripts/pg-collation-migrate-3-load.sh "$(SQL)" $(COLLATION_LOAD_FLAGS)

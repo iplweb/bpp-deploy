@@ -59,21 +59,24 @@ make migrate-collation-dump
 ```
 
 Wypisze ścieżkę do zrzutu, np.
-`/…/backups/db-backup-20260613-190000.sql.gz` (plain SQL `pg_dump -Fp`
-spakowany gzipem — sam w sobie ładowalny backup).
+`/…/backups/db-backup-20260613-190000.sql` (plain SQL `pg_dump -Fp`, **bez
+gzipa** — sam w sobie ładowalny backup). Jeśli na hoście jest `pv`, leci pasek
+postępu.
 
 ### 2. Usuń kolację `pl_PL` ze zrzutu
 
 ```bash
-make migrate-collation-fix DUMPGZ=/…/backups/db-backup-20260613-190000.sql.gz
-# lub:  bash scripts/pg-collation-migrate-2-fix.sh <…sql.gz>
+make migrate-collation-fix DUMPSQL=/…/backups/db-backup-20260613-190000.sql
+# lub:  bash scripts/pg-collation-migrate-2-fix.sh <…sql>
 ```
 
-Czysta transformacja tekstu na hoscie — `gunzip | sed | gzip`, bez
+Czysta transformacja tekstu na hoście — `sed` in → out, bez gzipa, bez
 `pg_restore`, bez obrazu postgres, bez tar. Wycina
-`CREATE/ALTER/COMMENT … COLLATION … "pl_PL"` oraz klauzule `COLLATE "pl_PL"`,
-i zapisuje `…-nocollation.sql.gz`. Weryfikuje brak pozostałości i ostrzega o
-plpython. Jest **idempotentny** — jeśli zrzut był już zrobiony po migracji
+`CREATE/ALTER/COMMENT … COLLATION … pl_PL` oraz klauzule `COLLATE pl_PL`,
+i zapisuje `…-nocollation.sql`. **Nazwa kolacji jest case-insensitive i może
+być w cudzysłowie lub bez** — realne bazy mają `public.pl_pl` (małe litery,
+`locale='pl_PL.utf8'`), nie `"pl_PL"`. Weryfikuje brak pozostałości i ostrzega
+o plpython. Jest **idempotentny** — jeśli zrzut był już zrobiony po migracji
 0443 (bez kolacji), po prostu nic nie znajdzie.
 
 ### 3. Załaduj do świeżego klastra psql 18
@@ -82,15 +85,15 @@ Najpierw postaw **świeży** klaster na nowym obrazie. Albo przez istniejący
 `make upgrade-postgres`, albo pozwól zrobić to skryptowi (`--recreate-volume`):
 
 ```bash
-make migrate-collation-load SQLGZ=/…/backups/db-backup-20260613-190000-nocollation.sql.gz RECREATE=1
-# lub:  bash scripts/pg-collation-migrate-3-load.sh <…-nocollation.sql.gz> --recreate-volume
+make migrate-collation-load SQL=/…/backups/db-backup-20260613-190000-nocollation.sql RECREATE=1
+# lub:  bash scripts/pg-collation-migrate-3-load.sh <…-nocollation.sql> --recreate-volume
 ```
 
 `--recreate-volume` zatrzyma aplikację + dbserver, **usunie** volume
 `${COMPOSE_PROJECT_NAME}_postgresql_data` (DESTRUKCYJNE — pyta o potwierdzenie!),
 wstanie dbserver na nowym obrazie (initdb z ICU pl-PL), po czym `dropdb`+
-`createdb`+`psql -f`. Bez `--recreate-volume` zakłada, że dbserver już chodzi na
-stockowym obrazie na pustym volume.
+`createdb`+`psql` (z paskiem `pv`, jeśli jest). Bez `--recreate-volume` zakłada,
+że dbserver już chodzi na stockowym obrazie na pustym volume.
 
 ### 4. Domigruj i wstań
 
@@ -114,13 +117,19 @@ make dbshell-psql   # potem:
 
 ## Uwagi i ograniczenia
 
-- **Cały pipeline jest plain SQL** (dump `-Fp` → `sed` → `psql -f`), bo kolację
-  trzeba wyciąć z **tekstu** definicji widoków (`COLLATE "pl_PL"`), czego format
-  katalogowy/custom (binarny `toc.dat`) nie pozwala zrobić bez konwersji
+- **Cały pipeline jest plain SQL, bez gzipa** (dump `-Fp` → `sed` → `psql`), bo
+  kolację trzeba wyciąć z **tekstu** definicji widoków (`COLLATE pl_PL`), czego
+  format katalogowy/custom (binarny `toc.dat`) nie pozwala zrobić bez konwersji
   `pg_restore -f -`. Load i tak jest jednowątkowy (`psql`), więc równoległość
   `pg_restore -Fd -j` nic by tu nie dała — dlatego żaden binarny pośrednik nie
-  jest potrzebny. Dla bardzo dużych baz dump/load jest sekwencyjny, ale to
-  operacja jednorazowa.
+  jest potrzebny. Brak (de)kompresji jest też trochę szybszy (kosztem miejsca na
+  nieskompresowany `.sql`). Dla bardzo dużych baz dump/load jest sekwencyjny, ale
+  to operacja jednorazowa.
+- **Nazwa kolacji jest case-insensitive** (`[pP][lL]_[pP][lL]`), z opcjonalnym
+  `public.` i cudzysłowem. Realne bazy mają `public.pl_pl` (małe litery,
+  `locale='pl_PL.utf8'`), a nie `"pl_PL"` z `0001_collation` — wzorzec łapie oba.
+  Migracja bpp `0443` dropuje tylko `"pl_PL"`, więc dla ścieżki dump→restore to
+  `sed` (a nie migracja) gwarantuje usunięcie `pl_pl`.
 - **`make backup` wciąż działa ze starym obrazem** — obrazy `iplweb/bpp_dbserver`
   są nadal na Docker Hubie, więc dump da się zrobić nawet po decyzji o migracji.
 - Skrypt kroku 3 **odmówi** załadowania do kontenera nadal działającego na
