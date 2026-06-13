@@ -22,21 +22,20 @@
 #   bpp_kronika_*_view (no-op dla sortowania), wiec mozna ja bezpiecznie
 #   usunac. Migracja bpp 0443_drop_pl_PL_collation robi to samo w schemacie.
 #
-# Strategia: logical dump (stary obraz) -> konwersja na czysty SQL z
-# wycieciem kolacji -> load do swiezego clustra psql 18 zainicjowanego z
-# kolacja ICU pl-PL (--locale-provider=icu --icu-locale=pl-PL).
+# Strategia: zrzut do PLAIN SQL (pg_dump -Fp) -> tekstowe wyciecie kolacji
+# (sed) -> load do swiezego clustra psql 18 zainicjowanego z kolacja ICU
+# pl-PL (--locale-provider=icu --icu-locale=pl-PL). Plain SQL przez caly
+# czas — bo i tak musimy EDYTOWAC TEKST definicji widokow (usunac klauzule
+# COLLATE), czego format katalogowy/custom (binarny toc.dat) nie pozwala
+# zrobic bez konwersji `pg_restore -f -`. A skoro load i tak idzie psql-em
+# (jednowatkowo), rownoleglosc pg_restore -j nic by tu nie dala. Wiec zaden
+# binarny posrednik nie jest potrzebny.
 
 set -euo pipefail
 
 # REPO_DIR ustawia skrypt wywolujacy (dirname "$0"/..). Tu tylko walidacja.
 : "${REPO_DIR:?REPO_DIR musi byc ustawione przez skrypt wywolujacy}"
 REPO_ENV="$REPO_DIR/.env"
-
-# Obraz postgres uzywany do (a) konwersji dir-dump -> SQL w kroku 2 oraz
-# (b) jako docelowy cluster w kroku 3. pg_restore z nowszego majora czyta
-# starsze archiwa, wiec domyslnie bierzemy wersje docelowa. Override:
-#   PG_TARGET_IMAGE=postgres:18.3 bash scripts/pg-collation-migrate-2-fix.sh ...
-PG_TARGET_IMAGE="${PG_TARGET_IMAGE:-postgres:${DJANGO_BPP_POSTGRESQL_VERSION:-18}}"
 
 # ---- Helpers ------------------------------------------------------------
 

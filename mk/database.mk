@@ -180,7 +180,7 @@ test-upgrade-postgres:
 # na scripts/pg-collation-migrate-{1-dump,2-fix,3-load}.sh). Pelny opis:
 # docs/eksploatacja/migracja-collation-stock-pg.md.
 #   make migrate-collation-dump  [STOP_APP=1] [YES=1]
-#   make migrate-collation-fix   TARBALL=/.../db-backup-*.tar.gz
+#   make migrate-collation-fix   DUMPGZ=/.../db-backup-*.sql.gz
 #   make migrate-collation-load  SQLGZ=/.../*-nocollation.sql.gz [RECREATE=1] [YES=1]
 COLLATION_DUMP_FLAGS :=
 ifdef STOP_APP
@@ -194,11 +194,11 @@ migrate-collation-dump:
 	@bash scripts/pg-collation-migrate-1-dump.sh $(COLLATION_DUMP_FLAGS)
 
 migrate-collation-fix:
-	@if [ -z "$(TARBALL)" ]; then \
-		echo "Uzycie: make migrate-collation-fix TARBALL=/.../db-backup-YYYYMMDD-HHMMSS.tar.gz" >&2; \
+	@if [ -z "$(DUMPGZ)" ]; then \
+		echo "Uzycie: make migrate-collation-fix DUMPGZ=/.../db-backup-YYYYMMDD-HHMMSS.sql.gz" >&2; \
 		exit 1; \
 	fi
-	@bash scripts/pg-collation-migrate-2-fix.sh "$(TARBALL)"
+	@bash scripts/pg-collation-migrate-2-fix.sh "$(DUMPGZ)"
 
 COLLATION_LOAD_FLAGS :=
 ifdef RECREATE

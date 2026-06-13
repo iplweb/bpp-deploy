@@ -3,23 +3,19 @@
 # KROK 2/3 migracji "pozbadz sie kolacji libc pl_PL". Patrz
 # lib-pg-collation-migrate.sh.
 #
-# Bierze tarball ze zrzutem katalogowym (-Fd) z kroku 1, konwertuje go na
-# czysty SQL i WYCINA kolacje pl_PL:
+# Bierze zrzut plain SQL (db-backup-<TS>.sql.gz z kroku 1) i WYCINA z niego
+# kolacje pl_PL czystym sed-em:
 #   * usuwa  CREATE/ALTER/COMMENT ... COLLATION ... "pl_PL"
 #   * usuwa klauzule  COLLATE [public.]"pl_PL"  (z 5 widokow bpp_kronika_*)
 # Wynik: <nazwa>-nocollation.sql.gz w katalogu backupow — wejscie kroku 3.
 #
-# DLACZEGO przez czysty SQL, a nie pg_restore -L: format katalogowy trzyma
-# DDL w binarnym toc.dat. `pg_restore -L` umie pominac OBIEKT kolacji, ale
-# NIE umie wyciac klauzul COLLATE wstrzyknietych w definicje widokow. Wiec
-# konwertujemy do SQL (pg_restore -f -), sed-ujemy, ladujemy psql-em (krok 3).
-# Koszt: load jest jednowatkowy (psql -f) zamiast rownoleglego pg_restore -j.
+# To czysta transformacja tekstu na hoscie: gunzip | sed | gzip. Zaden
+# pg_restore, zaden obraz postgres, zaden tar — bo krok 1 daje juz plain
+# SQL (patrz lib: kolacja siedzi w TEKSCIE definicji widokow, a tego nie
+# da sie wyciac z binarnego -Fd inaczej niz konwertujac go wpierw na SQL).
 #
 # Uzycie:
-#     bash scripts/pg-collation-migrate-2-fix.sh <db-backup-YYYYMMDD-HHMMSS.tar.gz>
-#
-# pg_restore bierzemy z obrazu $PG_TARGET_IMAGE (domyslnie wersja docelowa,
-# nowszy pg_restore czyta starsze archiwa).
+#     bash scripts/pg-collation-migrate-2-fix.sh <db-backup-YYYYMMDD-HHMMSS.sql.gz>
 
 set -euo pipefail
 REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
@@ -27,35 +23,30 @@ REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 . "$REPO_DIR/scripts/lib-pg-collation-migrate.sh"
 
 if [ $# -lt 1 ] || [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ]; then
-    sed -n '2,20p' "$0"; exit 0
+    sed -n '2,21p' "$0"; exit 0
 fi
 
-SRC_TAR="$1"
-[ -f "$SRC_TAR" ] || { echo "BLAD: nie ma pliku: $SRC_TAR" >&2; exit 1; }
-SRC_TAR="$(cd "$(dirname "$SRC_TAR")" && pwd)/$(basename "$SRC_TAR")"
+SRC_GZ="$1"
+[ -f "$SRC_GZ" ] || { echo "BLAD: nie ma pliku: $SRC_GZ" >&2; exit 1; }
+SRC_GZ="$(cd "$(dirname "$SRC_GZ")" && pwd)/$(basename "$SRC_GZ")"
 
-BASE="$(basename "$SRC_TAR")"; BASE="${BASE%.tar.gz}"; BASE="${BASE%.tgz}"
-OUT_DIR="$(dirname "$SRC_TAR")"
+# Lapiemy stary, binarny format z poprzedniej wersji skryptu (-Fd tarball).
+case "$SRC_GZ" in
+    *.tar.gz|*.tgz)
+        echo "BLAD: to wyglada na tarball (-Fd). Krok 1 produkuje teraz plain" >&2
+        echo "      SQL (db-backup-<TS>.sql.gz) — podaj plik .sql.gz." >&2
+        exit 1 ;;
+esac
+
+BASE="$(basename "$SRC_GZ")"; BASE="${BASE%.sql.gz}"; BASE="${BASE%.gz}"
+OUT_DIR="$(dirname "$SRC_GZ")"
 OUT_SQL_GZ="${OUT_DIR}/${BASE}-nocollation.sql.gz"
 
-TMP="$(mktemp -d)"
-cleanup() { rm -rf "$TMP"; }
-trap cleanup EXIT
+echo ">> Sprawdzam integralnosc wejsciowego gzipa..." >&2
+gzip -t "$SRC_GZ"
 
-echo ">> Rozpakowuje $BASE ..." >&2
-tar xzf "$SRC_TAR" -C "$TMP"
-DUMP_DIR="$(find "$TMP" -maxdepth 1 -mindepth 1 -type d | head -1)"
-if [ -z "$DUMP_DIR" ] || [ ! -f "$DUMP_DIR/toc.dat" ]; then
-    echo "BLAD: w tarballu nie ma katalogowego zrzutu pg_dump (-Fd, brak toc.dat)." >&2
-    exit 1
-fi
-
-echo ">> pg_restore -f - (obraz: $PG_TARGET_IMAGE) | sed (wycinam kolacje pl_PL) | gzip" >&2
-# pg_restore -f - nie potrzebuje uruchomionego serwera: zamienia archiwum na
-# SQL na stdout. Sed na hoscie wycina kolacje, gzip zapisuje wynik.
-set -o pipefail
-docker run --rm -v "$TMP:/dump:ro" "$PG_TARGET_IMAGE" \
-        pg_restore -f - "/dump/$(basename "$DUMP_DIR")" \
+echo ">> gunzip | sed (wycinam kolacje pl_PL) | gzip -> ${OUT_SQL_GZ##*/}" >&2
+gunzip -c "$SRC_GZ" \
     | sed -E \
         -e '/^CREATE COLLATION (public\.)?"?pl_PL"?/d' \
         -e '/^ALTER COLLATION (public\.)?"?pl_PL"?/d' \
