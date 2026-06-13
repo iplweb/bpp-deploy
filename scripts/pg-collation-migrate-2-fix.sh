@@ -48,11 +48,17 @@ BASE="$(basename "$SRC_SQL")"; BASE="${BASE%.sql}"
 OUT_DIR="$(dirname "$SRC_SQL")"
 OUT_SQL="${OUT_DIR}/${BASE}-nocollation.sql"
 
-# Nazwa kolacji: opcjonalne `public.`, opcjonalny cudzyslow, dowolny case.
-# (W double-quotes ponizej cudzyslowy z $NAME trafiaja do seda doslownie.)
-NAME='(public\.)?"?[pP][lL]_[pP][lL]"?'
+# Nazwa kolacji: opcjonalne `public.`, potem ALBO nazwa w cudzyslowie z
+# dowolnym sufiksem — realnie `"pl_PL.utf8"` (kropka + .utf8 W SRODKU
+# cudzyslowu, prod 2026-06-13), ale tez `"pl_PL.UTF-8"` / `"pl_PL"` — ALBO
+# goly identyfikator `pl_pl` (bez kropki, bo niecytowany ident nie ma kropek).
+# Dowolny case przez klasy [pP][lL]. Cudzyslowy z $NAME trafiaja do seda
+# doslownie — to KLUCZOWE dla nazw z kropka, ktore MUSZA byc cytowane.
+QNAME='"[pP][lL]_[pP][lL][^"]*"'
+BNAME='[pP][lL]_[pP][lL]'
+NAME="(public\\.)?(${QNAME}|${BNAME})"
 
-echo ">> sed (wycinam kolacje pl_PL, dowolny case) -> ${OUT_SQL##*/}" >&2
+echo ">> sed (wycinam kolacje pl_PL: \"pl_PL.utf8\"/pl_pl/..., dowolny case) -> ${OUT_SQL##*/}" >&2
 sed -E \
     -e "/^CREATE COLLATION ${NAME} /d" \
     -e "/^ALTER COLLATION ${NAME} /d" \
@@ -62,8 +68,10 @@ sed -E \
     "$SRC_SQL" > "$OUT_SQL"
 
 # Weryfikacja: zadnych aktywnych odwolan do kolacji pl_PL (dowolny case).
+# Nie zlapie stringa '0443_drop_pl_PL_collation' z django_migrations (brak
+# ^CREATE COLLATION / ` COLLATE ` przed nazwa).
 echo ">> Weryfikacja: zadnych pozostalosci kolacji pl_PL w wyniku..." >&2
-RESIDUAL_RE='(CREATE|ALTER|COMMENT ON) COLLATION[[:space:]]+(public\.)?"?[pP][lL]_[pP][lL]|COLLATE[[:space:]]+(public\.)?"?[pP][lL]_[pP][lL]'
+RESIDUAL_RE='^(CREATE|ALTER|COMMENT ON) COLLATION (public\.)?"?[pP][lL]_[pP][lL]| COLLATE (public\.)?"?[pP][lL]_[pP][lL]'
 if grep -nE "$RESIDUAL_RE" "$OUT_SQL" >/dev/null 2>&1; then
     echo "BLAD: w wyniku nadal sa odwolania do kolacji pl_PL:" >&2
     grep -nE "$RESIDUAL_RE" "$OUT_SQL" | head >&2
