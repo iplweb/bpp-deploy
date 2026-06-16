@@ -104,14 +104,39 @@ if [ "${PROV:-}" != "i" ]; then
     echo "   POSTGRES_INITDB_ARGS=--locale-provider=icu --icu-locale=pl-PL ?" >&2
 fi
 
-echo ">> Laduje ${SQL_FILE} (psql, ON_ERROR_STOP=1)..." >&2
-# Plain SQL z pliku -> psql w kontenerze (dc exec -T forwarduje stdin). Gdy
-# jest `pv` i stderr to terminal, pokazujemy pasek postepu (pv sam zna rozmiar
-# pliku). pipefail (set -o) wylapie blad psql mimo pv po lewej stronie potoku.
+# Fix hstore-w-WHEN na PG18: pg_dump utwardza naglowek przez
+# `SELECT pg_catalog.set_config('search_path', '', false);` (ochrona po
+# CVE-2018-1058 — PUSTY search_path na cala sesje restore). Przy odtwarzaniu
+# triggerow STAREGO denorma klauzula WHEN porownuje kolumne `legacy_data`
+# (typ hstore) operatorem `IS DISTINCT FROM`, ktory rozwija sie do `hstore =
+# hstore`. Ten operator zyje w schemacie `public` (CREATE EXTENSION hstore
+# WITH SCHEMA public), a klauzula WHEN jest parsowana JUZ przy CREATE TRIGGER
+# (niezaleznie od check_function_bodies). Z pustym search_path operator jest
+# niewidoczny -> "operator does not exist: public.hstore = public.hstore".
+# PG16 to przepuszczal, PG18 nie. Przywracamy `public` do search_path na czas
+# restore (zachowanie sprzed CVE; bezpieczne, bo pg_dump kwalifikuje obiekty
+# schematem). Robimy to filtrem strumieniowym, BEZ modyfikacji zapisanego
+# pliku -nocollation.sql.
+SEARCH_PATH_FIX=\
+"s/set_config('search_path', '', false)/set_config('search_path', 'public', false)/"
+if ! head -n 100 "$SQL_FILE" | grep -q "set_config('search_path', '', false)"; then
+    echo "!! UWAGA: nie znalazlem w naglowku zrzutu linii" >&2
+    echo "   set_config('search_path', '', false) — fix search_path bedzie no-op." >&2
+    echo "   Jesli load padnie na 'operator does not exist: public.hstore = public.hstore'," >&2
+    echo "   format pg_dump sie zmienil — popraw wzorzec SEARCH_PATH_FIX w tym skrypcie." >&2
+fi
+
+echo ">> Laduje ${SQL_FILE} (psql, ON_ERROR_STOP=1, search_path->public)..." >&2
+# Plain SQL z pliku -> sed (fix search_path) -> psql w kontenerze (dc exec -T
+# forwarduje stdin). Gdy jest `pv` i stderr to terminal, pokazujemy pasek
+# postepu (pv sam zna rozmiar pliku, bo czyta go PRZED sedem). pipefail
+# (set -o) wylapie blad psql mimo pv/sed po lewej stronie potoku.
 if [ -t 2 ] && command -v pv >/dev/null 2>&1; then
-    pv "$SQL_FILE" | "${PSQL[@]}" -v ON_ERROR_STOP=1 -d "${DJANGO_BPP_DB_NAME}"
+    pv "$SQL_FILE" | sed "$SEARCH_PATH_FIX" \
+        | "${PSQL[@]}" -v ON_ERROR_STOP=1 -d "${DJANGO_BPP_DB_NAME}"
 else
-    "${PSQL[@]}" -v ON_ERROR_STOP=1 -d "${DJANGO_BPP_DB_NAME}" < "$SQL_FILE"
+    sed "$SEARCH_PATH_FIX" "$SQL_FILE" \
+        | "${PSQL[@]}" -v ON_ERROR_STOP=1 -d "${DJANGO_BPP_DB_NAME}"
 fi
 
 echo ">> Weryfikacja po loadzie:" >&2
