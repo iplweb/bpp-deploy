@@ -73,13 +73,33 @@ if ! dc ps --status=running --services 2>/dev/null | grep -qx dbserver; then
     exit 1
 fi
 
+# Serwisy ktore moga PISAC do bazy (psuja spojnosc rownoleglego zrzutu).
+# Nie tylko appserver: takze celery (workery/beat) i denorm-queue. To te same,
+# ktore zatrzymuje --stop-app.
+WRITER_SVCS="appserver workerserver celerybeat denorm-queue"
 if [ "$STOP_APP" = 1 ]; then
     echo ">> Zatrzymuje aplikacje (appserver + workery + beat + denorm-queue)..." >&2
-    run dc stop appserver workerserver celerybeat denorm-queue
+    run dc stop $WRITER_SVCS
 else
-    echo ">> UWAGA: aplikacja NIE jest zatrzymywana (--stop-app pominiete)." >&2
-    echo "   Zrzut spojny tylko jesli nie ma rownoleglych zapisow do bazy." >&2
-    confirm "Kontynuowac zrzut bez zatrzymania aplikacji?" || { echo "Przerwano."; exit 1; }
+    # Ostrzegaj/pytaj TYLKO o realnie dzialajace serwisy-pisarzy. Gdy zaden nie
+    # chodzi (np. caly stack stoi, a recznie wstal tylko dbserver), zrzut jest
+    # spojny i nie ma o co pytac -> bez promptu.
+    RUNNING_SVCS="$(dc ps --status=running --services 2>/dev/null || true)"
+    RUNNING_WRITERS=""
+    for svc in $WRITER_SVCS; do
+        if printf '%s\n' "$RUNNING_SVCS" | grep -qx "$svc"; then
+            RUNNING_WRITERS="${RUNNING_WRITERS:+$RUNNING_WRITERS }$svc"
+        fi
+    done
+    if [ -n "$RUNNING_WRITERS" ]; then
+        echo ">> UWAGA: dzialaja serwisy mogace pisac do bazy: ${RUNNING_WRITERS}" >&2
+        echo "   (--stop-app pominiete). Zrzut spojny tylko bez rownoleglych zapisow." >&2
+        confirm "Kontynuowac zrzut mimo dzialajacych: ${RUNNING_WRITERS}?" \
+            || { echo "Przerwano."; exit 1; }
+    else
+        echo ">> Zaden serwis-pisarz (appserver/workery/beat/denorm-queue) nie dziala" >&2
+        echo "   -> zrzut spojny, kontynuuje bez zatrzymywania." >&2
+    fi
 fi
 
 # Pasek postepu: jesli na hoscie jest `pv` i stderr to terminal, wpinamy go
