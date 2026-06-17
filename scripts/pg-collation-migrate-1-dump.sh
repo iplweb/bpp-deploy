@@ -103,11 +103,21 @@ else
 fi
 
 # Pasek postepu: jesli na hoscie jest `pv` i stderr to terminal, wpinamy go
-# miedzy pg_dump a plik. Jako estymate (-s) bierzemy fizyczny rozmiar bazy
-# (pg_database_size) — to tylko przyblizenie (dump nie ma indeksow ani bloatu,
-# wiec zwykle konczy przed 100%), ale daje procent + ETA. Gdy pv nie ma,
-# identity-pipe przez `cat`. Nieudane zapytanie o rozmiar -> pv bez -s.
+# miedzy pg_dump a plik. Estymate (-s) liczymy z pg_database_size, ale UWAGA:
+# to rozmiar FIZYCZNY na dysku. Plain-SQL dump nie zrzuca danych indeksow, za
+# to ROZPAKOWUJE TOAST i koduje wszystko tekstem (COPY) — dla bpp (duze pola
+# tekstowe, tsvector search_index, hstore legacy_data) zrzut bywa ~2x wiekszy
+# niz pg_database_size, wiec goly -s zanizal pasek do ~50%. Zadna funkcja
+# katalogu nie zna logicznego rozmiaru, wiec KALIBRUJEMY: trzymamy w pliku
+# stosunek (rozmiar_zrzutu / pg_database_size) z POPRZEDNIEGO uruchomienia i
+# mnozymy nim biezacy pg_database_size. Pierwszy run: ratio=1.0 (jak dotad);
+# po zrzucie zapisujemy zmierzony ratio (patrz nizej). Gdy pv nie ma —
+# identity-pipe przez `cat`; nieudane zapytanie o rozmiar -> pv bez -s.
+RATIO_FILE="${HOST_BACKUP_DIR}/.pg-dump-size-ratio"
+file_size() { stat -c%s "$1" 2>/dev/null || stat -f%z "$1" 2>/dev/null; }
+
 PROGRESS=(cat)
+DB_BYTES=0
 if [ -t 2 ] && command -v pv >/dev/null 2>&1; then
     DB_BYTES="$(dc exec -T -e "PGPASSWORD=${DJANGO_BPP_DB_PASSWORD}" dbserver psql \
         -h "${DJANGO_BPP_DB_HOST}" -p "${DJANGO_BPP_DB_PORT}" \
@@ -116,7 +126,19 @@ if [ -t 2 ] && command -v pv >/dev/null 2>&1; then
         | tr -d '[:space:]')"
     case "$DB_BYTES" in ''|*[!0-9]*) DB_BYTES=0 ;; esac
     if [ "$DB_BYTES" -gt 0 ]; then
-        PROGRESS=(pv -s "$DB_BYTES")
+        RATIO=1.0
+        if [ -r "$RATIO_FILE" ]; then
+            R="$(tr -d '[:space:]' < "$RATIO_FILE")"
+            # akceptuj tylko dodatnia liczbe w rozsadnym zakresie 0.1..20
+            # (chroni przed uszkodzonym plikiem dajacym absurdalny -s).
+            if printf '%s' "$R" | grep -qE '^[0-9]+(\.[0-9]+)?$' \
+               && LC_ALL=C awk "BEGIN{exit !($R>=0.1 && $R<=20)}"; then
+                RATIO="$R"
+            fi
+        fi
+        EST="$(LC_ALL=C awk "BEGIN{printf \"%d\", $DB_BYTES * $RATIO}")"
+        echo ">> Estymata pv: ${EST} B (pg_database_size ${DB_BYTES} B x ratio ${RATIO})" >&2
+        PROGRESS=(pv -s "$EST")
     else
         PROGRESS=(pv)
     fi
@@ -144,6 +166,22 @@ if ! tail -n 5 "$PARTIAL" | grep -q 'PostgreSQL database dump complete'; then
     exit 1
 fi
 mv "$PARTIAL" "$OUT_PATH"
+
+# Kalibracja na przyszlosc: zapisz stosunek realnego rozmiaru zrzutu do
+# pg_database_size. Nastepny run uzyje go jako mnoznika estymaty pv (patrz
+# wyzej). Tylko gdy znalismy DB_BYTES (pv aktywne, zapytanie sie powiodlo).
+if [ "${DB_BYTES:-0}" -gt 0 ]; then
+    ACTUAL="$(file_size "$OUT_PATH")"
+    case "$ACTUAL" in ''|*[!0-9]*) ACTUAL=0 ;; esac
+    if [ "$ACTUAL" -gt 0 ]; then
+        # LC_ALL=C: separator dziesietny MUSI byc kropka (pl_PL dalby "0,400",
+        # co nie przejdzie walidacji ^[0-9]+(\.[0-9]+)?$ przy nastepnym odczycie).
+        NEW_RATIO="$(LC_ALL=C awk "BEGIN{printf \"%.3f\", $ACTUAL / $DB_BYTES}")"
+        if printf '%s\n' "$NEW_RATIO" > "$RATIO_FILE" 2>/dev/null; then
+            echo ">> Ratio kalibracji pv zapisane: ${NEW_RATIO} (-> ${RATIO_FILE})" >&2
+        fi
+    fi
+fi
 
 echo ">> Gotowe. Zrzut plain SQL:" >&2
 # Jedyne, co idzie na czysty STDOUT — sciezka do .sql (dla kroku 2).
