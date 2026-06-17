@@ -11,7 +11,7 @@
 #   - tymczasowo podmienione repo .env (make db-backup czyta stamtad
 #     BPP_CONFIGS_DIR; cleanup trap przywraca oryginal)
 #
-# Kroki 2 (stop serwisow) i 10 (make migrate + make up) sa pomijane bo wymagaja
+# Kroki 2 (stop serwisow) i 10 (make up + make migrate) sa pomijane bo wymagaja
 # pelnego stacka. Pozostale 1, 3-9 lecza przez prawdziwy skrypt.
 #
 # Uruchomienie: `make test-upgrade-postgres` lub

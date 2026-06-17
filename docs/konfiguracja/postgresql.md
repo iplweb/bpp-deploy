@@ -66,7 +66,9 @@ Skrypt (`scripts/upgrade-postgres.sh`) interaktywnie wykonuje kroki:
 6. Bump `DJANGO_BPP_POSTGRESQL_VERSION` (+ `_MAJOR`) w `.env`
 7. `docker compose pull dbserver` + `up -d dbserver` → initdb na nowym majorze
 8. `pg_restore -Fd -j N` z tarballa
-9. `make migrate` + `make up` + smoke-test logów appservera
+9. `make up` + `make migrate` + smoke-test logów appservera (kolejność istotna:
+   `make migrate` robi `docker compose exec appserver …`, więc wymaga już
+   działającego appservera — `make up` musi być pierwsze)
 
 ### Wymagania
 
