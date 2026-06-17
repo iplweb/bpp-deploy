@@ -147,4 +147,7 @@ echo ">> Weryfikacja po loadzie:" >&2
 "${PSQL[@]}" -d "${DJANGO_BPP_DB_NAME}" -tAc \
     "SELECT 'kolacje pl_PL w public pozostale: '||count(*) FROM pg_collation c JOIN pg_namespace n ON n.oid=c.collnamespace WHERE lower(c.collname)='pl_pl' AND n.nspname='public';" >&2
 echo ">> Gotowe. Baza '${DJANGO_BPP_DB_NAME}' zaladowana na ${IMG}." >&2
-echo "   Teraz: zmigruj aplikacje ('make migrate') i wstan stack ('make up')." >&2
+echo "   Teraz: wstan stack ('make up') — appserver przy starcie sam" >&2
+echo "   przepusci migracje. Ewentualnie potem 'make migrate' na zywym" >&2
+echo "   stacku ('make migrate' robi 'docker compose exec appserver ...'," >&2
+echo "   wiec wymaga juz dzialajacego appservera)." >&2
