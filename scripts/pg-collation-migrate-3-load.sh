@@ -62,7 +62,15 @@ if [ "$RECREATE" = 1 ]; then
         || { echo "Przerwano — nic nie ruszone." >&2; exit 1; }
     run dc stop appserver workerserver celerybeat denorm-queue dbserver || true
     run dc rm -f dbserver || true
-    run docker volume rm "$VOL"
+    # Wolumen kasujemy tylko jesli istnieje — jego BRAK to dokladnie stan
+    # docelowy (swiezy cluster i tak powstanie). 'docker volume rm' na
+    # nieistniejacym wolumenie zwraca blad i przy set -e wywalalby skrypt.
+    # Prawdziwy blad usuwania (np. wolumen w uzyciu) nadal zatrzyma skrypt.
+    if docker volume inspect "$VOL" >/dev/null 2>&1; then
+        run docker volume rm "$VOL"
+    else
+        echo ">> Volume '$VOL' nie istnieje — pomijam usuwanie." >&2
+    fi
     echo ">> Stawiam swiezy dbserver (initdb wg obrazu z compose)..." >&2
     run dc up -d --wait dbserver
 fi
