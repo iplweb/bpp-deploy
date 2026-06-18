@@ -12,7 +12,10 @@ set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 
-# Wyciagnij wszystkie nieblokowane obrazy (pomijamy iplweb/* bo to nasze wlasne)
+# Wyciagnij wszystkie nieblokowane obrazy (pomijamy iplweb/* bo to nasze wlasne).
+# UWAGA: dbserver to teraz stockowy postgres:<MAJOR.MINOR>, wiec pojawi sie tutaj.
+# Skrypt pokaze najnowszy tag - dla postgresa moze to byc inny MAJOR (np. 16->18).
+# Minor bump (16.13->16.14) zrob recznie; major bump idzie przez 'make upgrade-postgres'.
 mapfile -t IMAGES < <(
     grep -h 'image:' "$REPO_DIR"/docker-compose.*.yml \
         | sed 's/.*image: *//' \

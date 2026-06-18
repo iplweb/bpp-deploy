@@ -9,12 +9,12 @@
 #   4. docker compose pull dbserver -> nowy obraz z nowym majorem
 #   5. docker compose up -d dbserver -> initdb na nowej wersji w pustym volume
 #   6. pg_restore -Fd -j N z tarballa
-#   7. make migrate, make up, smoke test
+#   7. make up, make migrate, smoke test
 #
-# Wybor dump & restore zamiast pg_upgrade jest swiadomy: obraz iplweb/bpp_dbserver
-# ma tylko jeden major Postgresa baked in, wiec pg_upgrade in-place wymagalby
-# dedykowanego upgrade-image z dwiema binariami. Logical dump wykorzystuje
-# istniejacy `make db-backup` i jest forward-compatible przez wiele majorow.
+# Wybor dump & restore zamiast pg_upgrade jest swiadomy: kazdy obraz postgres:<ver>
+# ma tylko jeden major Postgresa, wiec pg_upgrade in-place wymagalby dedykowanego
+# obrazu z dwiema binariami. Logical dump wykorzystuje istniejacy `make db-backup`
+# i jest forward-compatible przez wiele majorow.
 #
 # Tryb external (BPP_DATABASE_COMPOSE=docker-compose.database.external.yml) ma
 # wlasna, drastycznie prostsza sciezke - upgrade prawdziwej bazy robi admin po
@@ -24,8 +24,10 @@
 #   - Docker Compose v2.20+ (juz wymagane przez include w docker-compose.yml)
 #   - Wystarczajaco miejsca na hoscie na: tarball pg_dump + drugi volume z kopia
 #     starego PGDATA. Dla DB rozmiaru X potrzeba ~2.5 * X wolnego miejsca.
-#   - Upstream image iplweb/bpp_dbserver:<TAG> z nowym majorem MUSI byc juz
-#     wypchniety na Docker Hub. Skrypt nie buduje obrazu.
+#   - Obraz postgres:<TAG> z nowym majorem - oficjalny obraz Docker, wszystkie
+#     majory sa zawsze dostepne (nie trzeba juz czekac na publikacje wlasnego
+#     obrazu). Krok 1 robi pre-flight `docker pull` i wylapie literowke w wersji.
+#     Skrypt nie buduje obrazu.
 #
 # Wywolanie: `make upgrade-postgres` lub bezposrednio `bash scripts/upgrade-postgres.sh`.
 #
@@ -140,7 +142,7 @@ Kroki:
    7. Bump DJANGO_BPP_POSTGRESQL_VERSION(+_MAJOR) w .env
    8. Start nowego dbservera (initdb na nowym majorze)
    9. pg_restore z tarballa
-  10. make migrate + make up + smoke test
+  10. make up + make migrate + smoke test
 
 Uwaga: niektore kroki nie sa w pelni idempotentne przy wznowieniu.
 Np. krok 5 wywali sie jesli BACKUP_VOLUME juz istnieje (wtedy usun go recznie
@@ -487,7 +489,7 @@ Procedura wykona:
   8. Start nowego dbserver -> initdb na nowym majorze
      (w razie failu - prompt o auto-rollback z backup volume)
   9. pg_restore z tarballa
- 10. make migrate, make up, smoke test
+ 10. make up, make migrate, smoke test
 
 Stary volume bedzie zachowany pod nowa nazwa az do recznego usuniecia.
 Tarball z pg_dump tez zostaje w \$DJANGO_BPP_HOST_BACKUP_DIR.
@@ -504,7 +506,7 @@ EOF
         echo "BLAD: --noinput wymaga --new-version=X.Y (skad wziac docelowa wersje?)." >&2
         exit 1
     else
-        echo "Dostepne tagi (psql-<ver>): https://hub.docker.com/r/iplweb/bpp_dbserver/tags"
+        echo "Dostepne tagi: https://hub.docker.com/_/postgres"
         read -r -p "Nowa wersja dbservera (format MAJOR.MINOR, np. 18.3): " NEW_POSTGRESQL_VERSION
     fi
     if [ -z "$NEW_POSTGRESQL_VERSION" ]; then
@@ -549,7 +551,7 @@ EOF
     echo "Plik stanu: $ROLLBACK_FILE"
 fi
 
-NEW_DBSERVER_IMAGE="iplweb/bpp_dbserver:psql-${NEW_POSTGRESQL_VERSION}"
+NEW_DBSERVER_IMAGE="postgres:${NEW_POSTGRESQL_VERSION}"
 
 # Trap z duzym banerem na wypadek awarii po krytycznym kroku (gdy
 # auto_rollback nie zostal wywolany - np. przerwanie Ctrl-C, blad w obcym
@@ -926,9 +928,14 @@ CRITICAL_STAGE_REACHED=0
 if [ "$FROM_STEP" -le 10 ] && ! step_is_skipped 10; then
     CURRENT_STEP=10
     echo
-    echo "=== [10/10] make migrate + make up ==="
-    run make migrate
+    echo "=== [10/10] make up + make migrate ==="
+    # make up MUSI byc pierwsze: appserver przy starcie sam przepuszcza
+    # migracje, a 'make migrate' robi 'docker compose exec appserver ...',
+    # wiec wymaga juz dzialajacego appservera (po kroku 2 byl zatrzymany,
+    # krok 7 wstawia tylko dbserver). 'make migrate' po 'make up' jest
+    # bezpiecznym, jawnym powtorzeniem (stop denorm-workerow na czas migracji).
     run make up
+    run make migrate
 
     echo
     echo "Smoke test - logi appserver (ostatnie 30 lini):"

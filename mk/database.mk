@@ -4,7 +4,8 @@
        restore-db-stop-servers restore-db-remove-db-rebuild-db-rm-backup \
        restore-remote-db-from-dump restore-remote-db-from-dump-dont-backup \
        upgrade-postgres test-upgrade-postgres \
-       push-local-bpp-db-to-remote
+       push-local-bpp-db-to-remote \
+       migrate-collation-dump migrate-collation-fix migrate-collation-load
 
 # Katalog backupow na hoscie. Nowa nazwa: DJANGO_BPP_HOST_BACKUP_DIR
 # (stara: DJANGO_BPP_BACKUP_DIR - fallback dla deploymentow ktore jeszcze
@@ -86,15 +87,23 @@ media-backup:
 #
 # Uzycie:
 #   make restore                          # najnowsza para db+media, z safety-backup
-#   make restore PICK=1                   # interaktywny wybor (fzf jesli jest)
+#   make restore PICK=1                   # interaktywny wybor (pary ORAZ pliki .sql)
 #   make restore TIMESTAMP=20260428-140218 # konkretna para
-#   make restore DB_ONLY=1                # tylko baza
+#   make restore DBFILE=/.../db.sql       # pojedynczy plik DB (auto-detekcja formatu)
+#   make restore DBFILE=/.../db.dump DBFORMAT=custom  # wymus format
+#   make restore DB_ONLY=1                # tylko baza (z pary)
 #   make restore MEDIA_ONLY=1             # tylko media
 #   make restore NO_SAFETY=1              # pomin safety-backup biezacego stanu
 #   make restore YES=1                    # noninteractive (auto-yes na confirm)
 RESTORE_FLAGS :=
 ifdef TIMESTAMP
   RESTORE_FLAGS += --timestamp=$(TIMESTAMP)
+endif
+ifdef DBFILE
+  RESTORE_FLAGS += --db-file=$(DBFILE)
+endif
+ifdef DBFORMAT
+  RESTORE_FLAGS += --db-format=$(DBFORMAT)
 endif
 ifdef PICK
   RESTORE_FLAGS += --pick
@@ -174,3 +183,42 @@ upgrade-postgres:
 # obrazy (psql-16.13 i psql-18.3) sa pullowane przez test + skrypt.
 test-upgrade-postgres:
 	@bash scripts/test-upgrade-postgres.sh
+
+# Migracja kolacji libc pl_PL -> stockowy postgres. Trzy kroki (thin wrappery
+# na scripts/pg-collation-migrate-{1-dump,2-fix,3-load}.sh). Pelny opis:
+# docs/eksploatacja/migracja-collation-stock-pg.md.
+#   make migrate-collation-dump  [STOP_APP=1] [YES=1]
+#   make migrate-collation-fix   DUMPSQL=/.../db-backup-*.sql
+#   make migrate-collation-load  SQL=/.../*-nocollation.sql [RECREATE=1] [YES=1]
+COLLATION_DUMP_FLAGS :=
+ifdef STOP_APP
+  COLLATION_DUMP_FLAGS += --stop-app
+endif
+ifdef YES
+  COLLATION_DUMP_FLAGS += --yes
+endif
+
+migrate-collation-dump:
+	@bash scripts/pg-collation-migrate-1-dump.sh $(COLLATION_DUMP_FLAGS)
+
+migrate-collation-fix:
+	@if [ -z "$(DUMPSQL)" ]; then \
+		echo "Uzycie: make migrate-collation-fix DUMPSQL=/.../db-backup-YYYYMMDD-HHMMSS.sql" >&2; \
+		exit 1; \
+	fi
+	@bash scripts/pg-collation-migrate-2-fix.sh "$(DUMPSQL)"
+
+COLLATION_LOAD_FLAGS :=
+ifdef RECREATE
+  COLLATION_LOAD_FLAGS += --recreate-volume
+endif
+ifdef YES
+  COLLATION_LOAD_FLAGS += --yes
+endif
+
+migrate-collation-load:
+	@if [ -z "$(SQL)" ]; then \
+		echo "Uzycie: make migrate-collation-load SQL=/.../db-backup-...-nocollation.sql [RECREATE=1]" >&2; \
+		exit 1; \
+	fi
+	@bash scripts/pg-collation-migrate-3-load.sh "$(SQL)" $(COLLATION_LOAD_FLAGS)
