@@ -13,8 +13,20 @@ make rclone-check     # Sprawdzenie spójności kopii zdalnej
 ## Codzienny backup
 
 Codzienny backup uruchamia Ofelia o **02:30** (label `0 30 2 * * *` na `backup-runner`).
-`backup-runner` to efemeryczny kontener (`postgres:$DJANGO_BPP_POSTGRESQL_VERSION_MAJOR-alpine`):
-robi `pg_dump`, pakuje media (tar), wysyła przez rclone i raportuje do Rollbara.
+`backup-runner` to efemeryczny kontener: robi `pg_dump`, pakuje media (tar), wysyła
+przez rclone i raportuje do Rollbara.
+
+!!! note "Obraz backup-runnera — bez podwójnego ściągania"
+    Domyślnie `backup-runner` używa **tego samego** obrazu co `dbserver`
+    (`postgres:${DJANGO_BPP_POSTGRESQL_VERSION}`, wariant Debian) — dzięki temu
+    współdzieli z nim 100% warstw i nie zajmuje dodatkowego miejsca na dysku
+    (osobny `-alpine` nie dzieli warstw z Debianem i kosztowałby ~350 MB więcej).
+    `pg_dump` trafia dokładnie w wersję serwera. `rclone`, `curl`, `jq` są
+    doinstalowane w runtime (`apt-get`). W trybie **zewnętrznej bazy** `dbserver`
+    to lekki sentinel `postgres:<major>-alpine`; tam `init-configs` ustawia
+    `BPP_BACKUP_PG_IMAGE=postgres:<major>-alpine`, by `backup-runner` współdzielił
+    warstwy z sentinelem (na starych instalacjach dopisuje to `ensure-config-files`
+    przy zwykłym `make up`).
 
 `make backup-cycle` uruchamia ten sam cykl ręcznie.
 

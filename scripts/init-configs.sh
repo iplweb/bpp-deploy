@@ -284,9 +284,9 @@ if [ ! -f "$ENV_FILE" ]; then
             EXT_PG_VERSION="$DETECTED_PG_MAJOR"
         else
             echo "UWAGA: nie udalo sie wykryc wersji (brak polaczenia, bledna auth lub firewall)."
-            printf "Podaj wersje major PostgreSQL recznie [17]: "
+            printf "Podaj wersje major PostgreSQL recznie [18]: "
             read -r EXT_PG_VERSION || true
-            EXT_PG_VERSION="${EXT_PG_VERSION:-17}"
+            EXT_PG_VERSION="${EXT_PG_VERSION:-18}"
         fi
         echo ""
     else
@@ -300,10 +300,10 @@ if [ ! -f "$ENV_FILE" ]; then
         echo "=== Wersja PostgreSQL dla dbserver ==="
         echo "Kontener dbserver uzywa oficjalnego obrazu postgres:<wersja> + autotune."
         echo "Dostepne tagi: https://hub.docker.com/_/postgres"
-        echo "Przyklady: 16.13, 17.9, 18.3 (zalecany format MAJOR.MINOR)."
-        printf "Wersja PostgreSQL [16.13]: "
+        echo "Przyklady: 18.4, 17.9, 16.13 (zalecany format MAJOR.MINOR)."
+        printf "Wersja PostgreSQL [18.4]: "
         read -r DBSERVER_PG_VERSION || true
-        DBSERVER_PG_VERSION="${DBSERVER_PG_VERSION:-16.13}"
+        DBSERVER_PG_VERSION="${DBSERVER_PG_VERSION:-18.4}"
         # Wyciagnij major (16.13 -> 16) jako domyslny dla backup-runnera,
         # zeby out-of-the-box pg_dump byl tej samej wersji co serwer.
         DBSERVER_PG_MAJOR="${DBSERVER_PG_VERSION%%.*}"
@@ -414,6 +414,10 @@ EOF
 # dla spojnosci z trybem lokalnym (gdzie VERSION jest MAJOR.MINOR).
 DJANGO_BPP_POSTGRESQL_VERSION=$EXT_PG_VERSION
 DJANGO_BPP_POSTGRESQL_VERSION_MAJOR=$EXT_PG_VERSION
+# Tryb external: backup-runner ma wspoldzielic lekki obraz z sentinelem
+# (postgres:<major>-alpine) zamiast ciagnac osobny obraz Debianowy. W trybie
+# lokalnym ta zmienna jest NIEUSTAWIONA -> compose bierze pelny obraz dbservera.
+BPP_BACKUP_PG_IMAGE=postgres:$EXT_PG_VERSION-alpine
 EOF
     fi
 

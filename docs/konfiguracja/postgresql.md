@@ -1,9 +1,17 @@
 # PostgreSQL — wersje i upgrade
 
 Kontener `dbserver` używa **oficjalnego obrazu** `postgres:${DJANGO_BPP_POSTGRESQL_VERSION}`
-(wariant Debian, nie `-alpine`), format `MAJOR.MINOR` (np. `16.13`, `17.9`, `18.3`). Wersja
-jest sterowana zmienną `DJANGO_BPP_POSTGRESQL_VERSION` w `$BPP_CONFIGS_DIR/.env`. Domyślnie
-`16.13`.
+(wariant Debian, nie `-alpine`), format `MAJOR.MINOR` (np. `18.4`, `17.9`, `16.13`). Wersja
+jest sterowana zmienną `DJANGO_BPP_POSTGRESQL_VERSION` w `$BPP_CONFIGS_DIR/.env`. Nowe
+instalacje dostają domyślnie **`18.4`** (najnowsza wersja z gałęzi 18).
+
+!!! warning "Domyślna `18.4` dotyczy tylko NOWYCH instalacji"
+    `init-configs` wpisuje `18.4` przy pierwszym uruchomieniu. Istniejące instalacje
+    zachowują swoją wersję z `.env` — **upgrade majora nigdy nie dzieje się sam**
+    (wymaga dump/restore przez `make upgrade-postgres`). Fallback w `docker-compose`
+    (`:-16.13`) celowo **pozostaje na `16.13`** jako siatka bezpieczeństwa dla
+    pradawnych `.env` bez tej zmiennej — gdyby skoczył na `18.4`, taki klaster PG16
+    dostałby obraz PG18 na danych PG16 i nie wstałby.
 
 > **Skąd autotune?** Wcześniej `dbserver` używał własnego obrazu `iplweb/bpp_dbserver` —
 > jest on **wycofany**, a jego jedynym dodatkiem ponad stockowego postgresa był *autotune*.
@@ -13,12 +21,17 @@ jest sterowana zmienną `DJANGO_BPP_POSTGRESQL_VERSION` w `$BPP_CONFIGS_DIR/.env
 > do limitu pamięci kontenera (`DBSERVER_MEM_LIMIT`, ~95%) i startuje normalnie. Bez buildu,
 > bez `python3`. Szczegóły strojenia: [Limity zasobów](limity-zasobow.md).
 
-`DJANGO_BPP_POSTGRESQL_VERSION_MAJOR` (auto-derived z `_VERSION`) jest używana przez
-`backup-runner` (`postgres:<major>-alpine` — `pg_dump` musi być ≥ wersji serwera).
-W trybie external obie zmienne trzymają tylko major.
+`DJANGO_BPP_POSTGRESQL_VERSION_MAJOR` (auto-derived z `_VERSION`) trzyma sam major.
+W trybie lokalnym `backup-runner` używa jednak tego **samego pełnego obrazu** co
+`dbserver` (`postgres:${DJANGO_BPP_POSTGRESQL_VERSION}`, Debian) — współdzieli z nim
+warstwy zamiast ściągać osobny `-alpine`; `pg_dump` trafia dokładnie w wersję serwera.
+W trybie external `dbserver` to sentinel `postgres:<major>-alpine` i wtedy zmienna
+`BPP_BACKUP_PG_IMAGE` kieruje `backup-runner` na ten sam alpine. `_MAJOR` nadal
+napędza tag sentinela oraz krok upgrade'u. Szczegóły:
+[Backup i rclone](../eksploatacja/backup-i-rclone.md).
 
 Wybór wersji następuje przy pierwszym uruchomieniu `make` — `init-configs` zapyta
-`Wersja PostgreSQL [16.13]:`. Lista tagów:
+`Wersja PostgreSQL [18.4]:`. Lista tagów:
 [hub.docker.com/_/postgres](https://hub.docker.com/_/postgres).
 
 !!! note "Kolacja (sortowanie) i PGDATA"

@@ -10,13 +10,24 @@ make help             # Pełna lista wszystkich targetów Make (źródło prawdy
 
 ```bash
 make run                # Pełne wdrożenie (pull, build, configs, up)
-make up                 # Start wszystkich usług (force recreate)
-make up-quick           # Szybki start bez recreation
+make up                 # Start wszystkich usług (force recreate) + sprzątanie Dockera
+make up-quick           # Szybki start bez recreation (bez sprzątania)
 make refresh            # prune + pull + recreate (po update obrazu)
 make wait               # Czeka na build z GH Actions, potem make refresh
 make stop               # Zatrzymaj usługi
 make restart-appserver  # Restart serwera aplikacji
 ```
+
+!!! note "Sprzątanie Dockera po `make up` / `make run`"
+    Po **udanym** starcie (`--wait` — wszystkie usługi zdrowe) `make up` (a więc i
+    `make run`) uruchamia `docker system prune -af` i wypisuje tylko ile miejsca
+    zwolniono (`Zwolniono na dysku: …`). Usuwa to nieużywane obrazy (w tym stare
+    wersje obrazów BPP po aktualizacji), zatrzymane kontenery, niepodpięte sieci i
+    cache builda. **Bez `--volumes`** — nazwane wolumeny z danymi (`postgresql_data`,
+    `media`, `staticfiles`) są bezpieczne. Uwaga: `-af` usuwa **wszystkie** nieużywane
+    obrazy na hoście, także spoza BPP — na maszynie współdzielonej z innymi projektami
+    używaj `make up-quick` (nie sprząta). Obraz fallback `iplweb/html2docx` jest
+    pobierany **po** prune, więc nie znika.
 
 ## Baza danych
 

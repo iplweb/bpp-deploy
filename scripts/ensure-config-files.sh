@@ -173,6 +173,23 @@ if [ -f "$_ENV" ]; then
     # bez koniecznosci recznego `make init-configs`.
     _ensure_var DJANGO_BPP_MEDIA_ROOT "/mediaroot" \
         "  + dopisano brakujace DJANGO_BPP_MEDIA_ROOT=/mediaroot w .env"
+
+    # backup-runner image override - TYLKO w trybie zewnetrznej bazy. Tam
+    # dbserver to lekki sentinel postgres:<major>-alpine, wiec backup-runner ma
+    # wspoldzielic z nim warstwy (zamiast ciagnac osobny obraz Debianowy ~450MB).
+    # W trybie lokalnym ta zmienna POZOSTAJE nieustawiona -> compose bierze pelny
+    # obraz dbservera (postgres:<MAJOR.MINOR>), wspoldzielony z prawdziwym PG.
+    # Stare instalacje external (sprzed tej zmiennej) dostaja ja tu, bez
+    # recznego kroku - zgodnie z regula kompatybilnosci wstecznej.
+    _DBCOMPOSE="$(grep -E '^BPP_DATABASE_COMPOSE=' "$REPO_DIR/.env" 2>/dev/null | tail -1 | cut -d= -f2- || true)"
+    if [ "$_DBCOMPOSE" = "docker-compose.database.external.yml" ]; then
+        _bk_major="$(grep -E '^DJANGO_BPP_POSTGRESQL_VERSION_MAJOR=' "$_ENV" 2>/dev/null | tail -1 | cut -d= -f2-)"
+        [ -n "$_bk_major" ] || _bk_major="$(grep -E '^DJANGO_BPP_POSTGRESQL_DB_VERSION=' "$_ENV" 2>/dev/null | tail -1 | cut -d= -f2-)"
+        if [ -n "$_bk_major" ]; then
+            _ensure_var BPP_BACKUP_PG_IMAGE "postgres:${_bk_major}-alpine" \
+                "  + dopisano BPP_BACKUP_PG_IMAGE=postgres:${_bk_major}-alpine (tryb external) w .env"
+        fi
+    fi
 fi
 
 if [ -f "$_ENV" ] && [ -f "$DEFAULTS_DIR/netdata/go.d/postgres.conf.tpl" ]; then
