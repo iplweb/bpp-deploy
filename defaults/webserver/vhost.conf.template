@@ -65,5 +65,21 @@ server {
     access_log /dev/stdout bpp_access;
     access_log /var/log/nginx-shared/bpp_access.log bpp_access;
 
+    # Strona błędu 500 PER-DOMENA (multi-hosted). nginx próbuje najpierw
+    # /staticroot/500/<host>.html (branding uczelni przypisanej do tej domeny),
+    # a gdy go brak — generyczny /staticroot/500.html (fallback; dokładnie to,
+    # co generują obrazy pre-multi-hosted). Oba pliki produkuje w runtime
+    # `manage.py generate_500_page` (appserver) w $STATIC_ROOT = wolumen
+    # staticroot, widziany przez nginx pod /var/www/html/staticroot/.
+    # ${VHOST_NAME} podstawia envsubst przy renderze vhost-<host>.conf; ścieżki
+    # try_files są literalne (brak zmiennych runtime nginx-a). Ostatni argument
+    # =500 to twardy fallback, gdyby nawet generyczna strona nie istniała.
+    error_page 500 /__bpp_500__;
+    location = /__bpp_500__ {
+        internal;
+        root /var/www/html;
+        try_files /staticroot/500/${VHOST_NAME}.html /staticroot/500.html =500;
+    }
+
     include /etc/nginx/bpp-templates/_bpp-locations.conf;
 }
