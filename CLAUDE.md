@@ -128,7 +128,7 @@ All services use the `local` log driver via a per-file `x-logging` YAML anchor. 
 
 ### Healthchecks & autoheal
 
-Docker does NOT restart on failed healthcheck (`restart: always` only reacts to process exit). Sidecar `autoheal` restarts containers labeled `autoheal=true` on `Health.Status=unhealthy` (watched: `workerserver`). **`denorm-queue` is intentionally NOT autoheal-watched** — its Compose healthcheck is commented out, so it has no health status to react to; it relies on the nightly staggered `kill 1` restart (Ofelia, 05:25) instead. Double-dollar escaping (`$$DJANGO_BPP_DB_USER`) in healthcheck commands prevents premature Compose expansion. Detail: `docs/architektura/healthchecks-autoheal.md`.
+Docker does NOT restart on failed healthcheck (`restart: always` only reacts to process exit). Sidecar `autoheal` restarts containers labeled `autoheal=true` on `Health.Status=unhealthy` (watched: `workerserver`, `celerybeat`). `celerybeat`'s healthcheck is a lightweight **heartbeat-file freshness** probe (`HeartbeatScheduler` in the bpp image touches `/tmp/celerybeat-heartbeat` every tick; the Compose `test:` is a dispatcher that falls back to the old `healthcheck_broker.py` cold-import probe on pre-June-2026 images — the heavy probe under a low CPU cap was what delayed celerybeat to ~218s on startup). **`denorm-queue` is intentionally NOT autoheal-watched** — its Compose healthcheck is commented out, so it has no health status to react to; it relies on the nightly staggered `kill 1` restart (Ofelia, 05:25) instead. Double-dollar escaping (`$$DJANGO_BPP_DB_USER`) in healthcheck commands prevents premature Compose expansion. Detail: `docs/architektura/healthchecks-autoheal.md`.
 
 ### Service dependencies
 

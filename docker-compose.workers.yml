@@ -119,11 +119,20 @@ services:
       appserver:
         condition: service_started
     healthcheck:
-      # Image healthcheck (start_period 40s) flaguje unhealthy podczas cold startu
-      # Django w celerybeat - import django_bpp.celery_tasks + broker connect potrafi
-      # zajac > 70s gdy appserver zaraz obok zjada CPU migracjami. Wydluzamy grace
-      # zeby `compose up --wait` nie wywalal sie zanim broker probe sie ustabilizuje.
-      test: ["CMD", "python", "/app/healthcheck_broker.py"]
+      # Dyspozytor wstecznie zgodny z OBRAZEM (DOCKER_VERSION moze pinowac stary obraz):
+      #  - NOWY obraz (czerwiec 2026+) ma /app/healthcheck_beat.py: lekka sonda sprawdza
+      #    tylko swiezosc /tmp/celerybeat-heartbeat (HeartbeatScheduler dotyka go co tick),
+      #    bez importu Django i bez sprawdzania redisa (redis ma wlasny healthcheck; beat
+      #    i tak depend_on redis: service_healthy). ~30-50 ms -> celerybeat wstaje w
+      #    ~kilkanascie s zamiast ~218 s.
+      #  - STARY obraz nie ma tego pliku -> spadamy na healthcheck_broker.py (pelny
+      #    cold-import django_bpp.celery_tasks + broker connect). Gdybysmy twardo wskazali
+      #    nowy skrypt, stary obraz mialby brak pliku -> healthcheck zawsze fail ->
+      #    autoheal restartowalby beata w kolko. Dlatego dispatch przez [ -f ].
+      # interval/timeout/start_period zostaja hojne, bo MUSZA obsluzyc stara, ciezka sonde
+      # (4-10 s pod obciazeniem). Na nowym obrazie dluzsze okno nie szkodzi - sukces sondy
+      # i tak natychmiast przelacza w healthy, niezaleznie od start_period.
+      test: ["CMD-SHELL", "if [ -f /app/healthcheck_beat.py ]; then exec python /app/healthcheck_beat.py; else exec python /app/healthcheck_broker.py; fi"]
       interval: 10s
       timeout: 10s
       start_period: 300s
@@ -132,7 +141,14 @@ services:
       resources:
         limits:
           memory: ${CELERYBEAT_MEM_LIMIT:-480m}
-          cpus: "${CELERYBEAT_CPU_LIMIT:-0.25}"
+          # Beat jest w spoczynku ~0% CPU, ale przy starcie sam cold-importuje caly Django
+          # (a stara fallback-sonda healthcheck_broker.py importuje go co interval). cpus to
+          # SUFIT (CFS quota), nie rezerwacja - 1.0 pozwala temu importowi burstnac do 1
+          # rdzenia, wiec beat bootuje szybciej i heartbeat (-> healthy) pojawia sie wczesniej.
+          # NIE odbiera quoty zadnej innej usludze (celerybeat nie jest w CPU_SERVICES
+          # configure-resources). Bylo 0.25 -> import ocieral sie o 10s timeout, start ~218s.
+          # Z nowa lekka sonda 0.25 by wystarczylo, ale 1.0 zostaje (przyspiesza boot, idle ~0%).
+          cpus: "${CELERYBEAT_CPU_LIMIT:-1.0}"
     labels:
       # Sidecar autoheal restartuje celerybeat gdy broker probe zglosi unhealthy
       # (np. po zerwaniu polaczenia z brokerem w runtime - beat zyje, ale przestaje
