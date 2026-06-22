@@ -66,10 +66,31 @@ make logs-denorm      # Logi denormalizacji
 make logs-netdata     # Logi Netdaty (metryki + alerty)
 make celery-stats     # Statystyki zadań Celery
 make celery-status    # Status workerów
-make ntfy-test        # Wyślij testowy push na ntfy (alerty na telefon)
 ```
 
 Szczegóły: [Monitoring i logi](../monitoring/przeglad.md).
+
+## Diagnostyka powiadomień / usług
+
+Deploy (`make run`) **nie** wysyła już automatycznie testowych maili ani nie testuje
+Rollbara — diagnostykę uruchamiasz na żądanie. Najprościej przez interaktywne menu:
+
+```bash
+make doctor           # menu: mail / ntfy / rollbar / health / backup / wszystko
+```
+
+Pojedyncze testy (każdy robi dokładnie jedną rzecz) można też wywołać wprost:
+
+```bash
+make test-email       # Wyślij testowe e-maile (wymaga DJANGO_BPP_ADMIN_EMAIL)
+make test-rollbar     # Wyślij testowe zdarzenie do Rollbara (wymaga ROLLBAR_ACCESS_TOKEN)
+make test-ntfy        # Wyślij testowy push na ntfy (wymaga NTFY_TOPIC)
+make ntfy-test        # Deprecated alias dla test-ntfy
+```
+
+W menu pozycja **wszystko** = mail + ntfy + rollbar po kolei (dawne zachowanie
+po deployu, ale na żądanie). `health` i `backup` (pełny cykl: pg_dump + media +
+rclone + powiadomienie Rollbar) to osobne pozycje menu.
 
 ## Celery / denormalizacja
 

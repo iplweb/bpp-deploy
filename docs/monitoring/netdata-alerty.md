@@ -39,7 +39,7 @@ Netdata wysyła push na publiczny ntfy.sh. Topic (sekret) jest generowany losowo
 Subskrybuj w aplikacji ntfy: `https://ntfy.sh/<NTFY_TOPIC>`. Test:
 
 ```bash
-make ntfy-test
+make test-ntfy        # (dawniej make ntfy-test — alias nadal działa)
 ```
 
 ## Kolektory `go.d`
@@ -72,5 +72,5 @@ Grafany (zamiast superusera aplikacji).
 ```bash
 make logs-netdata     # logi Netdaty
 make netdata-shell    # shell w kontenerze netdata
-make ntfy-test        # test pushu
+make test-ntfy        # test pushu (alias: make ntfy-test)
 ```

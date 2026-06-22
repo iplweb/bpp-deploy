@@ -68,6 +68,7 @@ include mk/celery.mk
 include mk/configs.mk
 include mk/docker.mk
 include mk/django.mk
+include mk/doctor.mk
 include mk/rclone.mk
 include mk/ssl.mk
 include mk/misc.mk
@@ -125,7 +126,7 @@ help:
 	@echo "    ps                   - Show running containers"
 	@echo "    health               - Quick health check of all services"
 	@echo "    check-quic           - Verify HTTP/3 (QUIC) UDP port availability"
-	@echo "    ntfy-test            - Send test notification to ntfy (phone alerts)"
+	@echo "    (powiadomienia ntfy/mail/rollbar: patrz sekcja Diagnostyka)"
 	@echo ""
 	@echo "  Celery/Background tasks:"
 	@echo "    celery-stats         - View active tasks and queues"
@@ -163,8 +164,13 @@ help:
 	@echo ""
 	@echo "  Django utilities:"
 	@echo "    invalidate           - Invalidate Django cache"
-	@echo "    test-email           - Test email configuration (also runs test-rollbar)"
+	@echo ""
+	@echo "  Diagnostyka (deploy NIE testuje juz nic automatycznie):"
+	@echo "    doctor               - Interaktywne menu: mail/ntfy/rollbar/health/backup"
+	@echo "    test-email           - Test email configuration"
 	@echo "    test-rollbar         - Test Rollbar configuration"
+	@echo "    test-ntfy            - Test ntfy push notification"
+	@echo "    ntfy-test            - Deprecated alias for test-ntfy"
 	@echo ""
 	@echo "  Versioning:"
 	@echo "    version              - Show current version (from git tags)"

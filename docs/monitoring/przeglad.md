@@ -47,7 +47,8 @@ make celery-stats     # statystyki zadań Celery
 make celery-status    # status workerów
 make health           # healthcheck wszystkich usług
 make ps               # lista kontenerów
-make ntfy-test        # test pushu na ntfy
+make test-ntfy        # test pushu na ntfy (alias: make ntfy-test)
+make doctor           # menu diagnostyczne: mail/ntfy/rollbar/health/backup
 ```
 
 Netdata ma wbudowany healthcheck (Docker `HEALTHCHECK` w obrazie) — `make ps` pokazuje

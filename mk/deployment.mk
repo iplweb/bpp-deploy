@@ -87,7 +87,9 @@ health:
 check-quic:
 	@bash scripts/check-quic-port.sh $(HOST)
 
-run: pull build update-configs up test-email
+run: pull build update-configs up
+	@echo ""
+	@echo "Deploy zakonczony. Diagnostyka powiadomien/uslug na zadanie: make doctor"
 
 # Proba generalna aktualizacji: backup -> shadow stack (dbserver+redis poza
 # projektem Compose) -> restore -> migrate obrazem-kandydatem. Produkcja
