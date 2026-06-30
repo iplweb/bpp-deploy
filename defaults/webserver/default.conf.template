@@ -28,6 +28,35 @@ map $http_upgrade $connection_upgrade {
     ''      close;
 }
 
+# ============================================================================
+# RATE LIMITING — strefy (kontekst http)
+# ============================================================================
+# Strefy limitow requestow uzywane przez locationy w _bpp-locations.conf
+# (/api/, /admin/, reszta). Klucz: $binary_remote_addr = realny IP klienta
+# (nginx terminuje TLS sam, jest edge'em — brak CDN/X-Forwarded-For do zaufania).
+#
+# Wartosci = ~2x zmierzony szczytowy LEGALNY req/s per IP (make request-stats):
+# rest 100 (peak ~50), admin 50 (peak ~23), api 60 (peak ~26). burst = rate
+# (~1 s zapasu na szpile z page-loadu); nodelay = szpila serwowana od reki.
+#
+# limit_req_status 429 (NIE domyslne 503) — inaczej error_page 502 503 504 w
+# _bpp-locations.conf pokazywaloby dlawionym userom strone "konserwacja", a
+# netdata alarmowalaby na 5xx. limit_req_log_level warn — domyslnie nginx loguje
+# kazde odrzucone 429 na poziomie `error`, co przy floodzie napompowaloby
+# dashboard error-monitoring (keyowany po detected_level); `warn` to neutralizuje.
+# $binary_remote_addr nie pasuje do NGINX_ENVSUBST_FILTER (DJANGO_BPP_), wiec
+# envsubst go nie tyka.
+#
+# Brak globalnego (agregatowego) sufitu CELOWO: pojemnosci calego hosta pilnuja
+# workery appservera + limity CPU/RAM Dockera (skalowane do hosta przez
+# `make configure-resources`), a NIE statyczny req/s we froncie — nginx liczy
+# requesty, ale jest slepy na ich koszt i na wysycenie CPU/dysku/workerow.
+limit_req_status 429;
+limit_req_log_level warn;
+limit_req_zone $binary_remote_addr zone=bpp_general:10m rate=100r/s;
+limit_req_zone $binary_remote_addr zone=bpp_admin:10m   rate=50r/s;
+limit_req_zone $binary_remote_addr zone=bpp_api:10m     rate=60r/s;
+
 # Catch-all server block for HTTP traffic with unknown hostnames.
 # Drops connections with 444 (no response) to prevent access via raw IP or
 # unknown Host header. Tylko explicit listed hostnames (vhost-*.conf) sa
