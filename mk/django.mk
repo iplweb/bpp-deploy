@@ -27,7 +27,6 @@ test-email:
 	fi
 	docker compose exec appserver python src/manage.py sendtestemail $(DJANGO_BPP_ADMIN_EMAIL)
 	docker compose exec appserver python src/manage.py sendtesttemplatedemail $(DJANGO_BPP_ADMIN_EMAIL)
-	$(MAKE) test-rollbar
 
 test-rollbar:
 	@if [ -z "$(ROLLBAR_ACCESS_TOKEN)" ]; then \
