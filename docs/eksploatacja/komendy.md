@@ -79,6 +79,19 @@ Szczegóły: [Monitoring i logi](../monitoring/przeglad.md),
 
 ## Diagnostyka powiadomień / usług
 
+!!! note "Automatyczna bramka zdrowia po deployu"
+    `make up` i `make run` kończą się **lekką, read-only bramką**
+    (`scripts/post-deploy-check.sh`) sprawdzającą stan kontenerów
+    (`unhealthy` / `restarting`). Gdy wszystko OK — wypisuje
+    `✓ Wszystkie uslugi zdrowe.` i kończy kodem **0** (cicho). Gdy coś jest w złym
+    stanie: w terminalu pyta `[s] shell · [d] make doctor · [dowolny klawisz]
+    wyjście` (auto-wyjście po 30 s) i kończy kodem **≠ 0**; w trybie
+    nieinteraktywnym (CI / cron / `make up | tee`) wypisuje problem i zwraca
+    **≠ 0** bez pytania. Bramka **nie** wysyła maili/pushy/Rollbara — testy
+    powiadomień zostają na żądanie (poniżej). Aby ją pominąć (np. własna
+    automatyka wołająca `make up` pod `set -e`), ustaw `BPP_SKIP_HEALTH_GATE=1`
+    w środowisku.
+
 Deploy (`make run`) **nie** wysyła już automatycznie testowych maili ani nie testuje
 Rollbara — diagnostykę uruchamiasz na żądanie. Najprościej przez interaktywne menu:
 

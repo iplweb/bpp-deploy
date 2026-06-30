@@ -531,6 +531,9 @@ fi
 # ---- Restart stacka -----------------------------------------------------
 echo
 echo "=== Restart stacka (make up) ==="
+# Pomijamy bramke zdrowia po deployu (post-deploy-check.sh): pod `set -e` jej
+# exit!=0 na transient flap zaraz po restorze flipnalby udany restore na blad.
+export BPP_SKIP_HEALTH_GATE=1
 run make -C "$REPO_DIR" up
 
 echo

@@ -934,6 +934,11 @@ if [ "$FROM_STEP" -le 10 ] && ! step_is_skipped 10; then
     # wiec wymaga juz dzialajacego appservera (po kroku 2 byl zatrzymany,
     # krok 7 wstawia tylko dbserver). 'make migrate' po 'make up' jest
     # bezpiecznym, jawnym powtorzeniem (stop denorm-workerow na czas migracji).
+    #
+    # Pomijamy bramke zdrowia po deployu (scripts/post-deploy-check.sh): pod
+    # `set -e` + ERR trap jej exit!=0 (transient flap tuz po restarcie) przerwalby
+    # upgrade PRZED `make migrate`, a w TTY-bez-czlowieka jej prompt by zawisl.
+    export BPP_SKIP_HEALTH_GATE=1
     run make up
     run make migrate
 

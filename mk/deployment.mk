@@ -54,6 +54,9 @@ up: validate-env-quotes ensure-config-files update-configs
 		docker pull iplweb/html2docx:latest; \
 	fi
 	$(MAKE) invalidate
+	@# Bramka zdrowia po deployu (read-only): OK -> exit 0 cicho; usluga
+	@# unhealthy/restarting -> w TTY prompt [s]shell/[d]doctor, w nie-TTY exit !=0.
+	@bash scripts/post-deploy-check.sh
 
 up-appserver: validate-env-quotes pull
 	docker compose up --wait --force-recreate -d appserver
@@ -70,6 +73,11 @@ rmrf:
 up-quick: validate-env-quotes ensure-config-files pull
 	docker compose up -d --wait
 	$(MAKE) invalidate
+
+# Unit-testy scripts/post-deploy-check.sh (mock docker/make, bez sieci/dockera).
+.PHONY: test-post-deploy-check
+test-post-deploy-check:
+	@bash scripts/test-post-deploy-check.sh
 
 up-webserver: validate-env-quotes
 	docker compose up -d webserver
