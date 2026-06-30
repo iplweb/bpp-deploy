@@ -123,6 +123,7 @@ help:
 	@echo "    logs-denorm          - View denorm-queue logs"
 	@echo "    logs-netdata         - Tail netdata logs"
 	@echo "    ps                   - Show running containers"
+	@echo "    request-stats        - Peak req/s per IP (admin/api/reszta) z access logow nginx"
 	@echo "    health               - Quick health check of all services"
 	@echo "    check-quic           - Verify HTTP/3 (QUIC) UDP port availability"
 	@echo "    ntfy-test            - Send test notification to ntfy (phone alerts)"
