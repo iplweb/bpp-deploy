@@ -1,6 +1,6 @@
 # Monitoring helpers (Netdata + ntfy).
 
-.PHONY: ntfy-test logs-netdata netdata-shell
+.PHONY: test-ntfy ntfy-test logs-netdata netdata-shell
 
 NTFY_TOPIC ?= $(shell grep '^NTFY_TOPIC=' $(BPP_CONFIGS_DIR)/.env 2>/dev/null | cut -d= -f2-)
 # $(or ...) bo `grep | cut || echo` nie dziala: cut konczy sie exit 0 nawet na
@@ -10,7 +10,7 @@ NTFY_SERVER ?= $(or $(strip $(shell grep '^DJANGO_BPP_NTFY_SERVER=' $(BPP_CONFIG
 
 # Wyslij testowe powiadomienie na ntfy - potwierdzenie ze appka na
 # telefonie subskrybuje wlasciwy topic i konfiguracja dziala.
-ntfy-test:
+test-ntfy:
 	@if [ -z "$(NTFY_TOPIC)" ]; then \
 		echo "BLAD: NTFY_TOPIC nie ustawione w $(BPP_CONFIGS_DIR)/.env"; \
 		echo "      Uruchom: make init-configs"; \
@@ -21,9 +21,13 @@ ntfy-test:
 		-H "Title: BPP test notification" \
 		-H "Tags: white_check_mark,bpp" \
 		-H "Priority: 3" \
-		-d "To jest test z make ntfy-test. Jesli to widzisz, alerty dzialaja." \
+		-d "To jest test z make test-ntfy. Jesli to widzisz, alerty dzialaja." \
 		"$(NTFY_SERVER)/$(NTFY_TOPIC)" >/dev/null
 	@echo "Wyslane. Sprawdz appke ntfy na telefonie."
+
+# DEPRECATED alias -> test-ntfy (zachowane dla kompatybilnosci: stare skrypty
+# i pamiec miesniowa operatora). Backwards-compat contract.
+ntfy-test: test-ntfy
 
 # Live logi netdata.
 logs-netdata:
