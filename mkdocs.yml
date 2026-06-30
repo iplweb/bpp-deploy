@@ -108,6 +108,7 @@ nav:
       - Dashboardy Grafany: monitoring/dashboardy-grafany.md
   - Architektura:
       - Usługi i przepływ danych: architektura/uslugi.md
+      - Rate limiting (nginx): architektura/rate-limiting.md
       - Healthchecks i autoheal: architektura/healthchecks-autoheal.md
       - Zadania okresowe (Ofelia): architektura/zadania-ofelia.md
   - Rozwiązywanie problemów: rozwiazywanie-problemow.md

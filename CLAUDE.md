@@ -37,6 +37,7 @@ Operator topics and their canonical pages:
 - Backups / server migration: `docs/eksploatacja/backup-i-rclone.md`, `docs/eksploatacja/przenosiny-serwera.md`
 - Monitoring / logging / slow queries: `docs/monitoring/*`
 - Services / healthchecks / Ofelia jobs: `docs/architektura/*`
+- Rate limiting (nginx, per-tier `limit_req`): `docs/architektura/rate-limiting.md`
 - Backwards-compat contract: `docs/rozwoj/backwards-compatibility.md` (summarized below — read both)
 
 ## Configuration Architecture (essentials)
@@ -125,6 +126,10 @@ As of June 2026 there is **one** Celery worker, `workerserver` (was `workerserve
 ### Logging — add `logging` to new services
 
 All services use the `local` log driver via a per-file `x-logging` YAML anchor. **YAML anchors do not cross `include:` boundaries** — each of the 7 compose files defines its own `x-logging`. **When adding a new service: include `logging: *default-logging` or it falls back to unrotated `json-file`.** Full logging/retention detail: `docs/monitoring/logowanie.md`.
+
+### Rate limiting (nginx)
+
+Per-IP `limit_req` on `/admin/` (50r/s), `/api/` (60r/s) and the rest (`location /`, 100r/s), all `nodelay`, `burst = rate`. **Two-file split: zones (`limit_req_zone` + `rate`) live in `defaults/webserver/default.conf.template` (http context); the `limit_req` directives (+ `burst`) live in `defaults/webserver/_bpp-locations.conf` (server context).** Hardcoded, **not** `.env` — nginx `envsubst` can't do `${VAR:-default}` and `_bpp-locations.conf` isn't envsubst'd at all. Versioned bind-mounted files (not `$BPP_CONFIGS_DIR`), so `git pull && make up` activates changes with no migration. CRITICAL: (1) `limit_req_status 429;` MUST stay — default 503 would hit `error_page 502 503 504 /maintenance.html` (throttled users get the maintenance page) and trip netdata's 5xx alert; `limit_req_log_level warn;` keeps 429 floods out of the `error`-level error-monitoring dashboard. (2) **No global/aggregate cap by design** — per-IP only; whole-host capacity is governed downstream by appserver workers + Docker CPU/RAM limits (`make configure-resources`), not a static front-door req/s (nginx is blind to per-request cost). (3) `/static/`, `/media/`, `/healthz` and auth-gated panels are deliberately unlimited. Measure real per-IP peaks with `make request-stats` before tuning. Detail: `docs/architektura/rate-limiting.md`.
 
 ### Healthchecks & autoheal
 

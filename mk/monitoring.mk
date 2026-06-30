@@ -49,6 +49,13 @@ create-monitoring-user:
 grant-pg-monitor:
 	@bash scripts/grant-pg-monitor.sh
 
+# Szczytowy req/s per IP (rozbity na /admin/, /api/, reszta) z access logow
+# nginx-a. Do doboru limitow requestow (limit_req) na podstawie REALNEGO ruchu,
+# a nie zgadywania. Knoby: SINCE=24h TOP=30 (domyslnie SINCE=72h TOP=15).
+.PHONY: request-stats
+request-stats:
+	@bash scripts/show-request-stats.sh
+
 # Konfiguruje monitoring wolnych zapytan PostgreSQL:
 # - log_min_duration_statement = 1000ms (slow queries do logu - Loki dashboard)
 # - pg_stat_statements extension (agregowane stats - Grafana dashboard)
