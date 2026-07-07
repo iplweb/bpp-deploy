@@ -6,7 +6,14 @@ changepassword:
 
 invalidate:
 	docker compose exec appserver python src/manage.py invalidate all
-	docker compose exec redis redis-cli FLUSHDB
+	@# Czyscimy renderowany page cache (@cache_page + fragmenty {% cache %}),
+	@# ale NIE sesje. Dawniej stal tu 'redis-cli FLUSHDB', ktory flushowal cala
+	@# baze Redisa (page cache i sesje dziela ta sama DB) => wylogowywal
+	@# wszystkich przy KAZDYM 'make up' (potwierdzone empirycznie). Teraz
+	@# kasujemy chirurgicznie po wzorcu klucza (Django cache.delete_pattern) -
+	@# sesje zostaja. NIE przywracac tu FLUSHDB/FLUSHALL. Cache zapytan ORM
+	@# (cacheops) czysci powyzsze 'invalidate all'.
+	@bash scripts/clear-page-cache.sh
 
 schowaj-jezyki-dyscypliny:
 	docker compose exec appserver python src/manage.py ukryj_nieuzywane_dyscypliny
