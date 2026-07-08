@@ -181,7 +181,10 @@ make zaspawaj-wersje TAG=...  # Przypnij jawnie podaną wersję (tag CalVer)
 make test-upgrade             # Próba generalna: migracje kandydata na kopii bazy
 make test-upgrade TAG=...     # Próba generalna jawnie wskazanego kandydata
 make test-upgrade-clean       # Sprzątnięcie shadow stacka po nieudanej próbie
+make autoupdate               # Pętla: co ~2h sprawdź nowy obraz/commit → auto-deploy
 ```
 
 Pełny opis przepływu bezpiecznej aktualizacji (pinowanie wersji, shadow stack,
 rollback): [Aktualizacje i wersje obrazów](aktualizacje.md).
+Nienadzorowana pętla auto-update (`make autoupdate` pod `screen`):
+[Automatyczna aktualizacja](aktualizacje.md#automatyczna-aktualizacja-make-autoupdate).

@@ -1,4 +1,4 @@
-.PHONY: all run refresh up up-quick up-appserver up-webserver stop rmrf restart restart-appserver health check-quic validate-env-quotes fix-env-quotes test-validate-env-quotes test-upgrade test-upgrade-clean
+.PHONY: all run refresh up up-quick up-appserver up-webserver stop rmrf restart restart-appserver health check-quic validate-env-quotes fix-env-quotes test-validate-env-quotes test-upgrade test-upgrade-clean autoupdate test-autoupdate
 
 all: run
 
@@ -98,6 +98,29 @@ check-quic:
 run: pull build update-configs up
 	@echo ""
 	@echo "Deploy zakonczony. Diagnostyka powiadomien/uslug na zadanie: make doctor"
+
+# Nienadzorowana aktualizacja: petla co AUTOUPDATE_INTERVAL sekund (domyslnie 2h)
+# wolajaca scripts/autoupdate.sh (jeden cykl: sprawdz nowy obraz/commit -> deploy).
+# Przeznaczone pod nazwana sesje screen/tmux:
+#   screen -dmS bpp-autoupdate make autoupdate   # start w tle
+#   screen -r bpp-autoupdate                     # podglad (Ctrl-A D = detach)
+# Interwal i backup-przed-deployem konfigurowalne w .env (AUTOUPDATE_INTERVAL,
+# AUTOUPDATE_DB_BACKUP). Skrypt wolany swiezo co iteracje, wiec po `git pull`
+# nastepny cykl uzywa juz nowej logiki. Blad cyklu NIE zabija petli.
+AUTOUPDATE_INTERVAL ?= 7200
+
+autoupdate:
+	@echo "BPP auto-update: petla co $(AUTOUPDATE_INTERVAL)s. Ctrl-C aby przerwac."
+	@echo "Podglad z innego terminala: screen -r bpp-autoupdate"
+	@while true; do \
+		bash scripts/autoupdate.sh || echo "autoupdate: cykl zakonczony bledem (kod $$?) — czekam do nastepnego."; \
+		echo "autoupdate: nastepny cykl za $(AUTOUPDATE_INTERVAL)s ($$(date '+%H:%M:%S'))."; \
+		sleep $(AUTOUPDATE_INTERVAL); \
+	done
+
+# Unit-testy scripts/autoupdate.sh (mock git/docker/make, bez sieci/dockera).
+test-autoupdate:
+	@bash scripts/test-autoupdate.sh
 
 # Proba generalna aktualizacji: backup -> shadow stack (dbserver+redis poza
 # projektem Compose) -> restore -> migrate obrazem-kandydatem. Produkcja

@@ -28,6 +28,9 @@ service-account*.json
 # MkDocs build output
 site/
 
+# Auto-update lock (make autoupdate / scripts/autoupdate.sh)
+.autoupdate.lock.d/
+
 # Emacs backup / autosave / lockfiles
 *~
 \#*\#

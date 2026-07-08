@@ -133,6 +133,88 @@ make restore                               # tylko gdy migracja zdążyła zmien
 nowa migracja faktycznie zmieniła schemę w sposób niekompatybilny ze starym
 obrazem. Szczegóły restore: [Backup i rclone](backup-i-rclone.md).
 
+## Automatyczna aktualizacja (`make autoupdate`)
+
+Zamiast ręcznego `git pull && make run` po każdej nowej publikacji, host może
+sam co jakiś czas sprawdzać, czy jest co wdrożyć, i wdrażać to bez logowania.
+
+```bash
+make autoupdate
+```
+
+`make autoupdate` uruchamia **pętlę**: co `AUTOUPDATE_INTERVAL` sekund
+(domyślnie `7200` = 2 h) woła `scripts/autoupdate.sh`, który wykonuje **jeden
+cykl**:
+
+1. `git fetch` — czy `origin/main` wyprzedza lokalny HEAD (i czy fast-forward
+   jest możliwy);
+2. `docker compose pull` — czy któryś obraz zmienił **digest** (działa też dla
+   ruchomego `latest`, bo porównujemy digesty, nie tagi);
+3. jeśli **jest** nowy commit **lub** nowy obraz → opcjonalny backup bazy →
+   `git pull --ff-only` → `make run`. Jeśli **nie** ma zmian → cykl kończy się
+   po cichu, nic nie jest restartowane.
+
+### Uruchomienie pod `screen` (zalecane)
+
+Pętla musi działać niezależnie od Twojej sesji SSH — najprościej pod nazwaną
+sesją `screen` (lub `tmux`):
+
+```bash
+screen -dmS bpp-autoupdate make autoupdate   # start w tle
+screen -r bpp-autoupdate                     # podgląd (Ctrl-A D = odłącz)
+```
+
+`make autoupdate` nie demonizuje się sam — to celowo najprostsza forma:
+widoczna, podpinana, bez uprawnień roota. Jeśli chcesz, żeby pętla wstawała po
+restarcie hosta, dodaj jedną linię do crontaba użytkownika (`crontab -e`):
+
+```cron
+@reboot cd /ścieżka/do/bpp-deploy && screen -dmS bpp-autoupdate make autoupdate
+```
+
+(Ten sam `scripts/autoupdate.sh` można też wołać bezpośrednio z crona/systemd —
+logika jednego cyklu jest oddzielona od harmonogramu.)
+
+### Konfiguracja (zmienne środowiskowe / `.env`)
+
+| Zmienna | Domyślnie | Znaczenie |
+|---|---|---|
+| `AUTOUPDATE_INTERVAL` | `7200` | Odstęp między cyklami w sekundach. |
+| `AUTOUPDATE_DB_BACKUP` | `0` (wył.) | `1` = `make db-backup` **przed** każdym auto-deployem. Gdy backup się nie uda, deploy jest przerywany (fail-safe). |
+
+Wartości można ustawić w `$BPP_CONFIGS_DIR/.env` albo doraźnie w środowisku,
+np. `AUTOUPDATE_INTERVAL=3600 make autoupdate`.
+
+!!! warning "Auto-deploy uruchamia migracje bazy bez nadzoru"
+    `make run` odpala migracje Django automatycznie. Auto-update robi to **bez
+    człowieka przy klawiaturze**. Backup przed deployem jest domyślnie
+    **wyłączony** (zakłada się, że wystarcza nocny backup) — jeśli chcesz
+    dodatkowej ochrony, ustaw `AUTOUPDATE_DB_BACKUP=1`. Przed włączeniem
+    auto-update na produkcji warto raz przejść ręcznie przez
+    [`make test-upgrade`](#make-test-upgrade-proba-generalna-migracji), by
+    upewnić się, że migracje kandydata przechodzą.
+
+### Współistnienie z zaspawaną wersją
+
+Jeśli host ma przypięte `DOCKER_VERSION` (patrz
+[`make zaspawaj-wersje`](#make-zaspawaj-wersje-przypiecie-wersji)), auto-update
+**nie** wciągnie nowszego obrazu „samo": `docker compose pull` ściąga tylko
+przypięty tag, więc wyzwalaczem pozostają wtedy wyłącznie nowe commity na
+`origin/main`. Zmianę wersji nadal robisz świadomie przez `make zaspawaj-wersje
+TAG=<nowy>`. Na hoście bez zaspawania (goły `latest`) auto-update reaguje na
+każdy nowy obraz.
+
+### Zabezpieczenia
+
+- **Lock** (`.autoupdate.lock.d`) — dwa cykle się nie nałożą, a ręczny
+  `make run` w trakcie nie zderzy się z auto-deployem.
+- **`git pull --ff-only`** — jeśli lokalny `main` rozjechał się z `origin/main`
+  (ktoś commitował na hoście), auto-update **nie** robi merge/rebase, tylko
+  loguje ostrzeżenie i pomija część gitową — nie psuje drzewa.
+- **Health-gate** jest w cyklu wyłączony (`BPP_SKIP_HEALTH_GATE=1`), bo
+  interaktywny prompt bramki zdrowia zablokowałby pętlę. Stan usług po deployu
+  sprawdzisz jak zwykle: `make health` lub `make doctor`.
+
 ## Zobacz też
 
 - [Najważniejsze komendy](komendy.md) — skrócona referencja targetów
