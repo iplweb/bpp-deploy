@@ -157,19 +157,30 @@ cykl**:
 ### Uruchomienie pod `screen` (zalecane)
 
 Pętla musi działać niezależnie od Twojej sesji SSH — najprościej pod nazwaną
-sesją `screen` (lub `tmux`):
+sesją `screen`. Jest do tego gotowy target:
 
 ```bash
-screen -dmS bpp-autoupdate make autoupdate   # start w tle
-screen -r bpp-autoupdate                     # podgląd (Ctrl-A D = odłącz)
+make screen-with-autoupdate   # start pętli w tle, w sesji screen 'bpp-autoupdate'
+screen -r bpp-autoupdate      # podgląd (Ctrl-A D = odłącz)
+```
+
+`make screen-with-autoupdate` jest **idempotentny**: gdy sesja już działa, nie
+uruchamia drugiej. Nazwę sesji można zmienić przez `AUTOUPDATE_SCREEN_NAME`.
+Zatrzymanie: `screen -S bpp-autoupdate -X quit`.
+
+Odpowiednik ręczny (gdy wolisz sam zarządzać sesją):
+
+```bash
+screen -dmS bpp-autoupdate make autoupdate
 ```
 
 `make autoupdate` nie demonizuje się sam — to celowo najprostsza forma:
 widoczna, podpinana, bez uprawnień roota. Jeśli chcesz, żeby pętla wstawała po
-restarcie hosta, dodaj jedną linię do crontaba użytkownika (`crontab -e`):
+restarcie hosta, dodaj jedną linię do crontaba użytkownika (`crontab -e`) —
+target sam pilnuje, że nie wystartuje duplikatu:
 
 ```cron
-@reboot cd /ścieżka/do/bpp-deploy && screen -dmS bpp-autoupdate make autoupdate
+@reboot cd /ścieżka/do/bpp-deploy && make screen-with-autoupdate
 ```
 
 (Ten sam `scripts/autoupdate.sh` można też wołać bezpośrednio z crona/systemd —
@@ -181,6 +192,7 @@ logika jednego cyklu jest oddzielona od harmonogramu.)
 |---|---|---|
 | `AUTOUPDATE_INTERVAL` | `7200` | Odstęp między cyklami w sekundach. |
 | `AUTOUPDATE_DB_BACKUP` | `0` (wył.) | `1` = `make db-backup` **przed** każdym auto-deployem. Gdy backup się nie uda, deploy jest przerywany (fail-safe). |
+| `AUTOUPDATE_SCREEN_NAME` | `bpp-autoupdate` | Nazwa sesji `screen` używana przez `make screen-with-autoupdate`. |
 
 Wartości można ustawić w `$BPP_CONFIGS_DIR/.env` albo doraźnie w środowisku,
 np. `AUTOUPDATE_INTERVAL=3600 make autoupdate`.

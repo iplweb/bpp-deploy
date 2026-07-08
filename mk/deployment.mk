@@ -1,4 +1,4 @@
-.PHONY: all run refresh up up-quick up-appserver up-webserver stop rmrf restart restart-appserver health check-quic validate-env-quotes fix-env-quotes test-validate-env-quotes test-upgrade test-upgrade-clean autoupdate test-autoupdate
+.PHONY: all run refresh up up-quick up-appserver up-webserver stop rmrf restart restart-appserver health check-quic validate-env-quotes fix-env-quotes test-validate-env-quotes test-upgrade test-upgrade-clean autoupdate screen-with-autoupdate test-autoupdate
 
 all: run
 
@@ -100,15 +100,36 @@ run: pull build update-configs up
 # AUTOUPDATE_DB_BACKUP). Skrypt wolany swiezo co iteracje, wiec po `git pull`
 # nastepny cykl uzywa juz nowej logiki. Blad cyklu NIE zabija petli.
 AUTOUPDATE_INTERVAL ?= 7200
+AUTOUPDATE_SCREEN_NAME ?= bpp-autoupdate
 
 autoupdate:
 	@echo "BPP auto-update: petla co $(AUTOUPDATE_INTERVAL)s. Ctrl-C aby przerwac."
-	@echo "Podglad z innego terminala: screen -r bpp-autoupdate"
+	@echo "Podglad z innego terminala: screen -r $(AUTOUPDATE_SCREEN_NAME)"
 	@while true; do \
 		bash scripts/autoupdate.sh || echo "autoupdate: cykl zakonczony bledem (kod $$?) — czekam do nastepnego."; \
 		echo "autoupdate: nastepny cykl za $(AUTOUPDATE_INTERVAL)s ($$(date '+%H:%M:%S'))."; \
 		sleep $(AUTOUPDATE_INTERVAL); \
 	done
+
+# Wygodny start petli auto-update w tle, w nazwanej sesji screen (bez recznego
+# `screen -dmS ... make autoupdate`). Idempotentny: gdy sesja juz dziala, nie
+# startuje drugiej. Pole `-C $(CURDIR)` + czyszczenie MAKEFLAGS/MAKELEVEL, bo
+# odlaczony screen przezywa rodzica-make (dziedziczony jobserver bylby martwy).
+screen-with-autoupdate:
+	@command -v screen >/dev/null 2>&1 || { \
+		echo "BLAD: 'screen' nie jest zainstalowany."; \
+		echo "Zainstaluj: sudo apt-get install -y screen   (Debian/Ubuntu)"; \
+		exit 1; \
+	}
+	@if screen -list 2>/dev/null | grep -qE "\.$(AUTOUPDATE_SCREEN_NAME)[[:space:]]"; then \
+		echo "Sesja screen '$(AUTOUPDATE_SCREEN_NAME)' juz dziala — nie startuje drugiej."; \
+		echo "  Podglad: screen -r $(AUTOUPDATE_SCREEN_NAME)"; \
+	else \
+		screen -dmS $(AUTOUPDATE_SCREEN_NAME) bash -c "cd '$(CURDIR)' && exec env -u MAKEFLAGS -u MAKELEVEL make autoupdate"; \
+		echo "✓ Auto-update wystartowal w sesji screen '$(AUTOUPDATE_SCREEN_NAME)' (co $(AUTOUPDATE_INTERVAL)s)."; \
+		echo "  Podglad: screen -r $(AUTOUPDATE_SCREEN_NAME)   (odlaczenie: Ctrl-A D)"; \
+		echo "  Stop:    screen -S $(AUTOUPDATE_SCREEN_NAME) -X quit"; \
+	fi
 
 # Unit-testy scripts/autoupdate.sh (mock git/docker/make, bez sieci/dockera).
 test-autoupdate:

@@ -183,6 +183,7 @@ make test-upgrade             # Próba generalna: migracje kandydata na kopii ba
 make test-upgrade TAG=...     # Próba generalna jawnie wskazanego kandydata
 make test-upgrade-clean       # Sprzątnięcie shadow stacka po nieudanej próbie
 make autoupdate               # Pętla: co ~2h sprawdź nowy obraz/commit → auto-deploy
+make screen-with-autoupdate   # Odpal pętlę auto-update w tle, w sesji screen
 ```
 
 Pełny opis przepływu bezpiecznej aktualizacji (pinowanie wersji, shadow stack,

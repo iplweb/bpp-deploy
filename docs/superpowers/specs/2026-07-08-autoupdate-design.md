@@ -70,15 +70,22 @@ zaktualizowanej logiki. Błąd cyklu nie zabija pętli (loguje i czeka dalej).
 
 ## Uruchomienie
 
+Wygodny target (idempotentny — nie wystartuje duplikatu sesji):
 ```bash
-screen -dmS bpp-autoupdate make autoupdate   # start w tle
-screen -r bpp-autoupdate                     # podgląd (Ctrl-A D = detach)
+make screen-with-autoupdate   # start pętli w tle, w sesji screen 'bpp-autoupdate'
+screen -r bpp-autoupdate      # podgląd (Ctrl-A D = detach)
 ```
+
+Odpowiednik ręczny: `screen -dmS bpp-autoupdate make autoupdate`.
 
 Przeżycie rebootu (opcjonalnie, w cronie hosta):
 ```
-@reboot cd /sciezka/do/bpp-deploy && screen -dmS bpp-autoupdate make autoupdate
+@reboot cd /sciezka/do/bpp-deploy && make screen-with-autoupdate
 ```
+
+Uwaga implementacyjna: `screen-with-autoupdate` odpala pętlę przez
+`env -u MAKEFLAGS -u MAKELEVEL make autoupdate` w `cd $(CURDIR)` — odłączony
+screen przeżywa rodzica-make, więc dziedziczony jobserver byłby martwy.
 
 ## Testy — `scripts/test-autoupdate.sh` + `make test-autoupdate`
 
