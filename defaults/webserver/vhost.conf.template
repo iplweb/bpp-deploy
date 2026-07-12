@@ -42,7 +42,19 @@ server {
 
 # Main HTTPS server block for ${VHOST_NAME}
 server {
-    client_max_body_size 100M;
+    # Twardy cap na rozmiar pojedynczego requestu = ostatnia bariera na krawedzi
+    # przed uploadem (defense-in-depth obok limitow app-layer z bpp#551:
+    # 5 plikow x 20 MiB + DATA_UPLOAD_MAX_NUMBER_FILES). UWAGA: legalny maks
+    # zgloszenia to 5 x 20 MiB = 104857600 B = DOKLADNIE 100 MiB samych plikow,
+    # a request niesie jeszcze narzut multipart (granice, naglowki per-part,
+    # pola formsetu autorow, CSRF) - przy dawnym `100M` (== 100 MiB) najwieksze
+    # POPRAWNE zgloszenie dostawalo 413 zanim dotarlo do Django. 120M daje ~20
+    # MiB zapasu na narzut, nie oslabiajac istotnie bariery (i tak > od limitow
+    # app-layer, a rate-limit per-IP ogranicza czestotliwosc). Podniesienie capu
+    # nie psuje wiekszych uploadow innych endpointow (importy w /admin/) - moze
+    # je tylko przepuscic. Bind-mount wersjonowany -> `git pull && make up`
+    # aktywuje bez migracji.
+    client_max_body_size 120M;
 
     listen 443 ssl;
     listen 443 quic;
