@@ -92,7 +92,6 @@ services:
     volumes:
       - staticfiles:/staticroot
       - media:/mediaroot
-      - /var/run/docker.sock:/var/run/docker.sock:ro
     depends_on:
       redis:
         condition: service_healthy
@@ -159,6 +158,25 @@ services:
       ofelia.job-run.letsencrypt_renew.image: "certbot/certbot:v3.3.0"
       ofelia.job-run.letsencrypt_renew.volume: "${COMPOSE_PROJECT_NAME}_acme-challenge:/var/www/certbot,${BPP_CONFIGS_DIR}/letsencrypt:/etc/letsencrypt"
       ofelia.job-run.letsencrypt_renew.command: "renew --webroot -w /var/www/certbot --quiet --deploy-hook \"touch /etc/letsencrypt/.reload-needed\""
+
+  # === html2docx ===
+  # OPCJONALNY sidecar konwersji HTML->DOCX (fallback gdy pandoc padnie, np.
+  # core dump na VMWare ESX). Domyslnie WYLACZONY - startuje tylko gdy profil
+  # `html2docx` jest w COMPOSE_PROFILES (repo-lokalny .env). Deployment, ktory
+  # go wlacza, musi tez ustawic DJANGO_BPP_HTML2DOCX_URL w ${BPP_CONFIGS_DIR}/.env
+  # (patrz .env.sample) - inaczej appserver/worker maja fallback wylaczony
+  # (miekka degradacja, bez crasha).
+  #
+  # Bez published portu (tylko siec wewnetrzna projektu, osiagalny jako
+  # `html2docx:3030`). Bez healthchecka: obraz .NET nie ma curl/wget,
+  # restart:always wystarcza. Bez docker.sock - to byla cala pointa zmiany.
+  # Obraz wersjonowany niezaleznie od DOCKER_VERSION bpp (pin przez
+  # HTML2DOCX_VERSION w .env).
+  html2docx:
+    image: iplweb/html2docx:${HTML2DOCX_VERSION:-latest}
+    profiles: ['html2docx']
+    restart: always
+    logging: *default-logging
 
   # === Certbot ===
   # Sidecar uruchamiany na zadanie ('docker compose run --rm certbot ...')
