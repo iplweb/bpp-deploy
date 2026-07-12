@@ -402,12 +402,15 @@ ROLLBAR_ACCESS_TOKEN=
 LOG_MAX_SIZE=150m
 LOG_MAX_FILE=5
 
-# === html2docx (opcjonalny fallback dla eksportu HTML -> DOCX) ===
-# Gdy true, "make pull"/"up" dociaga obraz iplweb/html2docx:latest.
-# Domyslnie false - wiekszosc instalacji uzywa pandoca z obrazu appservera
-# i html2docx jest zbedny. Wlacz tylko jesli pandoc zawodzi na Twoich
-# dokumentach (np. skomplikowane tabele HTML).
-DJANGO_BPP_ENABLE_HTML2DOCX_IMAGE=false
+# === html2docx (opcjonalny sidecar fallbacku HTML -> DOCX) ===
+# Fallback konwersji DOCX gdy pandoc zawiedzie (np. core dump na VMWare ESX).
+# Domyslnie WYLACZONY - wiekszosc instalacji uzywa pandoca z obrazu appservera.
+# Wlaczenie = DWA kroki (oba opt-in):
+#   1) dodaj profil 'html2docx' do COMPOSE_PROFILES w REPO-lokalnym .env
+#      (katalog bpp-deploy, nie ten plik): COMPOSE_PROFILES=html2docx
+#   2) odkomentuj ponizsza linie (adres serwisu w sieci compose; brak =
+#      fallback wylaczony, miekka degradacja bez crasha):
+# DJANGO_BPP_HTML2DOCX_URL=http://html2docx:3030/convert
 EOF
 
     if [ -n "$EXT_PG_VERSION" ]; then
@@ -631,8 +634,11 @@ else
     ensure_env_var "LOG_MAX_FILE" "5" "" \
         "Docker log rotation - liczba trzymanych plikow per kontener"
 
-    ensure_env_var "DJANGO_BPP_ENABLE_HTML2DOCX_IMAGE" "false" "" \
-        "html2docx fallback (true = \`make pull/up\` dociaga iplweb/html2docx:latest; wlacz tylko gdy pandoc zawodzi)"
+    # html2docx: dawna flaga DJANGO_BPP_ENABLE_HTML2DOCX_IMAGE (pull obrazu pod
+    # docker-run) jest OBSOLETNA - fallback idzie teraz przez opcjonalny serwis
+    # HTTP (profil COMPOSE_PROFILES=html2docx + DJANGO_BPP_HTML2DOCX_URL). Stara
+    # flaga w istniejacych .env jest nieszkodliwa (nikt jej juz nie czyta), wiec
+    # jej nie usuwamy ani nie dopisujemy.
 
     # Migracja: DJANGO_BPP_EXTERNAL_POSTGRESQL_DB_VERSION -> DJANGO_BPP_POSTGRESQL_DB_VERSION.
     # (Historyczny rename - zmienna dotyczyla tylko external, po rozszerzeniu na

@@ -25,14 +25,8 @@ refresh: validate-env-quotes prune-orphan-volumes ensure-config-files update-con
 	@bash scripts/create-monitoring-user.sh --soft
 	$(MAKE) invalidate
 
-DJANGO_BPP_ENABLE_HTML2DOCX_IMAGE ?= false
-
 pull: validate-env-quotes
 	docker compose pull
-	@if [ "$(DJANGO_BPP_ENABLE_HTML2DOCX_IMAGE)" = "true" ]; then \
-		echo "Pulling iplweb/html2docx:latest..."; \
-		docker pull iplweb/html2docx:latest; \
-	fi
 
 build:
 	docker compose build
@@ -45,14 +39,12 @@ up: validate-env-quotes ensure-config-files update-configs
 	@# wiec nazwane wolumeny (postgresql_data, media, staticfiles) sa BEZPIECZNE.
 	@# -af kasuje WSZYSTKIE nieuzywane obrazy (tez stare wersje BPP, osierocony
 	@# alpine po przejsciu backup-runnera na obraz dbservera). Pokazujemy tylko
-	@# ile miejsca zwolniono. Robimy to PRZED pullem html2docx, by go nie usunac.
+	@# ile miejsca zwolniono. Serwis html2docx (gdy wlaczony profilem) jest juz
+	@# UP przed prune, wiec jego obraz jest w uzyciu i prune go nie usunie.
 	@echo "Sprzatanie Dockera (docker system prune -af)..."
 	@docker system prune -af 2>/dev/null \
 		| awk -F': ' '/Total reclaimed space/ {print "  Zwolniono na dysku: " $$2}' \
 		|| true
-	@if [ "$(DJANGO_BPP_ENABLE_HTML2DOCX_IMAGE)" = "true" ]; then \
-		docker pull iplweb/html2docx:latest; \
-	fi
 	$(MAKE) invalidate
 	@# Bramka zdrowia po deployu (read-only): OK -> exit 0 cicho; usluga
 	@# unhealthy/restarting -> w TTY prompt [s]shell/[d]doctor, w nie-TTY exit !=0.
