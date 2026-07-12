@@ -26,8 +26,9 @@ make restart-appserver  # Restart serwera aplikacji
     cache builda. **Bez `--volumes`** — nazwane wolumeny z danymi (`postgresql_data`,
     `media`, `staticfiles`) są bezpieczne. Uwaga: `-af` usuwa **wszystkie** nieużywane
     obrazy na hoście, także spoza BPP — na maszynie współdzielonej z innymi projektami
-    używaj `make up-quick` (nie sprząta). Obraz fallback `iplweb/html2docx` jest
-    pobierany **po** prune, więc nie znika.
+    używaj `make up-quick` (nie sprząta). Opcjonalny serwis `html2docx` (gdy
+    włączony profilem `COMPOSE_PROFILES=html2docx`) jest już **UP przed** prune,
+    więc jego obraz jest w użyciu i prune go nie usunie.
 
 ## Baza danych
 
