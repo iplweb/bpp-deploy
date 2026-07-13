@@ -165,6 +165,13 @@ if [ -f "$_ENV" ]; then
     _ensure_secret DJANGO_BPP_PG_MONITOR_PASSWORD "$(openssl rand -hex 24)"
     # Topic ntfy (sekret chroniacy kanal alertow) - gdy stary .env go nie ma.
     _ensure_secret NTFY_TOPIC "bpp-$(openssl rand -hex 16)"
+    # Klucz HMAC do proof-of-work CAPTCHA ALTCHA na anonimowym formularzu
+    # zgloszen publikacji (bpp PR #560). 64-hex, jak wymaga django-altcha.
+    # Sama captcha jest domyslnie WYLACZONA (ZGLOS_CAPTCHA_ENABLED) - klucz
+    # generujemy z wyprzedzeniem, zeby wlaczenie bylo jednym krokiem operatora,
+    # bez recznego generowania sekretu. Wszystkie serwisy Django czytaja .env
+    # przez env_file, wiec zaden dodatkowy wpis w compose nie jest potrzebny.
+    _ensure_secret ALTCHA_HMAC_KEY "$(openssl rand -hex 32)"
     # Media root: stala wartosc = punkt montowania wolumenu 'media' (/mediaroot)
     # we wszystkich kontenerach Django. Bez niej Django bierze swoj domyslny
     # MEDIA_ROOT (~/bpp-media = /root/bpp-media w kontenerze), POZA wolumenem -
