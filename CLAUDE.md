@@ -149,6 +149,8 @@ All services (except `backup-runner`) have `*_MEM_LIMIT`/`*_CPU_LIMIT` env vars,
 
 ## Optional Feature Flags
 
+**`ZGLOS_CAPTCHA_ENABLED`** (`1`) + **`ALTCHA_HMAC_KEY`** (64-hex): ALTCHA proof-of-work captcha on the **public** (anonymous-only) publication-submission form. Both are written by the `_ensure_var` self-heal in `scripts/ensure-config-files.sh` — the single place; `init-configs.sh` calls that script, so fresh installs are covered too (do **not** add a second copy to the `.env` heredoc). **Order is load-bearing: key first, flag second** — a flag without a real key is worthless (Django falls back to a public sentinel → forgeable challenges). The flag is written **independently** of whether the key was just generated: installs that already got the key alone (since PR #19) would never light up if the two were coupled. Never rotate an existing key on a later `make up` — it invalidates challenges held by open forms. Operator opt-out is `ZGLOS_CAPTCHA_ENABLED=0`; `_ensure_var` never overwrites a non-empty value, so it survives. No Compose change needed: both reach Django via the wholesale `env_file`. Needs a BPP image ≥ `202607.1398`; older images ignore both. Operator doc: `docs/konfiguracja/architektura.md`.
+
 **`DJANGO_BPP_ENABLE_HTML2DOCX_IMAGE`** (default `false`): when `true`, `make pull`/`make up` pulls `iplweb/html2docx:latest` as a fallback for HTML→DOCX export. Most installs use pandoc in the appserver image — enable only when pandoc fails. Deployment-side flag only, not propagated to Django.
 
 ## Backwards Compatibility and `.env` Migrations — CRITICAL

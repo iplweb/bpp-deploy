@@ -167,11 +167,24 @@ if [ -f "$_ENV" ]; then
     _ensure_secret NTFY_TOPIC "bpp-$(openssl rand -hex 16)"
     # Klucz HMAC do proof-of-work CAPTCHA ALTCHA na anonimowym formularzu
     # zgloszen publikacji (bpp PR #560). 64-hex, jak wymaga django-altcha.
-    # Sama captcha jest domyslnie WYLACZONA (ZGLOS_CAPTCHA_ENABLED) - klucz
-    # generujemy z wyprzedzeniem, zeby wlaczenie bylo jednym krokiem operatora,
-    # bez recznego generowania sekretu. Wszystkie serwisy Django czytaja .env
-    # przez env_file, wiec zaden dodatkowy wpis w compose nie jest potrzebny.
+    # Wszystkie serwisy Django czytaja .env przez env_file, wiec zaden dodatkowy
+    # wpis w compose nie jest potrzebny.
     _ensure_secret ALTCHA_HMAC_KEY "$(openssl rand -hex 32)"
+    # ...i od razu zapal captche. KOLEJNOSC JEST ISTOTNA: flage dopisujemy PO
+    # kluczu, wiec w momencie jej zapalenia realny klucz juz jest w .env. Captcha
+    # z nieustawionym kluczem byla by bezwartosciowa - Django bierze wtedy
+    # publiczny sentinel-placeholder, wiec wyzwanie da sie podrobic.
+    #
+    # Flaga jest DOPISYWANA NIEZALEZNIE od tego, czy klucz powstal wlasnie teraz:
+    # instalacje ktore dostaly sam klucz wczesniej (bpp-deploy generuje go od
+    # 2026-07-13, PR #19) maja go juz w .env, wiec sprzegniecie flagi z generacja
+    # klucza nigdy by ich nie zapalilo - a to wlasnie one czekaja na captche.
+    #
+    # Operator wylacza captche przez ZGLOS_CAPTCHA_ENABLED=0 - _ensure_var nie
+    # nadpisuje niepustych wartosci, wiec wybor przezyje kolejne `make up`
+    # (samo usuniecie linii nie wystarczy: wroci jako brakujaca).
+    _ensure_var ZGLOS_CAPTCHA_ENABLED "1" \
+        "  + wlaczono captche ALTCHA dla niezalogowanych na formularzu zgloszen (ZGLOS_CAPTCHA_ENABLED=1; wylaczysz ustawiajac 0)"
     # Media root: stala wartosc = punkt montowania wolumenu 'media' (/mediaroot)
     # we wszystkich kontenerach Django. Bez niej Django bierze swoj domyslny
     # MEDIA_ROOT (~/bpp-media = /root/bpp-media w kontenerze), POZA wolumenem -
