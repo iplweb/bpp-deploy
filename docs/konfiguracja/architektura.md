@@ -114,6 +114,54 @@ Zmienna jest ustawiana automatycznie:
 Możesz nadpisać wartość ręcznie w `.env` (np. inny punkt montowania) — self-heal jej nie
 ruszy. **Bez cudzysłowów** — `validate-env-quotes` odrzuca wartości w cudzysłowach.
 
+## Captcha zgłoszeń publikacji — `ZGLOS_CAPTCHA_ENABLED` i `ALTCHA_HMAC_KEY`
+
+Publiczny formularz zgłaszania publikacji jest dostępny bez logowania, więc widzą go też
+boty. Chroni go **ALTCHA** — captcha typu proof-of-work: przeglądarka liczy zadanie
+obliczeniowe w tle, bez klikania w zdjęcia. Jest self-hosted (żadnych usług zewnętrznych,
+żadnych danych osobowych wysyłanych na zewnątrz).
+
+Captcha dotyczy **wyłącznie niezalogowanych**. Zalogowany użytkownik nie zobaczy jej
+nigdy, a obok widgetu jest podpowiedź, że zalogowanie pomija weryfikację.
+
+Dwie zmienne w `.env`:
+
+| Zmienna | Wartość | Znaczenie |
+|---|---|---|
+| `ALTCHA_HMAC_KEY` | 64 znaki hex (losowe) | Klucz podpisujący wyzwania ALTCHA |
+| `ZGLOS_CAPTCHA_ENABLED` | `1` / `0` | Włącza captchę (`0` = wyłączona) |
+
+Obie ustawiają się automatycznie, bez ręcznego kroku — dopisuje je
+`scripts/ensure-config-files.sh` przy każdym `make up`/`refresh` (a `make init-configs`
+woła ten skrypt pod spodem, więc nowe instalacje dostają je tak samo). Na starym `.env`
+wystarczy `git pull && make up`.
+
+Klucz jest generowany **raz** i potem nietykany — kolejne `make up` go nie rotują
+(rotacja unieważniłaby wyzwania trzymane przez otwarte w przeglądarkach formularze).
+
+**Aby wyłączyć captchę**, ustaw w `.env`:
+
+```
+ZGLOS_CAPTCHA_ENABLED=0
+```
+
+Wartość przeżyje kolejne `git pull && make up` — self-heal nie nadpisuje istniejących
+wartości. Samo **usunięcie linii nie wystarczy**: zostanie dopisana z powrotem.
+
+!!! warning "Nie włączaj captchy bez losowego klucza"
+    `ZGLOS_CAPTCHA_ENABLED=1` przy braku (albo placeholderze) `ALTCHA_HMAC_KEY` daje
+    captchę **możliwą do podrobienia** — klucz podpisujący jest wtedy znany publicznie.
+    Automatyka pilnuje kolejności (klucz zawsze przed flagą). Django sygnalizuje zły stan
+    ostrzeżeniem `zglos_publikacje.W001` przy starcie. Jeśli dopisujesz zmienne ręcznie —
+    dopisz **obie**:
+
+    ```bash
+    openssl rand -hex 32   # wynik wklej jako ALTCHA_HMAC_KEY
+    ```
+
+Captcha wymaga obrazu BPP z ALTCHA (wydania od `202607.1398` wzwyż). Na starszym obrazie
+zmienne są nieszkodliwe — Django ich po prostu nie czyta.
+
 ## Pierwsze uruchomienie — dwa przebiegi `make`
 
 ```bash

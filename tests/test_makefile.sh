@@ -1035,6 +1035,127 @@ test_configure_resources_worker_consolidation() {
 }
 
 # ============================================================
+# TEST: init-configs — ALTCHA (klucz HMAC + flaga captchy) w swiezym .env
+# ============================================================
+# Captcha zgloszen publikacji jest bezwartosciowa bez losowego klucza HMAC
+# (znany klucz => wyzwanie da sie podrobic), wiec swiezy .env musi dostac oba.
+test_init_configs_generates_altcha() {
+    yellow "=== Test: init-configs generuje ALTCHA_HMAC_KEY + ZGLOS_CAPTCHA_ENABLED ==="
+
+    setup_temp
+    mkdir -p "$CONFIG_DIR"
+
+    make -C "$REPO_COPY" init-configs BPP_CONFIGS_DIR="$CONFIG_DIR" >/dev/null 2>&1
+
+    assert_file_contains "ZGLOS_CAPTCHA_ENABLED=1 w .env" \
+        "ZGLOS_CAPTCHA_ENABLED=1" "$CONFIG_DIR/.env"
+
+    # `|| true`: pod `set -e` puste grep (=1) ubiloby caly przebieg testow
+    # zamiast zaraportowac FAIL ponizej.
+    local key
+    key=$(grep '^ALTCHA_HMAC_KEY=' "$CONFIG_DIR/.env" | cut -d= -f2 || true)
+    # 32 bajty losowe = 64 znaki hex (openssl rand -hex 32).
+    if printf '%s' "$key" | grep -qE '^[0-9a-f]{64}$'; then
+        pass "ALTCHA_HMAC_KEY to 64 znaki hex"
+    else
+        fail "ALTCHA_HMAC_KEY to 64 znaki hex (jest: '${key}')"
+    fi
+
+    cleanup_temp
+}
+
+# ============================================================
+# TEST: ensure-config-files — self-heal ALTCHA na starym .env
+# ============================================================
+# `git pull && make up` na .env sprzed captchy musi zapalic ja bez recznego kroku
+# (regula kompatybilnosci wstecznej z CLAUDE.md). Jednoczesnie: klucz nie moze sie
+# regenerowac przy kazdym `make up` (rotacja = uniewaznienie wyzwan w locie), a
+# swiadome ZGLOS_CAPTCHA_ENABLED=0 musi przezyc upgrade.
+test_ensure_config_files_altcha_selfheal() {
+    yellow "=== Test: ensure-config-files dosypuje ALTCHA do starego .env ==="
+
+    local cfg
+    cfg=$(mktemp -d)
+
+    # Stary .env: bez ALTCHA_HMAC_KEY i bez ZGLOS_CAPTCHA_ENABLED.
+    printf 'BPP_CONFIGS_DIR=%s\nDJANGO_BPP_SECRET_KEY=stary-sekret\n' "$cfg" > "$cfg/.env"
+
+    if ! BPP_CONFIGS_DIR="$cfg" bash "$REPO_DIR/scripts/ensure-config-files.sh" >/dev/null 2>&1; then
+        fail "ensure-config-files zwrocil blad (stary .env)"
+        rm -rf "$cfg"; return
+    fi
+
+    assert_file_contains "self-heal: ZGLOS_CAPTCHA_ENABLED=1" \
+        "ZGLOS_CAPTCHA_ENABLED=1" "$cfg/.env"
+
+    local key
+    key=$(grep '^ALTCHA_HMAC_KEY=' "$cfg/.env" | cut -d= -f2 || true)
+    if printf '%s' "$key" | grep -qE '^[0-9a-f]{64}$'; then
+        pass "self-heal: ALTCHA_HMAC_KEY to 64 znaki hex"
+    else
+        fail "self-heal: ALTCHA_HMAC_KEY to 64 znaki hex (jest: '${key}')"
+    fi
+
+    # Idempotencja: drugi przebieg NIE rotuje klucza.
+    if ! BPP_CONFIGS_DIR="$cfg" bash "$REPO_DIR/scripts/ensure-config-files.sh" >/dev/null 2>&1; then
+        fail "ensure-config-files zwrocil blad (drugi przebieg)"
+        rm -rf "$cfg"; return
+    fi
+    local key2
+    key2=$(grep '^ALTCHA_HMAC_KEY=' "$cfg/.env" | cut -d= -f2 || true)
+    if [ "$key" = "$key2" ]; then
+        pass "ALTCHA_HMAC_KEY stabilny miedzy przebiegami"
+    else
+        fail "ALTCHA_HMAC_KEY stabilny miedzy przebiegami (zrotowal sie)"
+    fi
+    # Dokladnie jedna linia z kluczem (brak duplikatu klucza w .env).
+    local key_lines
+    key_lines=$(grep -c '^ALTCHA_HMAC_KEY=' "$cfg/.env" || true)
+    if [ "$key_lines" = "1" ]; then
+        pass "ALTCHA_HMAC_KEY wystepuje raz"
+    else
+        fail "ALTCHA_HMAC_KEY wystepuje raz (jest: $key_lines)"
+    fi
+
+    rm -rf "$cfg"
+
+    # Instalacja ktora dostala sam klucz (bpp-deploy generuje go od PR #19), ale
+    # nigdy flagi - to najliczniejszy przypadek w praktyce (m.in. staging).
+    # Flaga MUSI sie dopisac mimo ze klucz juz istnieje, a klucz zostac nietkniety.
+    cfg=$(mktemp -d)
+    local stary_klucz="aaaaaaaabbbbbbbbccccccccddddddddeeeeeeeeffffffff0000000011111111"
+    printf 'BPP_CONFIGS_DIR=%s\nALTCHA_HMAC_KEY=%s\n' "$cfg" "$stary_klucz" > "$cfg/.env"
+
+    if ! BPP_CONFIGS_DIR="$cfg" bash "$REPO_DIR/scripts/ensure-config-files.sh" >/dev/null 2>&1; then
+        fail "ensure-config-files zwrocil blad (.env z samym kluczem)"
+        rm -rf "$cfg"; return
+    fi
+
+    assert_file_contains "istniejacy klucz + brak flagi => flaga dopisana" \
+        "ZGLOS_CAPTCHA_ENABLED=1" "$cfg/.env"
+    assert_file_contains "istniejacy klucz NIE zostal podmieniony" \
+        "ALTCHA_HMAC_KEY=$stary_klucz" "$cfg/.env"
+
+    rm -rf "$cfg"
+
+    # Swiadome wylaczenie captchy przez operatora przezywa `make up`.
+    cfg=$(mktemp -d)
+    printf 'BPP_CONFIGS_DIR=%s\nZGLOS_CAPTCHA_ENABLED=0\n' "$cfg" > "$cfg/.env"
+
+    if ! BPP_CONFIGS_DIR="$cfg" bash "$REPO_DIR/scripts/ensure-config-files.sh" >/dev/null 2>&1; then
+        fail "ensure-config-files zwrocil blad (.env z captcha OFF)"
+        rm -rf "$cfg"; return
+    fi
+
+    assert_file_contains "ZGLOS_CAPTCHA_ENABLED=0 nienaruszone" \
+        "ZGLOS_CAPTCHA_ENABLED=0" "$cfg/.env"
+    assert_file_not_contains "captcha OFF nie zostala wlaczona" \
+        "ZGLOS_CAPTCHA_ENABLED=1" "$cfg/.env"
+
+    rm -rf "$cfg"
+}
+
+# ============================================================
 # Run
 # ============================================================
 
@@ -1063,6 +1184,8 @@ test_nginx_config_valid
 test_nginx_runtime
 test_configure_resources
 test_configure_resources_worker_consolidation
+test_init_configs_generates_altcha
+test_ensure_config_files_altcha_selfheal
 
 echo ""
 echo "========================================"
