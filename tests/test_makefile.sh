@@ -957,6 +957,49 @@ PYEOF
         fail "GET /admin/: oczekiwane 301, otrzymano '$code'"
     fi
 
+    _runtime_stop_nginx
+
+    # ==== 15d: /.well-known/ przechodzi na HTTPS, ukryte pliki dalej blokowane ====
+    # Regresja, ktora juz raz wystapila na produkcji: `location ~ /\.` (blokada
+    # plikow ukrytych) to REGEX, a regexy w nginksie maja pierwszenstwo przed
+    # zwyklymi prefiksami — wiec przechwytywal /.well-known/ i zwracal 403.
+    # Skutek: metadane serwera autoryzacji OAuth (RFC 8414) byly nieosiagalne i
+    # discovery klienta MCP padalo przed logowaniem. Lekarstwo to modyfikator
+    # `^~`, ktory stawia prefiks PONAD regexami.
+    #
+    # Ten test pilnuje OBU stron kontraktu naraz — samo "przepusc .well-known"
+    # dalo by sie spelnic kasujac blokade plikow ukrytych, co byloby regresja
+    # bezpieczenstwa. Dlatego .git/.env musza dalej dostawac 403.
+    yellow "  -- 15d: /.well-known/ (OAuth discovery) vs blokada plikow ukrytych --"
+    start_out=$(_runtime_start_nginx "" "legacy.example.org") || {
+        fail "well-known-test nginx nie wstal w 15s"
+        return
+    }
+    read -r nginx_cid port_80 port_443 <<< "$start_out"
+
+    # Metadane AS MUSZA dojsc do Django (nie 403). Appserver echo-uje Path,
+    # wiec sprawdzamy takze, ze sciezka dolecila w calosci — samo 200 moglo by
+    # pochodzic z przypadkowego statycznego pliku.
+    body=$(curl -sk --resolve "legacy.example.org:$port_443:127.0.0.1" \
+        "https://legacy.example.org:$port_443/.well-known/oauth-authorization-server" || true)
+    if echo "$body" | grep -q "Path: /.well-known/oauth-authorization-server"; then
+        pass "HTTPS /.well-known/oauth-authorization-server -> proxy do appservera"
+    else
+        fail "well-known OAuth: oczekiwano proxy, otrzymano: $(echo "$body" | head -c 200)"
+    fi
+
+    # Blokada plikow ukrytych MUSI przetrwac wyjatek na .well-known.
+    for hidden in "/.git/config" "/.env"; do
+        code=$(curl -sk -o /dev/null -w '%{http_code}' \
+            --resolve "legacy.example.org:$port_443:127.0.0.1" \
+            "https://legacy.example.org:$port_443$hidden" || true)
+        if [ "$code" = "403" ]; then
+            pass "HTTPS $hidden -> 403 (blokada plikow ukrytych dziala)"
+        else
+            fail "$hidden: oczekiwane 403, otrzymano '$code' (blokada oslabiona!)"
+        fi
+    done
+
     # cleanup via trap RETURN
 }
 
