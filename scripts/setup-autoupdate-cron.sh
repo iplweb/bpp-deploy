@@ -133,8 +133,12 @@ if [ -z "$CONFIGS_DIR" ] && [ -f "$REPO_DIR/.env" ]; then
 	CONFIGS_DIR="${CONFIGS_DIR#\"}"; CONFIGS_DIR="${CONFIGS_DIR%\"}"
 	CONFIGS_DIR="${CONFIGS_DIR#\'}"; CONFIGS_DIR="${CONFIGS_DIR%\'}"
 fi
+# Wartosc pochodzi z pliku .env, wiec `~` jest w niej znakiem LITERALNYM —
+# powloka nigdy go nie rozwinela, bo czytalismy plik grepem, a nie wykonywali.
+# Rozwijamy recznie. Wzorzec `[~]` (klasa znakow) zamiast `"~/"`: dopasowuje
+# literalna tylde i nie wyglada dla shellchecka jak nieudana proba rozwiniecia.
 case "$CONFIGS_DIR" in
-	"~/"*) CONFIGS_DIR="$HOME/${CONFIGS_DIR#\~/}" ;;
+	[~]/*) CONFIGS_DIR="$HOME/${CONFIGS_DIR#\~/}" ;;
 esac
 
 LOG="${AUTOUPDATE_CRON_LOG:-}"
