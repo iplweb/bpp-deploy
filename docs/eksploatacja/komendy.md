@@ -151,11 +151,19 @@ Szczegóły: [Backup i rclone](backup-i-rclone.md).
 ## Konserwacja
 
 ```bash
+make invalidate              # Wyczyść cache (cacheops + page cache), BEZ wylogowywania
+make check-quic              # Sprawdź, czy UDP/443 (HTTP/3 QUIC) dochodzi z zewnątrz
 make docker-clean            # Sprzątanie Dockera
 make prune-orphan-volumes    # Usuń osierocone wolumeny
 make open-docker-volume      # Otwórz wolumen do podglądu
 make rmrf                    # Niebezpieczne, pyta o potwierdzenie
 ```
+
+`make invalidate` woła się automatycznie na końcu `make up`; ręcznie przydaje się
+po zmianie danych „obok" aplikacji. Czyści cache zapytań (`manage.py invalidate all`)
+oraz **chirurgicznie** wyrenderowany page cache — po wzorcu klucza, nie
+`FLUSHDB`. To celowe: page cache i **sesje** dzielą tę samą bazę Redisa, więc
+flush całej bazy wylogowywałby wszystkich przy każdym deployu.
 
 ## Wydanie i wersja
 

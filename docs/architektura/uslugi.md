@@ -54,12 +54,17 @@
 |---|---|
 | **ofelia** | Cron dla Dockera ([zadania okresowe](zadania-ofelia.md)) |
 | **autoheal** | Sidecar restartujący niezdrowe kontenery ([healthchecks](healthchecks-autoheal.md)) |
-| **backup-runner** | Codzienny `pg_dump` + tar media + rclone + Rollbar (`postgres:<major>-alpine`; Ofelia `0 30 2 * * *`; manual: `make backup-cycle`) |
+| **backup-runner** | Codzienny `pg_dump` + tar media + rclone + Rollbar (obraz **ten sam co `dbserver`**, czyli `postgres:<MAJOR.MINOR>` — zero dodatkowych warstw na dysku; w trybie external `postgres:<major>-alpine`. Ofelia `0 30 2 * * *`; manual: `make backup-cycle`) |
 
-### Profil `manual`
+### Usługi za profilem (nie startują z `make up`)
 
-`workerserver-status` (`profiles: ['manual']`, nie startuje automatycznie) —
-`docker compose run --rm workerserver-status`.
+Compose'owe `profiles:` trzymają te usługi poza domyślnym `docker compose up`:
+
+| Usługa | Profil | Kiedy działa |
+|---|---|---|
+| **workerserver-status** | `manual` | Na żądanie: `docker compose run --rm workerserver-status` |
+| **certbot** | `letsencrypt` | Na żądanie z `make ssl-letsencrypt-issue` / `-renew` oraz z codziennego joba Ofelii ([SSL](../konfiguracja/ssl.md)) |
+| **html2docx** | `html2docx` | Opcjonalny sidecar HTTP fallbacku konwersji HTML→DOCX (gdy pandoc z obrazu appservera zawiedzie) — opt-in, patrz [Architektura konfiguracji](../konfiguracja/architektura.md#fallback-htmldocx-opcjonalny-sidecar-html2docx) |
 
 ## Przepływ danych
 
