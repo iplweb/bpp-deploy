@@ -36,13 +36,18 @@ services:
       # Poza absurdalna objetoscia to problem z danymi osobowymi: oflagowany
       # POST na formularz logowania zapisalby przeslane haslo, a oflagowana
       # strona — jej pelna tresc.
-      #   A = naglowek transakcji   B = naglowki zadania (w tym URI = payload)
-      #   H = komunikaty regul (ktora regula i dlaczego)   Z = domkniecie
-      # Do baseline i do diagnostyki to komplet; cial nie logujemy w ogole.
+      #   A = naglowek transakcji, W TYM LINIA ZADANIA Z URI (czyli payload)
+      #   H = komunikaty regul (ktora zapalila, dlaczego, jaki score)
+      #   Z = domkniecie wpisu
+      # CELOWO BEZ `B` (naglowki zadania): siedzi w nich `Cookie`, a w nim
+      # sessionid — czyli POSWIADCZENIE. Kto ma dostep do Loki, mogl by przejac
+      # sesje zalogowanego uzytkownika. Potwierdzone na stagingu 2026-08-03.
+      # User-Agent nie ginie: jest w access logu nginksa (format bpp_access),
+      # do skorelowania po czasie i adresie IP.
       # UWAGA: to wylacza LOGOWANIE cial, nie ich INSPEKCJE —
       # MODSEC_REQ_BODY_ACCESS zostaje `on`, wiec ataki w POST sa nadal
       # wykrywane.
-      MODSEC_AUDIT_LOG_PARTS: "${MODSEC_AUDIT_LOG_PARTS:-ABHZ}"
+      MODSEC_AUDIT_LOG_PARTS: "${MODSEC_AUDIT_LOG_PARTS:-AHZ}"
       # NIE ustawiamy NGINX_ENVSUBST_FILTER. Obraz CRS renderuje wlasne
       # szablony (75 zmiennych: WORKER_CONNECTIONS, LOGLEVEL, MODSEC_*, …)
       # i filtr "DJANGO_BPP_" zostawilby je dosownie -> nginx nie wstanie.

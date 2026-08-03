@@ -130,7 +130,11 @@ PRZYPADKI=(
   "PASS|rekord z przecinkiem w ID|bpp/rekord/75,7/"
   "PASS|slug autora z myslnikami|bpp/autor/Jan-Kowalski-2/"
   # --- sciezki wyjete z blokowania (reguly 10002/10003) ---
-  "PASS|DjangoQL ze skladnia SQL-podobna|api/v1/zapytanie/rekord?q=rok%20=%202020%20and%20tytul%20~%20%22select%22"
+  "PASS|DjangoQL (API) ze skladnia SQL-podobna|api/v1/zapytanie/rekord?q=rok%20=%202020%20and%20tytul%20~%20%22select%22"
+  # Realny przypadek ze stagingu 2026-08-03: to zapytanie w interfejsie
+  # uzytkownika zapalalo 930120 + 932235 + 932160 (score 15) i bylo blokowane,
+  # bo wykluczenie obejmowalo tylko wariant API.
+  "PASS|DjangoQL (UI) z tekstem wygladajacym na LFI|bpp/zapytanie/?model=rekord&query=test%20%3D%205/etc/passwd"
   "PASS|dbtemplates z surowym HTML|admin/dbtemplates/template/1/?body=%3Cscript%3Ex%3C/script%3E"
   # --- infrastruktura ---
   "PASS|healthcheck|healthz"

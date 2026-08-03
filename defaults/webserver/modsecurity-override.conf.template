@@ -67,9 +67,16 @@ SecRule REQUEST_URI "@beginsWith /admin/dbtemplates/" \
     nolog,\
     ctl:ruleEngine=DetectionOnly"
 
-# DjangoQL: uzytkownik wysyla skladnie zapytan, ktora z definicji przypomina
-# SQL — rodzina 942 zapali sie na tym.
-SecRule REQUEST_URI "@beginsWith /api/v1/zapytanie/" \
+# DjangoQL: uzytkownik wpisuje tam dowolny tekst zapytania, wiec zapalic sie
+# moze praktycznie kazda rodzina regul — nie tylko 942 (SQL). Potwierdzone na
+# stagingu 2026-08-03: `query=test = 5/etc/passwd` zapalilo 930120 (LFI),
+# 932235 i 932160 (RCE), laczny score 15 przy progu 5 -> blokada.
+#
+# UWAGA — SA DWA ENDPOINTY i latwo wykluczyc tylko jeden:
+#   /bpp/zapytanie/     — interfejs uzytkownika (bpp/src/bpp/urls.py:113),
+#   /api/v1/zapytanie/  — wariant API.
+# Ten pierwszy jest wazniejszy: to w nim ludzie realnie pisza zapytania.
+SecRule REQUEST_URI "@rx ^/(bpp|api/v1)/zapytanie/" \
     "id:10003,\
     phase:1,\
     pass,\

@@ -16,7 +16,9 @@ Django.
     `/admin/dbtemplates/` i `/api/v1/zapytanie/` (patrz [Wykluczenia
     reguł](#wykluczenia-regul)).
 
-    **Awaryjne zejście do obserwacji** — w `.env`:
+    **Awaryjne zejście do obserwacji** — w **repo-owym** `.env` (tym obok
+    `docker-compose.yml`, nie w `${BPP_CONFIGS_DIR}/.env` — patrz
+    `.env.sample`):
     ```bash
     MODSEC_RULE_ENGINE=DetectionOnly
     ```
@@ -47,7 +49,7 @@ instalacja nie wymaga żadnych zmian).
 | `BLOCKING_PARANOIA` | `1` | `1` | poziom agresywności reguł |
 | `MODSEC_REQ_BODY_LIMIT` | `132120576` (126 MiB) | `13107200` (12,5 MiB) | **musi być ≥ `client_max_body_size 120M`** |
 | `MODSEC_REQ_BODY_NOFILES_LIMIT` | `4194304` (4 MiB) | `131072` (128 KiB) | duże formularze BPP |
-| `MODSEC_AUDIT_LOG_PARTS` | `ABHZ` | `ABIJDEFHZ` | **bez ciał żądań i odpowiedzi w logu** |
+| `MODSEC_AUDIT_LOG_PARTS` | `AHZ` | `ABIJDEFHZ` | **bez ciał i bez nagłówków w logu** |
 
 !!! danger "Nie przywracaj domyślnych `MODSEC_AUDIT_LOG_PARTS`"
     Domyślne `ABIJDEFHZ` zawiera `I` (ciało żądania) i `E` (ciało odpowiedzi,
@@ -56,8 +58,16 @@ instalacja nie wymaga żadnych zmian).
     formularz logowania zapisałby przesłane hasło**. To nie jest tylko kwestia
     objętości logów, tylko danych osobowych.
 
-    `ABHZ` = nagłówek transakcji + nagłówki żądania (w tym URI, czyli payload)
-    + komunikaty reguł + domknięcie. Do baseline i diagnostyki komplet.
+    Nie wystarczy usunąć ciał. Część `B` to **nagłówki żądania, a w nich
+    `Cookie` z `sessionid`** — czyli poświadczenie. Kto ma dostęp do Loki,
+    mógłby przejąć sesję zalogowanego użytkownika. Potwierdzone na stagingu
+    2026-08-03.
+
+    `AHZ` = nagłówek transakcji (**w tym linia żądania z URI, czyli payload**)
+    + komunikaty reguł + domknięcie. Do diagnostyki komplet. User-Agent nie
+    ginie — jest w access logu nginksa (`bpp_access`), do skorelowania po
+    czasie i adresie IP.
+
     **Inspekcja ciał nadal działa** (`MODSEC_REQ_BODY_ACCESS=on`) — wyłączamy
     tylko ich *logowanie*, więc ataki w POST są dalej wykrywane.
 
@@ -132,9 +142,16 @@ Obecnie są tam trzy reguły:
   tam szablony HTML, czyli POST-uje surowy HTML z JavaScriptem — kanoniczny
   fałszywy alarm rodziny 941 (XSS), opisany wprost w dokumentacji CRS.
 
-- **`id:10003` — `/api/v1/zapytanie/` tylko obserwowane.** Składnia DjangoQL
-  z definicji przypomina SQL, więc rodzina 942 zapali się na normalnych
-  zapytaniach użytkownika.
+- **`id:10003` — `/bpp/zapytanie/` i `/api/v1/zapytanie/` tylko obserwowane.**
+  Użytkownik wpisuje tam dowolny tekst zapytania DjangoQL, więc zapalić się
+  może praktycznie każda rodzina reguł — nie tylko 942 (SQL). Potwierdzone na
+  stagingu 2026-08-03: `query=test = 5/etc/passwd` zapaliło `930120` (LFI),
+  `932235` i `932160` (RCE), łączny score 15 przy progu 5 → blokada.
+
+    **Są dwa endpointy i łatwo wykluczyć tylko jeden:** `/bpp/zapytanie/` to
+    interfejs użytkownika (`bpp/src/bpp/urls.py:113`), `/api/v1/zapytanie/` to
+    wariant API. Ten pierwszy jest ważniejszy — to w nim ludzie realnie piszą
+    zapytania.
 
 Reguły 10002 i 10003 schodzą dla swoich ścieżek do `ctl:ruleEngine=DetectionOnly`:
 trafienia nadal trafiają do audit logu (i posłużą do napisania precyzyjnych
