@@ -6,11 +6,21 @@ czyli **ten sam oficjalny nginx** plus moduł ModSecurity i reguły OWASP Core
 Rule Set. Zapytania są sprawdzane pod kątem znanych klas ataków, zanim dotkną
 Django.
 
-!!! warning "Domyślnie tryb `DetectionOnly` — WAF nic nie blokuje"
-    Świeża instalacja startuje z `MODSEC_RULE_ENGINE=DetectionOnly`: CRS
-    **loguje** trafienia, ale przepuszcza ruch. Włączenie blokowania to
-    świadoma decyzja po zebraniu baseline — patrz [Włączanie
-    blokowania](#wlaczanie-blokowania).
+!!! danger "WAF BLOKUJE — rozpoznany atak dostaje zerwane połączenie"
+    `MODSEC_RULE_ENGINE=On`. Żądanie z rozpoznanym atakiem dostaje od
+    ModSecurity 403, które nginx zamienia na **444: zamknięcie połączenia bez
+    żadnej odpowiedzi**. Skaner nie dostaje ani kodu, ani strony błędu, ani
+    nagłówków.
+
+    Dwie ścieżki są z blokowania wyjęte i tylko obserwowane —
+    `/admin/dbtemplates/` i `/api/v1/zapytanie/` (patrz [Wykluczenia
+    reguł](#wykluczenia-regul)).
+
+    **Awaryjne zejście do obserwacji** — w `.env`:
+    ```bash
+    MODSEC_RULE_ENGINE=DetectionOnly
+    ```
+    i `make run`.
 
 ## Po co to jest
 
@@ -33,7 +43,7 @@ instalacja nie wymaga żadnych zmian).
 
 | Zmienna | Domyślnie u nas | Domyślnie w obrazie | Po co |
 |---|---|---|---|
-| `MODSEC_RULE_ENGINE` | `DetectionOnly` | `On` | rozruch dwuetapowy |
+| `MODSEC_RULE_ENGINE` | `On` | `On` | blokowanie włączone |
 | `BLOCKING_PARANOIA` | `1` | `1` | poziom agresywności reguł |
 | `MODSEC_REQ_BODY_LIMIT` | `132120576` (126 MiB) | `13107200` (12,5 MiB) | **musi być ≥ `client_max_body_size 120M`** |
 | `MODSEC_REQ_BODY_NOFILES_LIMIT` | `4194304` (4 MiB) | `131072` (128 KiB) | duże formularze BPP |
@@ -108,14 +118,28 @@ we własnej regule, bo wykonuje się w trakcie transakcji.
 Zakres ID `1-99999` jest zarezerwowany dla reguł lokalnych (CRS używa
 `900000-999999`).
 
-Obecnie jest tam jedno wykluczenie:
+Obecnie są tam trzy reguły:
 
-- **`id:10001`** — healthcheck Dockera (`curl http://127.0.0.1:80/healthz` co
-  10 s) zapalał regułę `920350` („Host header is a numeric IP address"), bo w
-  nagłówku `Host` jest numeryczny adres. To ~8 640 wpisów audytowych na dobę,
-  które topiły realne trafienia. Wyciszamy **logowanie** dla tej jednej
-  ścieżki (`ctl:auditEngine=Off`), a nie regułę globalnie — na ruchu z zewnątrz
-  `920350` jest sensowna, bo skanery wołają po IP, nie po nazwie.
+- **`id:10001` — healthcheck poza audytem.** Healthcheck Dockera
+  (`curl http://127.0.0.1:80/healthz` co 10 s) zapalał regułę `920350`
+  („Host header is a numeric IP address"), bo w nagłówku `Host` jest numeryczny
+  adres. To ~8 640 wpisów audytowych na dobę, które topiły realne trafienia.
+  Wyciszamy **logowanie** dla tej jednej ścieżki (`ctl:auditEngine=Off`), a nie
+  regułę globalnie — na ruchu z zewnątrz `920350` jest sensowna, bo skanery
+  wołają po IP, nie po nazwie.
+
+- **`id:10002` — `/admin/dbtemplates/` tylko obserwowane.** Superuser edytuje
+  tam szablony HTML, czyli POST-uje surowy HTML z JavaScriptem — kanoniczny
+  fałszywy alarm rodziny 941 (XSS), opisany wprost w dokumentacji CRS.
+
+- **`id:10003` — `/api/v1/zapytanie/` tylko obserwowane.** Składnia DjangoQL
+  z definicji przypomina SQL, więc rodzina 942 zapali się na normalnych
+  zapytaniach użytkownika.
+
+Reguły 10002 i 10003 schodzą dla swoich ścieżek do `ctl:ruleEngine=DetectionOnly`:
+trafienia nadal trafiają do audit logu (i posłużą do napisania precyzyjnych
+wykluczeń), ale nikomu nie urywają połączenia. To **tępe narzędzie na start** —
+patrz [Zawężanie wykluczeń po baseline](#zawezanie-wykluczen-po-baseline).
 
 ## Logi WAF-a w Grafanie
 
@@ -141,9 +165,33 @@ Przykładowe zapytanie LogQL do przeglądania trafień:
   | line_format "{{.transaction_request_uri}} → {{.transaction_messages_0_details_ruleId}}"
 ```
 
-## Włączanie blokowania
+## Dlaczego 444, a nie 403
 
-Nie włączaj `On` od razu. Kolejność:
+444 to niestandardowy kod nginksa: **zamknij połączenie, nie wysyłając nic**.
+Wbrew intuicji nie oznacza to, że klient wisi — połączenie jest zrywane
+natychmiast, po prostu bez odpowiedzi.
+
+`_bpp-locations.conf` mapuje `error_page 403` na `return 444`. Trafiają tam
+**wyłącznie 403 wygenerowane przez sam nginx**: blokada ModSecurity oraz nasze
+własne `deny all` (pliki ukryte, kopie zapasowe, `/metrics`, wykonywalne
+w `/media/`).
+
+!!! warning "Nie włączaj `proxy_intercept_errors`"
+    403 zwracane przez **Django** (`PermissionDenied`) **nie** wpada w
+    `error_page`, bo `proxy_intercept_errors` jest domyślnie wyłączone i
+    celowo tego nie zmieniamy. Dzięki temu użytkownik bez uprawnień widzi
+    normalną stronę „brak dostępu", a nie zerwane połączenie. Włączenie tej
+    dyrektywy gdziekolwiek w konfiguracji zepsuje to natychmiast.
+
+Cena 444: **fałszywy alarm jest znacznie trudniejszy do zdiagnozowania**.
+Użytkownik nie zobaczy komunikatu, tylko „połączenie przerwane" — i nie ma jak
+się domyślić, że zatrzymał go WAF. Dlatego dwie ścieżki, o których z góry
+wiadomo, że będą fałszywie alarmować, są wyjęte z blokowania.
+
+## Zawężanie wykluczeń po baseline
+
+Reguły 10002/10003 to tępe narzędzie — wyłączają blokowanie dla całej ścieżki.
+Docelowo zastąp je celowanymi wykluczeniami:
 
 1. Zostaw `DetectionOnly` i zbierz trafienia z audit logu ModSecurity
    (leci na stdout w formacie JSON — widoczny w Dozzle i w Loki).

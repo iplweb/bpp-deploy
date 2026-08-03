@@ -42,3 +42,36 @@ SecRule REQUEST_URI "@streq /healthz" \
     pass,\
     nolog,\
     ctl:auditEngine=Off"
+
+# ---------------------------------------------------------------------------
+# 10002, 10003: sciezki, na ktorych WAF tylko obserwuje, nigdy nie blokuje
+# ---------------------------------------------------------------------------
+# Blokowanie jest wlaczone globalnie (MODSEC_RULE_ENGINE=On), ale dwa miejsca
+# w BPP z GORY wiadomo, ze beda dawac falszywe alarmy — a przy odpowiedzi 444
+# objaw jest wyjatkowo mylacy: uzytkownik widzi zerwane polaczenie, bez zadnego
+# komunikatu, wiec nie ma jak sie domyslic, ze zatrzymal go WAF.
+#
+# Dlatego dla tych dwoch sciezek schodzimy do DetectionOnly: trafienia nadal
+# ida do audit logu (i posluza do napisania precyzyjnych wykluczen), ale nikomu
+# nie urywaja polaczenia.
+#
+# Zdejmowac po zebraniu baseline, zastepujac celowanymi wykluczeniami regul.
+
+# dbtemplates: superuser edytuje szablony HTML w panelu admina, czyli POST-uje
+# surowy HTML z JavaScriptem. To kanoniczny falszywy alarm rodziny 941 (XSS),
+# opisany wprost w dokumentacji CRS.
+SecRule REQUEST_URI "@beginsWith /admin/dbtemplates/" \
+    "id:10002,\
+    phase:1,\
+    pass,\
+    nolog,\
+    ctl:ruleEngine=DetectionOnly"
+
+# DjangoQL: uzytkownik wysyla skladnie zapytan, ktora z definicji przypomina
+# SQL — rodzina 942 zapali sie na tym.
+SecRule REQUEST_URI "@beginsWith /api/v1/zapytanie/" \
+    "id:10003,\
+    phase:1,\
+    pass,\
+    nolog,\
+    ctl:ruleEngine=DetectionOnly"
