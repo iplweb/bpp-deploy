@@ -44,6 +44,39 @@ limit_req_log_level warn;   # 429 logowane jako warn, nie error — nie pompuje 
 jest keyowany po `detected_level` — flood 429 sam napompowałby metrykę i alerty
 błędów. `warn` to neutralizuje.
 
+## `/.well-known/` — wyjątek przed blokadą plików ukrytych
+
+`_bpp-locations.conf` blokuje pliki ukryte regexem `location ~ /\.` (żeby nikt
+nie pobrał `/.git/config` ani `/.env`). Ta reguła łapała też `/.well-known/` —
+standardową przestrzeń metadanych serwisu (RFC 8615), w której leżą m.in.
+metadane serwera autoryzacji OAuth (`/.well-known/oauth-authorization-server`,
+RFC 8414) i `security.txt`. Efekt: 403 i **padające logowanie klientów MCP**,
+które przed logowaniem robią discovery — mimo że `/o/authorize/`, `/o/token/`
+i `/o/register/` działały normalnie.
+
+Naprawa korzysta z kolejności matchowania locationów w nginksie: **regex `~` ma
+pierwszeństwo przed zwykłym prefiksem**, więc żaden prefiksowy `location` nie
+mógł wyprzedzić blokady — dopiero modyfikator `^~` stawia prefiks **ponad**
+regexami:
+
+```nginx
+location ^~ /.well-known/ {
+    limit_req zone=bpp_general burst=100 nodelay;
+    try_files $uri @proxy_to_app;
+}
+```
+
+Ruch idzie do Django z tierem ogólnym (100 r/s). Django odpowiada 404 na nieznane
+ścieżki `.well-known`, więc nic się nie odsłania, a `/.git/*` i `/.env` dalej
+łapie regex poniżej. Obie strony kontraktu pilnuje test 15d w
+`tests/test_makefile.sh` — „naprawa" polegająca na skasowaniu blokady plików
+ukrytych nie przejdzie jako zielona.
+
+!!! note "ACME (Let's Encrypt) to osobna ścieżka"
+    Walidacja HTTP-01 (`/.well-known/acme-challenge/`) nigdy nie była dotknięta:
+    obsługuje ją blok port-80 w `vhost.conf.template`, który nie includuje
+    `_bpp-locations.conf` ([SSL](../konfiguracja/ssl.md)).
+
 ## Co NIE jest limitowane (celowo)
 
 `/static/`, `/media/`, `/healthz`, `/metrics` oraz panele za auth superusera

@@ -162,6 +162,37 @@ wartości. Samo **usunięcie linii nie wystarczy**: zostanie dopisana z powrotem
 Captcha wymaga obrazu BPP z ALTCHA (wydania od `202607.1398` wzwyż). Na starszym obrazie
 zmienne są nieszkodliwe — Django ich po prostu nie czyta.
 
+## Fallback HTML→DOCX — opcjonalny sidecar `html2docx`
+
+Eksport do DOCX robi **pandoc z obrazu appservera** i to wystarcza w większości
+instalacji. Na nielicznych hostach (np. wirtualizacja VMWare ESX) pandoc potrafi
+się wywalić core dumpem — dla takich przypadków jest **opcjonalny sidecar HTTP**
+`iplweb/html2docx`, do którego Django odsyła konwersję.
+
+Sidecar jest **domyślnie wyłączony**. Włączenie to **dwa** kroki opt-in — w
+**dwóch różnych** plikach `.env`:
+
+| Krok | Plik | Wpis |
+|---|---|---|
+| 1. Uruchom kontener | `.env` w **katalogu repo** `bpp-deploy` | `COMPOSE_PROFILES=html2docx` |
+| 2. Wskaż go Django | `.env` w `$BPP_CONFIGS_DIR` | `DJANGO_BPP_HTML2DOCX_URL=http://html2docx:3030/convert` |
+
+Sam krok 1 podnosi kontener, ale nikt do niego nie zagląda; sam krok 2 kieruje
+Django pod adres, którego nie ma. Brak `DJANGO_BPP_HTML2DOCX_URL` to **miękka
+degradacja** — fallback jest po prostu wyłączony, nic się nie wywraca.
+
+Sidecar nie ma publikowanego portu (żyje tylko w sieci projektu, jako
+`html2docx:3030`) ani `docker.sock` — poprzednia implementacja uruchamiała
+konwersję przez `docker run` z gniazda Dockera podmontowanego do appservera i to
+właśnie zdjęcie tego gniazda było celem zmiany. Obraz wersjonuje się niezależnie
+od `DOCKER_VERSION` — pin przez `HTML2DOCX_VERSION`.
+
+!!! info "Stara flaga `DJANGO_BPP_ENABLE_HTML2DOCX_IMAGE` jest martwa"
+    Do lipca 2026 fallback włączała flaga `DJANGO_BPP_ENABLE_HTML2DOCX_IMAGE=true`,
+    która powodowała `docker pull` obrazu przy `make up`. Ten mechanizm został
+    usunięty. Flaga w istniejących `.env` jest **nieszkodliwa** (nikt jej już nie
+    czyta) — nie trzeba jej kasować, ale nic już nie robi.
+
 ## Pierwsze uruchomienie — dwa przebiegi `make`
 
 ```bash
