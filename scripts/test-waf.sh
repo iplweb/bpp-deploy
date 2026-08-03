@@ -40,7 +40,7 @@ czysc() {
 trap czysc EXIT
 
 echo "== przygotowanie =="
-mkdir -p "$TMP"/{ssl,letsencrypt,certbot,static,media,nginxlog}
+mkdir -p "$TMP"/{ssl,letsencrypt,certbot,static,media,nginxlog,html}
 openssl req -x509 -newkey rsa:2048 -nodes -days 1 \
     -keyout "$TMP/ssl/key.pem" -out "$TMP/ssl/cert.pem" \
     -subj "/CN=$HOST_NAME" >/dev/null 2>&1
@@ -52,8 +52,24 @@ server {
         default_type text/plain;
         return 200 "pass\n";
     }
+    # Strony do testowania regul WYCHODZACYCH (RESPONSE-95x), ktore skanuja
+    # CIALO ODPOWIEDZI. Reszta atrapy zwraca "pass", czyli tresc, na ktorej
+    # zadna z nich sie nie zapali.
+    location /odpowiedz/ {
+        alias /html/;
+        default_type "text/html; charset=UTF-8";
+    }
 }
 BACKEND
+
+# Komunikat bledu PHP w ciele odpowiedzi — kanoniczny wyciek, ktory reguly
+# wychodzace maja lapac. Sluzy za kontrole, ze inspekcja odpowiedzi w ogole
+# dziala; bez niej wykluczenie 10004 nie mialoby czego wylaczac.
+cat > "$TMP/html/wyciek-php.html" <<'WYCIEK'
+<!DOCTYPE html><html><body>
+Warning: mysql_connect(): Access denied for user 'root'@'localhost' in /var/www/index.php on line 12
+</body></html>
+WYCIEK
 
 docker network create "$NET" >/dev/null 2>&1
 
@@ -61,6 +77,7 @@ docker network create "$NET" >/dev/null 2>&1
 # hostname zaszyty w proxy_pass.
 docker run -d --name "$BACK" --network "$NET" --network-alias appserver \
     -v "$TMP/backend.conf:/etc/nginx/conf.d/default.conf:ro" \
+    -v "$TMP/html:/html:ro" \
     nginx:1.30.2 >/dev/null
 
 docker run -d --name "$FRONT" --network "$NET" -p "$PORT:443" \
@@ -173,11 +190,44 @@ for wpis in "${PRZYPADKI[@]}"; do
     fi
 done
 
+# --------------------------------------------------------------------------
+# Reguly WYCHODZACE (RESPONSE-95x): inspekcja CIALA ODPOWIEDZI
+# --------------------------------------------------------------------------
+# Kontrola, ze ta rodzina w ogole dziala. Wazna, bo regula 10004 zdejmuje ja
+# dla /grafana/, /dozzle/, /flower/ i /netdata/ — a wykluczenie, ktore nic nie
+# wylacza, jest gorsze niz zadne: daje falszywy spokoj.
+#
+# DLACZEGO OSOBNO, A NIE JAKO PRZYPADEK "BLOK" W TABELCE: reguly wychodzace
+# koncza sie w `phase:4`, czyli gdy nginx CZESTO WYSLAL JUZ NAGLOWKI. Nie da
+# sie wtedy zwrocic 403 (ani naszego 444) — nginx zapisuje `header already
+# sent`, urywa strumien i klient dostaje raz zerwane polaczenie, a raz cale
+# 200. Zmierzone: 1 na 5 przebiegow konczylo sie inaczej niz pozostale.
+# Wynik HTTP jest tu wiec WYSCIGIEM i asercja na nim migota.
+#
+# WYKRYCIE natomiast jest deterministyczne, wiec sprawdzamy audit log: czy dla
+# tego URI zapalila sie ktoras regula 95xxxx. To samo zjawisko widac na
+# produkcji jako `500 0` w access logu zamiast czystej blokady.
+echo
+printf "%-6s %-46s %s\n" "WYNIK" "INSPEKCJA CIALA ODPOWIEDZI" "SZCZEGOLY"
+printf "%s\n" "----------------------------------------------------------------------------------"
+curl -sk --http1.1 -o /dev/null --max-time 8 --resolve "$HOST_NAME:$PORT:127.0.0.1" \
+    "https://$HOST_NAME:$PORT/odpowiedz/wyciek-php.html" >/dev/null 2>&1
+TRAFIENIA=$(docker logs "$FRONT" 2>&1 \
+    | grep -c '"uri":"/odpowiedz/wyciek-php.html".*"ruleId":"95' || true)
+if [ "$TRAFIENIA" -gt 0 ]; then
+    printf "  \033[32mOK\033[0m   %-46s %s\n" \
+        "wyciek komunikatu PHP w ciele odpowiedzi" "regula 95xxx zapalona"
+else
+    printf "  \033[31mFAIL\033[0m %-46s %s\n" \
+        "wyciek komunikatu PHP w ciele odpowiedzi" "ZADNA regula 95xxx sie nie zapalila"
+    BLEDY=$((BLEDY + 1))
+fi
+
 echo
 if [ "$BLEDY" -eq 0 ]; then
-    echo "Wszystkie ${#PRZYPADKI[@]} przypadkow zgodnie z oczekiwaniem."
+    echo "Wszystkie ${#PRZYPADKI[@]} przypadkow + inspekcja odpowiedzi zgodnie z oczekiwaniem."
 else
-    echo "NIEZGODNOSCI: $BLEDY z ${#PRZYPADKI[@]}."
+    echo "NIEZGODNOSCI: $BLEDY z $(( ${#PRZYPADKI[@]} + 1 ))."
     echo
     echo "Trafienia regul CRS z tego przebiegu:"
     docker logs "$FRONT" 2>&1 | grep -o '"ruleId":"[0-9]*"' | sort | uniq -c | sort -rn | head -10

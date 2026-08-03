@@ -116,7 +116,7 @@ envsubst i tak nie rusza), więc stracił rację bytu. Vhosty renderuje
 `30-render-bpp-vhosts.sh` własnym `envsubst` z jawną listą zmiennych, niezależnie
 od tego mechanizmu.
 
-## Wykluczenia reguł
+## Wykluczenia reguł {#wykluczenia-regul}
 
 Własne naddefinicje idą do `defaults/webserver/modsecurity-override.conf.template`
 (montowany jako `/etc/nginx/templates/modsecurity.d/modsecurity-override.conf.template`).
@@ -128,7 +128,7 @@ we własnej regule, bo wykonuje się w trakcie transakcji.
 Zakres ID `1-99999` jest zarezerwowany dla reguł lokalnych (CRS używa
 `900000-999999`).
 
-Obecnie są tam trzy reguły:
+Obecnie jest ich pięć:
 
 - **`id:10001` — healthcheck poza audytem.** Healthcheck Dockera
   (`curl http://127.0.0.1:80/healthz` co 10 s) zapalał regułę `920350`
@@ -153,10 +153,101 @@ Obecnie są tam trzy reguły:
     wariant API. Ten pierwszy jest ważniejszy — to w nim ludzie realnie piszą
     zapytania.
 
+- **`id:10004` — panele administracyjne bez inspekcji ciała odpowiedzi.**
+  `/grafana/`, `/dozzle/`, `/flower/` i `/netdata/` dostają
+  `ctl:ruleRemoveById=950000-959999`, czyli zdjęcie całej rodziny reguł
+  **wychodzących**. Szczegóły i uzasadnienie: [Reguły wychodzące](#reguly-wychodzace).
+
+- **`id:10005` — `920280` („Request Missing a Host Header") wyłączone dla
+  HTTP/2 i HTTP/3.** W h2/h3 adres serwera jedzie w pseudo-nagłówku
+  `:authority`, którego konektor ModSecurity-nginx (v1.0.4) nie widzi. Reguła
+  (severity CRITICAL = 5 pkt) zapalała się więc na **każdym** żądaniu h3 i sama
+  z siebie osiągała próg anomalii → `949110` blokowało wszystko, także zwykłe
+  `GET /`. Ponieważ vhost reklamuje `Alt-Svc: h3=":443"; ma=86400`, przeglądarka
+  raz przełączona na h3 trzymała się go przez dobę — czyli pełna niedostępność
+  serwisu bez żadnego komunikatu. Nic przy tym nie tracimy: nginx sam odrzuca
+  błędem 400 żądanie h2/h3 bez `:authority` (i 1.1 bez `Host:`), zanim dojdzie
+  do aplikacji.
+
 Reguły 10002 i 10003 schodzą dla swoich ścieżek do `ctl:ruleEngine=DetectionOnly`:
 trafienia nadal trafiają do audit logu (i posłużą do napisania precyzyjnych
 wykluczeń), ale nikomu nie urywają połączenia. To **tępe narzędzie na start** —
 patrz [Zawężanie wykluczeń po baseline](#zawezanie-wykluczen-po-baseline).
+
+Reguła 10004 jest węższa: zdejmuje **tylko** reguły wychodzące, więc żądania
+przychodzące do paneli są nadal w pełni blokowane.
+
+!!! warning "`ctl:responseBodyAccess` nie istnieje w libmodsecurity v3"
+    Naturalnym zapisem dla 10004 byłoby `ctl:responseBodyAccess=Off`, ale
+    silnik tej akcji **nie zna** i nginx z nią **nie wstaje**:
+    `Expecting an action, got: ctl:responseBodyAccess`. Sprawdzone na
+    `owasp/modsecurity-crs:nginx` (ModSecurity v3.0.16). Z akcji `ctl` działają
+    m.in. `ruleEngine`, `auditEngine`, `ruleRemoveById` (także z zakresem `A-B`)
+    i `ruleRemoveByTag`.
+
+## Reguły wychodzące — inspekcja ciała odpowiedzi {#reguly-wychodzace}
+
+Poza regułami sprawdzającymi **żądanie** CRS ma rodzinę `RESPONSE-95x`, która
+skanuje **ciało odpowiedzi** w poszukiwaniu wycieków: komunikatów błędów
+PHP/SQL/Javy, listingów katalogów, web shelli. Obraz ma je włączone domyślnie
+(`MODSEC_RESP_BODY_ACCESS=on`, typy `text/plain text/html text/xml`, limit
+1 MiB) i **my tego nie zmieniamy** — dlatego trzeba o nich wiedzieć.
+
+Ta rodzina ma dwie własności, które łatwo przeoczyć:
+
+**1. Próg wyjściowy wynosi 4, a jedno trafienie poziomu ERROR to już 4 punkty.**
+Zmienna `ANOMALY_OUTBOUND=4` (wobec `ANOMALY_INBOUND=5`). Reguła o
+`severity:ERROR` dokłada dokładnie 4 — więc **pojedyncze** trafienie od razu
+przekracza próg i `959100` kończy `deny`. Reguły wychodzące nie mają zapasu,
+jaki mają wejściowe.
+
+**2. Blokowanie wychodzące nie blokuje czysto — psuje odpowiedź.**
+`959100` działa w `phase:4`, czyli na ciele odpowiedzi, gdy nginx **zwykle
+wysłał już nagłówki**. Nie da się wtedy zwrócić 403, a więc i naszego
+[444](#dlaczego-444-a-nie-403). Zamiast blokady dostajemy:
+
+```
+"GET /grafana/ HTTP/2.0" 500 0 1378 0.038
+[error] ModSecurity: Access denied with code 403 (phase 4) ... while sending to client
+[alert] header already sent while sending to client
+```
+
+Użytkownik widzi **urwaną albo pustą stronę**, a w access logu zostaje `500 0`.
+Objaw nie wskazuje na WAF w żaden sposób.
+
+### Dlaczego panele są z tego wyjęte (reguła 10004)
+
+Potwierdzony przypadek ze stagingu, 2026-08-03: `/grafana/` było nie do
+otwarcia. Winna reguła **`953100` „PHP Information Leakage"**, która używa
+operatora `@pmFromFile php-errors.data` — dopasowania **po podciągu**, bez
+granic słowa i bez rozróżniania wielkości liter. W tym pliku danych jest wpis
+`SQLConnect` (funkcja ODBC z PHP), a Grafana wstrzykuje w `index.html` obiekt
+`window.grafanaBootData` z kluczem **`"sqlConnectionLimits"`**. Ciąg
+`sqlConnect` siedzi w jego środku, więc reguła zapala się na **każdej** stronie
+Grafany.
+
+Za `/grafana/`, `/dozzle/`, `/flower/` i `/netdata/` nie stoi żadna aplikacja
+BPP — stoi gotowy dashboard innego producenta, dostępny wyłącznie dla superusera
+(`auth_request /_bpp_superuser_auth`). Skanowanie jego HTML-a pod kątem wycieku
+błędów PHP nie chroni przed niczym.
+
+Zmierzone na prawdziwych obrazach paneli, przez prawdziwą konfigurację
+z `defaults/webserver/`:
+
+| Panel | Sprawdzone strony | Reguły wychodzące |
+|---|---|---|
+| **Grafana** | `/`, `/dashboards`, `/connections/datasources`, `/explore` | **`953100` + `959100` → blokada** |
+| Dozzle | `/` | czysto |
+| Flower | `/`, `/tasks`, `/broker`, `/worker/x` | czysto |
+| Netdata | `/`, `/v3/index.html` (100 KB) | czysto |
+
+Wykluczenie obejmuje mimo to wszystkie cztery — są tej samej natury, a kolejna
+wersja każdego z nich może wnieść własny fałszywy alarm.
+
+!!! note "Aplikacja BPP nadal jest skanowana"
+    10004 dotyczy **wyłącznie** czterech ścieżek paneli. Odpowiedzi Django lecą
+    przez reguły wychodzące jak dotąd — i tam mają sens, bo to nasz kod może
+    wypluć komunikat błędu bazy danych.
 
 ## Logi WAF-a w Grafanie
 
@@ -207,11 +298,31 @@ Zmienne:
 - `MODSEC_RULE_ENGINE` — ustaw `DetectionOnly`, żeby zobaczyć, co **by** zostało
   zablokowane, bez faktycznego blokowania.
 
+Po tabelce przypadków leci jeszcze jedno, osobne sprawdzenie: **inspekcja ciała
+odpowiedzi**. Atrapa serwuje stronę z komunikatem błędu PHP, a test sprawdza,
+czy zapaliła się któraś reguła `95xxx`. Asercja idzie po **audit logu**, a nie
+po wyniku HTTP — bo [blokowanie wychodzące jest wyścigiem](#reguly-wychodzace)
+i wynik HTTP migotał (1 na 5 przebiegów kończył się inaczej). Wykrycie jest
+deterministyczne, egzekucja nie.
+
 !!! note "Czego ten test NIE obejmuje"
     Sprawdza wyłącznie warstwę brzegową. Sondy o pliki `*.php` (phpMyAdmin,
     WordPress) przechodzą tutaj, bo blokuje je dopiero
     `MaliciousRequestBlockingMiddleware` po stronie Django — a w tym stacku
     backend jest atrapą. To jest w teście oznaczone jako oczekiwany `PASS`.
+
+    **Nie łapie też błędów specyficznych dla HTTP/2 i /3** (jak ten, dla którego
+    powstała reguła `10005`): cała bateria strzela `curl --http1.1`, czyli
+    protokołem, w którym `Host:` istnieje. Żeby dołożyć przypadek h3, trzeba
+    opublikować także `443/udp` i mieć klienta z QUIC.
+
+    **Nie weryfikuje samego wykluczenia `10004`.** Lokalnie `auth_request`
+    tłumi inspekcję odpowiedzi na lokacjach paneli — więc `/grafana/` przechodzi
+    tam niezależnie od tego, czy reguła istnieje. Na produkcji tego tłumienia
+    **nie ma** (audit log z 2026-08-03 pokazuje `953100` na `/grafana/`), ale
+    przyczyna tej rozbieżności pozostaje niewyjaśniona. Przypadek testowy na
+    `/grafana/` byłby więc lokalnie zawsze zielony — czyli dawałby fałszywy
+    spokój — i celowo go nie ma.
 
 ## Dlaczego 444, a nie 403
 
@@ -236,7 +347,7 @@ Użytkownik nie zobaczy komunikatu, tylko „połączenie przerwane" — i nie m
 się domyślić, że zatrzymał go WAF. Dlatego dwie ścieżki, o których z góry
 wiadomo, że będą fałszywie alarmować, są wyjęte z blokowania.
 
-## Zawężanie wykluczeń po baseline
+## Zawężanie wykluczeń po baseline {#zawezanie-wykluczen-po-baseline}
 
 Reguły 10002/10003 to tępe narzędzie — wyłączają blokowanie dla całej ścieżki.
 Docelowo zastąp je celowanymi wykluczeniami:

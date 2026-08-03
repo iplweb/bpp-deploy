@@ -38,6 +38,7 @@ Operator topics and their canonical pages:
 - Monitoring / logging / slow queries: `docs/monitoring/*`
 - Services / healthchecks / Ofelia jobs: `docs/architektura/*`
 - Rate limiting (nginx, per-tier `limit_req`): `docs/architektura/rate-limiting.md`
+- WAF (ModSecurity + OWASP CRS, wykluczenia reguł): `docs/architektura/waf.md`
 - Backwards-compat contract: `docs/rozwoj/backwards-compatibility.md` (summarized below — read both)
 
 ## Configuration Architecture (essentials)
@@ -130,6 +131,12 @@ All services use the `local` log driver via a per-file `x-logging` YAML anchor. 
 ### Rate limiting (nginx)
 
 Per-IP `limit_req` on `/admin/` (50r/s), `/api/` (60r/s) and the rest (`location /`, 100r/s), all `nodelay`, `burst = rate`. **Two-file split: zones (`limit_req_zone` + `rate`) live in `defaults/webserver/default.conf.template` (http context); the `limit_req` directives (+ `burst`) live in `defaults/webserver/_bpp-locations.conf` (server context).** Hardcoded, **not** `.env` — nginx `envsubst` can't do `${VAR:-default}` and `_bpp-locations.conf` isn't envsubst'd at all. Versioned bind-mounted files (not `$BPP_CONFIGS_DIR`), so `git pull && make up` activates changes with no migration. CRITICAL: (1) `limit_req_status 429;` MUST stay — default 503 would hit `error_page 502 503 504 /maintenance.html` (throttled users get the maintenance page) and trip netdata's 5xx alert; `limit_req_log_level warn;` keeps 429 floods out of the `error`-level error-monitoring dashboard. (2) **No global/aggregate cap by design** — per-IP only; whole-host capacity is governed downstream by appserver workers + Docker CPU/RAM limits (`make configure-resources`), not a static front-door req/s (nginx is blind to per-request cost). (3) `/static/`, `/media/`, `/healthz` and auth-gated panels are deliberately unlimited. Measure real per-IP peaks with `make request-stats` before tuning. Detail: `docs/architektura/rate-limiting.md`.
+
+### WAF (ModSecurity + OWASP CRS)
+
+`webserver` is `owasp/modsecurity-crs:nginx` and **blocks** (`MODSEC_RULE_ENGINE=On`, `BLOCKING_PARANOIA=1`). Local exclusions live in `defaults/webserver/modsecurity-override.conf.template` (versioned bind-mount, ID range `1-99999`). CRITICAL: the file is included **before** CRS rules, so `SecRuleRemoveById` there is a no-op — you must use a `ctl` action inside your own rule, which runs during the transaction. **`ctl:responseBodyAccess` does not exist in libmodsecurity v3** — nginx refuses to start with it (`Expecting an action, got: …`); working `ctl` actions include `ruleEngine`, `auditEngine`, `ruleRemoveById` (ranges `A-B` OK) and `ruleRemoveByTag`.
+
+**Outbound rules (`RESPONSE-95x`) are the trap.** They scan the *response body*, `ANOMALY_OUTBOUND=4`, and a single `severity:ERROR` hit contributes exactly 4 → one match blocks. Worse, `959100` fires in `phase:4`, when nginx has usually **already sent headers**: it cannot return 403 (nor our `error_page 403 → 444`), so the response is truncated and the access log records **`500 0`** — a symptom that points nowhere near the WAF. Rule `10004` therefore strips `950000-959999` for `/grafana/`, `/dozzle/`, `/flower/`, `/netdata/` (third-party dashboards behind `auth_request`, whose HTML is not ours to police); inbound protection on those paths stays fully enforced. Rule `10005` disables `920280` for h2/h3 because the connector cannot see the `:authority` pseudo-header. **`make test-waf` covers neither h3 nor the `10004` exclusion** — it shoots `curl --http1.1`, and locally `auth_request` suppresses response inspection on the panel locations (on production it does not; cause unexplained). Detail: `docs/architektura/waf.md`.
 
 ### Healthchecks & autoheal
 
