@@ -84,6 +84,54 @@ SecRule REQUEST_URI "@rx ^/(bpp|api/v1)/zapytanie/" \
     ctl:ruleEngine=DetectionOnly"
 
 # ---------------------------------------------------------------------------
+# 10004: panele administracyjne bez inspekcji CIALA ODPOWIEDZI
+# ---------------------------------------------------------------------------
+# Reguly wychodzace (RESPONSE-95x) skanuja cialo odpowiedzi w poszukiwaniu
+# WYCIEKOW z aplikacji: komunikatow bledow PHP/SQL/Javy, listingow katalogow,
+# web shelli. Za /grafana/, /dozzle/, /flower/ i /netdata/ nie stoi zadna
+# aplikacja BPP — stoi tam gotowy dashboard innego producenta, dostepny
+# WYLACZNIE dla superusera (auth_request /_bpp_superuser_auth). Skanowanie
+# jego HTML-a nie chroni przed niczym, za to generuje falszywe alarmy.
+#
+# POTWIERDZONY PRZYPADEK (staging, 2026-08-03): wejscie na /grafana/ konczylo
+# sie urwana strona. Grafana wstrzykuje w index.html obiekt
+# `window.grafanaBootData`, a w nim klucz "sqlConnectionLimits". Reguła 953100
+# uzywa `@pmFromFile php-errors.data`, czyli dopasowania po PODCIAGU, bez
+# granic slowa i bez wielkosci liter — a w tym pliku danych jest wpis
+# `SQLConnect` (funkcja ODBC z PHP). "sqlConnect" siedzi w srodku
+# "sqlConnectionLimits", wiec regula zapala sie na KAZDEJ stronie Grafany.
+# Severity ERROR = +4 do outbound_anomaly_score przy progu 4 (ANOMALY_OUTBOUND),
+# wiec JEDNO takie trafienie od razu przekracza prog.
+#
+# DLACZEGO OBJAW JEST MYLACY: 959100 dziala w phase:4, czyli gdy nginx WYSLAL
+# JUZ NAGLOWKI odpowiedzi. Nie da sie wtedy zwrocic 403 (a wiec i naszego 444)
+# — nginx zapisuje `[alert] header already sent`, urywa strumien, a w access
+# logu zostaje `500 0`. Uzytkownik widzi pusta/uciecia strone, nie blokade.
+#
+# ZAKRES: zdejmujemy CALY zakres regul wychodzacych 950000-959999 (rodziny
+# RESPONSE-950..956 + ewaluacja progu 959100), a NIE caly `ruleEngine` jak
+# w 10002/10003. Zadania PRZYCHODZACE do paneli — URI, naglowki, cialo POST-a,
+# rodziny 913/920/930/932/941/942 i blokada 949110 — sa nadal w pelni
+# egzekwowane. Znika wylacznie skanowanie tego, co panel odsyla.
+#
+# UWAGA NA SKLADNIE: `ctl:responseBodyAccess=Off` bylaby czytelniejsza, ale
+# libmodsecurity v3 JEJ NIE ZNA — nginx nie wstaje z bledem "Expecting an
+# action, got: ctl:responseBodyAccess". Sprawdzone na owasp/modsecurity-crs:nginx
+# (ModSecurity v3.0.16): z akcji `ctl` dzialaja m.in. ruleEngine, auditEngine,
+# ruleRemoveById (takze z zakresem A-B) i ruleRemoveByTag.
+#
+# Zmierzone: z paneli tylko Grafana zapala reguly wychodzace; Dozzle, Flower
+# i Netdata (lacznie ze 100 KB dashboardem) przechodza czysto. Wykluczenie
+# obejmuje mimo to wszystkie cztery — sa tej samej natury (obcy dashboard za
+# auth), a kolejna ich wersja moze wprowadzic wlasny falszywy alarm.
+SecRule REQUEST_URI "@rx ^/(grafana|dozzle|flower|netdata)(/|$)" \
+    "id:10004,\
+    phase:1,\
+    pass,\
+    nolog,\
+    ctl:ruleRemoveById=950000-959999"
+
+# ---------------------------------------------------------------------------
 # 10005: 920280 ("Request Missing a Host Header") nie ma sensu pod HTTP/2 i /3
 # ---------------------------------------------------------------------------
 # W HTTP/1.1 adres serwera jedzie w prawdziwym naglowku `Host:`. W HTTP/2 i
