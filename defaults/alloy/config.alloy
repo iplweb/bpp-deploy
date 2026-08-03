@@ -92,6 +92,32 @@ loki.process "log_levels" {
     template = "{{ .Value | ToLower }}"
   }
 
+  // ModSecurity / OWASP CRS (audit log WAF-a).
+  //
+  // Musi byc PO ogolnych regulach wyzej, bo je nadpisuje. Audit log ModSecurity
+  // to JSON BEZ pola `level`, wiec zadna z powyzszych regul nie trafia i konczy
+  // sie na detected_level=unknown. Poziom bierzemy z `severity` reguly CRS,
+  // ktora jest w skali sysloga:
+  //   0 EMERGENCY  1 ALERT  2 CRITICAL  3 ERROR
+  //   4 WARNING    5 NOTICE 6 INFO      7 DEBUG
+  //
+  // Transakcja bez dopasowanej reguly (przy MODSEC_AUDIT_ENGINE=On) nie ma
+  // sekcji `messages` — wtedy severity jest puste i ustawiamy `info`.
+  stage.match {
+    selector = "{job=\"docker\"} |~ \"ModSecurity-nginx\""
+
+    stage.json {
+      expressions = {
+        modsec_severity = "transaction.messages[0].details.severity",
+      }
+    }
+
+    stage.template {
+      source = "extracted_level"
+      template = "{{ if eq .modsec_severity \"0\" }}critical{{ else if eq .modsec_severity \"1\" }}critical{{ else if eq .modsec_severity \"2\" }}critical{{ else if eq .modsec_severity \"3\" }}error{{ else if eq .modsec_severity \"4\" }}warning{{ else if eq .modsec_severity \"5\" }}info{{ else if eq .modsec_severity \"6\" }}info{{ else if eq .modsec_severity \"7\" }}debug{{ else }}info{{ end }}"
+    }
+  }
+
   // Add as label if extracted
   stage.labels {
     values = {

@@ -37,6 +37,19 @@ instalacja nie wymaga żadnych zmian).
 | `BLOCKING_PARANOIA` | `1` | `1` | poziom agresywności reguł |
 | `MODSEC_REQ_BODY_LIMIT` | `132120576` (126 MiB) | `13107200` (12,5 MiB) | **musi być ≥ `client_max_body_size 120M`** |
 | `MODSEC_REQ_BODY_NOFILES_LIMIT` | `4194304` (4 MiB) | `131072` (128 KiB) | duże formularze BPP |
+| `MODSEC_AUDIT_LOG_PARTS` | `ABHZ` | `ABIJDEFHZ` | **bez ciał żądań i odpowiedzi w logu** |
+
+!!! danger "Nie przywracaj domyślnych `MODSEC_AUDIT_LOG_PARTS`"
+    Domyślne `ABIJDEFHZ` zawiera `I` (ciało żądania) i `E` (ciało odpowiedzi,
+    do 1 MiB). Przy nich każda oflagowana transakcja zapisuje do stdout —
+    a stamtąd przez Alloy do Loki — pełną treść strony, a **oflagowany POST na
+    formularz logowania zapisałby przesłane hasło**. To nie jest tylko kwestia
+    objętości logów, tylko danych osobowych.
+
+    `ABHZ` = nagłówek transakcji + nagłówki żądania (w tym URI, czyli payload)
+    + komunikaty reguł + domknięcie. Do baseline i diagnostyki komplet.
+    **Inspekcja ciał nadal działa** (`MODSEC_REQ_BODY_ACCESS=on`) — wyłączamy
+    tylko ich *logowanie*, więc ataki w POST są dalej wykrywane.
 
 !!! danger "Nie obniżaj limitów ciała żądania"
     Domyślne wartości ModSecurity są **znacznie niższe** niż to, co przepuszcza
@@ -83,6 +96,51 @@ envsubst i tak nie rusza), więc stracił rację bytu. Vhosty renderuje
 `30-render-bpp-vhosts.sh` własnym `envsubst` z jawną listą zmiennych, niezależnie
 od tego mechanizmu.
 
+## Wykluczenia reguł
+
+Własne naddefinicje idą do `defaults/webserver/modsecurity-override.conf.template`
+(montowany jako `/etc/nginx/templates/modsecurity.d/modsecurity-override.conf.template`).
+`setup.conf` obrazu includuje ten plik **przed** regułami CRS — co ma
+praktyczną konsekwencję: **`SecRuleRemoveById` tam nie zadziała**, bo reguły
+CRS jeszcze nie istnieją w momencie parsowania. Działa natomiast akcja `ctl`
+we własnej regule, bo wykonuje się w trakcie transakcji.
+
+Zakres ID `1-99999` jest zarezerwowany dla reguł lokalnych (CRS używa
+`900000-999999`).
+
+Obecnie jest tam jedno wykluczenie:
+
+- **`id:10001`** — healthcheck Dockera (`curl http://127.0.0.1:80/healthz` co
+  10 s) zapalał regułę `920350` („Host header is a numeric IP address"), bo w
+  nagłówku `Host` jest numeryczny adres. To ~8 640 wpisów audytowych na dobę,
+  które topiły realne trafienia. Wyciszamy **logowanie** dla tej jednej
+  ścieżki (`ctl:auditEngine=Off`), a nie regułę globalnie — na ruchu z zewnątrz
+  `920350` jest sensowna, bo skanery wołają po IP, nie po nazwie.
+
+## Logi WAF-a w Grafanie
+
+Audit log ModSecurity to JSON **bez pola `level`**, więc pipeline wykrywania
+poziomu w Alloy kończył się na `detected_level=unknown`. `defaults/alloy/config.alloy`
+ma dedykowany `stage.match`, który dla linii zawierających `ModSecurity-nginx`
+mapuje `severity` reguły CRS (skala sysloga) na poziom logu:
+
+| severity CRS | `detected_level` |
+|---|---|
+| 0–2 (EMERGENCY/ALERT/CRITICAL) | `critical` |
+| 3 (ERROR) | `error` |
+| 4 (WARNING) | `warning` |
+| 5–6 (NOTICE/INFO) | `info` |
+| 7 (DEBUG) | `debug` |
+
+Blok musi zostać **poniżej** ogólnych reguł w tym pliku — nadpisuje ich wynik.
+
+Przykładowe zapytanie LogQL do przeglądania trafień:
+
+```logql
+{service="webserver"} |~ "ModSecurity-nginx" | json
+  | line_format "{{.transaction_request_uri}} → {{.transaction_messages_0_details_ruleId}}"
+```
+
 ## Włączanie blokowania
 
 Nie włączaj `On` od razu. Kolejność:
@@ -94,9 +152,13 @@ Nie włączaj `On` od razu. Kolejność:
       - panel admina `dbtemplates` — superuser POST-uje surowy HTML, co jest
         kanonicznym fałszywym alarmem rodziny 941 (XSS),
       - `/api/v1/zapytanie/*` — składnia DjangoQL przypomina SQL, rodzina 942.
-3. Dla każdego takiego przypadku dopisz wykluczenie przez
-   `SecRuleUpdateTargetById` / `SecRuleRemoveById` w osobnym pliku —
-   **nigdy przez edycję plików CRS**, bo rozjedzie się przy aktualizacji obrazu.
+3. Dla każdego takiego przypadku dopisz wykluczenie w
+   `defaults/webserver/modsecurity-override.conf.template` — **nigdy przez
+   edycję plików CRS**, bo rozjedzie się przy aktualizacji obrazu. Pamiętaj o
+   ograniczeniu z sekcji [Wykluczenia reguł](#wykluczenia-regul): plik jest
+   includowany **przed** regułami CRS, więc użyj własnej reguły z akcją `ctl`
+   (np. `ctl:ruleRemoveTargetById`, `ctl:auditEngine=Off`), a nie
+   `SecRuleRemoveById`.
 4. Dopiero wtedy ustaw w `.env`:
 
     ```bash

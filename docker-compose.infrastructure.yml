@@ -27,6 +27,19 @@ services:
       # (DATA_UPLOAD_MAX_NUMBER_FIELDS=50000) leca 413.
       MODSEC_REQ_BODY_LIMIT: "${MODSEC_REQ_BODY_LIMIT:-132120576}"
       MODSEC_REQ_BODY_NOFILES_LIMIT: "${MODSEC_REQ_BODY_NOFILES_LIMIT:-4194304}"
+      # Czesci transakcji zapisywane do audit logu. Domyslne w obrazie to
+      # ABIJDEFHZ — a to oznacza, ze do stdout (-> Docker -> Alloy -> Loki)
+      # leci `I` (CIALO ZADANIA) i `E` (CIALO ODPOWIEDZI, do 1 MiB HTML-a).
+      # Poza absurdalna objetoscia to problem z danymi osobowymi: oflagowany
+      # POST na formularz logowania zapisalby przeslane haslo, a oflagowana
+      # strona — jej pelna tresc.
+      #   A = naglowek transakcji   B = naglowki zadania (w tym URI = payload)
+      #   H = komunikaty regul (ktora regula i dlaczego)   Z = domkniecie
+      # Do baseline i do diagnostyki to komplet; cial nie logujemy w ogole.
+      # UWAGA: to wylacza LOGOWANIE cial, nie ich INSPEKCJE —
+      # MODSEC_REQ_BODY_ACCESS zostaje `on`, wiec ataki w POST sa nadal
+      # wykrywane.
+      MODSEC_AUDIT_LOG_PARTS: "${MODSEC_AUDIT_LOG_PARTS:-ABHZ}"
       # NIE ustawiamy NGINX_ENVSUBST_FILTER. Obraz CRS renderuje wlasne
       # szablony (75 zmiennych: WORKER_CONNECTIONS, LOGLEVEL, MODSEC_*, …)
       # i filtr "DJANGO_BPP_" zostawilby je dosownie -> nginx nie wstanie.
@@ -69,6 +82,9 @@ services:
       # `modsecurity on;` siedzi w osobnym conf.d/modsecurity.conf, wiec to
       # nadpisanie NIE wylacza WAF-a.
       - ./defaults/webserver/default.conf.template:/etc/nginx/templates/conf.d/default.conf.template:ro
+      # Wlasne naddefinicje ModSecurity (wykluczenia). setup.conf obrazu
+      # includuje ten plik PRZED regulami CRS — patrz komentarz w samym pliku.
+      - ./defaults/webserver/modsecurity-override.conf.template:/etc/nginx/templates/modsecurity.d/modsecurity-override.conf.template:ro
       # log_format bpp_access (kontekst http) — laduje sie pierwszy (prefix 00-)
       # przed default.conf/vhost-*.conf, ktore go uzywaja.
       - ./defaults/webserver/00-log-format.conf:/etc/nginx/conf.d/00-log-format.conf:ro

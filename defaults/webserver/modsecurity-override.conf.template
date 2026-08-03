@@ -1,0 +1,44 @@
+# ============================================================================
+# WLASNE NADPISANIA MODSECURITY (BPP)
+# ============================================================================
+#
+# Plik jest renderowany przez 20-envsubst-on-templates.sh z
+# /etc/nginx/templates/modsecurity.d/modsecurity-override.conf.template
+# do /etc/modsecurity.d/modsecurity-override.conf, a setup.conf includuje go
+# PRZED regulami CRS:
+#
+#     Include /etc/modsecurity.d/modsecurity.conf
+#     Include /etc/modsecurity.d/modsecurity-override.conf   <-- tutaj
+#     Include /etc/modsecurity.d/owasp-crs/crs-setup.conf
+#     Include /etc/modsecurity.d/owasp-crs/rules/*.conf
+#
+# Kolejnosc ma znaczenie: `SecRuleRemoveById` NIE zadziala tutaj, bo reguly
+# CRS jeszcze nie istnieja w momencie parsowania. Dziala natomiast akcja `ctl`
+# w NASZEJ regule, bo jest wykonywana w trakcie transakcji.
+#
+# Zakres ID: 1-99999 jest zarezerwowany dla regul lokalnych. CRS uzywa
+# 900000-999999, wiec nie ma ryzyka kolizji.
+
+# ---------------------------------------------------------------------------
+# 10001: healthcheck Dockera nie trafia do audit logu
+# ---------------------------------------------------------------------------
+# Healthcheck (docker-compose.infrastructure.yml) wola
+# `curl http://127.0.0.1:80/healthz` co 10 sekund. Numeryczny adres w
+# naglowku Host zapala regule CRS 920350 ("Host header is a numeric IP
+# address") — co daje ~8640 wpisow audytowych na dobe i topi realne trafienia,
+# po ktore w ogole zbieramy baseline.
+#
+# Wylaczamy audit log dla TEJ transakcji zamiast wylaczac regule globalnie:
+# 920350 na ruchu z zewnatrz jest sensowna (skanery wola po IP, nie po nazwie)
+# i chcemy ja zachowac.
+#
+# Uwaga: to wycisza wylacznie LOGOWANIE. Regula nadal dolicza swoj wklad do
+# anomaly score, ale zmierzone: /healthz nie przekracza progu (949110 sie nie
+# zapala), wiec po przelaczeniu na SecRuleEngine=On healthcheck nie zacznie
+# padac.
+SecRule REQUEST_URI "@streq /healthz" \
+    "id:10001,\
+    phase:1,\
+    pass,\
+    nolog,\
+    ctl:auditEngine=Off"
