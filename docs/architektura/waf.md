@@ -165,6 +165,37 @@ Przykładowe zapytanie LogQL do przeglądania trafień:
   | line_format "{{.transaction_request_uri}} → {{.transaction_messages_0_details_ruleId}}"
 ```
 
+## Sprawdzenie, czy WAF dziala — `make test-waf`
+
+```bash
+make test-waf
+```
+
+Stawia **stack testowy**: atrapę backendu, która na każde żądanie odpowiada
+`200 pass`, oraz webserver z **prawdziwą** konfiguracją z `defaults/webserver/`.
+Potem strzela baterią zapytań, gdzie każde ma z góry znany oczekiwany wynik —
+i wypisuje `OK` albo `FAIL` per przypadek. Kod wyjścia = liczba niezgodności.
+
+Nie wymaga `.env`, działającej instalacji ani sieci produkcyjnej; sprząta po
+sobie własne kontenery i sieć.
+
+Payloady ataku to **prawdziwe próby z lipca 2026** (sqlmap przeciwko
+`publikacje.up.lublin.pl`), nie wymyślone przykłady. Po stronie „ma przejść"
+siedzą realne wzorce ruchu BPP: eksporty raportów z sortowaniem, wyszukiwanie
+tekstem zawierającym angielskie `select … from`, DjangoQL, `dbtemplates`.
+
+Zmienne:
+
+- `WAF_TEST_PORT` — port na hoście (domyślnie `18443`),
+- `MODSEC_RULE_ENGINE` — ustaw `DetectionOnly`, żeby zobaczyć, co **by** zostało
+  zablokowane, bez faktycznego blokowania.
+
+!!! note "Czego ten test NIE obejmuje"
+    Sprawdza wyłącznie warstwę brzegową. Sondy o pliki `*.php` (phpMyAdmin,
+    WordPress) przechodzą tutaj, bo blokuje je dopiero
+    `MaliciousRequestBlockingMiddleware` po stronie Django — a w tym stacku
+    backend jest atrapą. To jest w teście oznaczone jako oczekiwany `PASS`.
+
 ## Dlaczego 444, a nie 403
 
 444 to niestandardowy kod nginksa: **zamknij połączenie, nie wysyłając nic**.
