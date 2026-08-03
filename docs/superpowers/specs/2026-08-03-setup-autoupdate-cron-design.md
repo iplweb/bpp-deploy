@@ -91,7 +91,7 @@ dokładnie to ryzyko, które przekierowanie do logu miało wyeliminować.
 Dlatego: skrypt tworzy katalog logu **w obu trybach** (instalacja i `--remove`,
 bo tam też ląduje kopia zapasowa), zanim cokolwiek zapisze. Objęte testem.
 
-#### Dlaczego `PATH` zamrożony w chwili instalacji
+#### Dlaczego zamrażamy **minimalny** `PATH`, a nie cały
 
 Cron startuje zadania z jałowym `PATH=/usr/bin:/bin`. To wystarcza dla
 standardowej instalacji Dockera z repo apt (`scripts/install-docker.sh` używa
@@ -100,9 +100,33 @@ gdzie `docker`, `make` czy `git` leży w `/usr/local/bin` lub `/opt/homebrew/bin
 — macOS, Docker Desktop, instalacje ręczne, `mise`/`asdf`. Tam wpis padałby
 z `command not found` raz na 15 minut, do logu, którego nikt nie czyta.
 
-Operator uruchamia `make setup-autoupdate-cron` z powłoki, w której wszystko
-dowodnie działa, więc zamrożenie tego `PATH` daje gwarancję, jakiej cronowy
-default dać nie może.
+Naiwne rozwiązanie — wklejenie całego `$PATH` powłoki operatora — **jest
+błędne**. Wykryło to dopiero uruchomienie end-to-end: na maszynie deweloperskiej
+`$PATH` miał ~3300 znaków (homebrew, orbstack, `.local/bin`, katalogi pluginów),
+co dawało linię crona **ponad 3500 znaków**. Crony wywodzące się z Vixie cron
+(`cron` w Debianie/Ubuntu, `cronie`) mają twardy limit długości komendy
+(`MAX_COMMAND`, rzędu 1000 znaków) — dłuższa linia zostaje odrzucona przy
+zapisie albo, gorzej, wchodzi ucięta. Na czystym serwerze `PATH` ma ~70 znaków
+i nikt tego nie zauważy; u operatora z `nvm`/`pyenv`/`asdf` instalacja pada
+w sposób trudny do zdiagnozowania.
+
+Dlatego skrypt buduje **minimalny** `PATH`:
+
+1. katalogi, w których realnie leżą `make`, `docker`, `git`, `screen`, `bash`
+   (przez `command -v`; brakujące pomijane — `screen` może dojść później,
+   akceptowane tylko ścieżki absolutne, żeby nie wciągnąć builtinów/aliasów),
+2. standardowe `/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin`,
+3. deduplikacja z zachowaniem kolejności, pomijanie pustych i nieistniejących,
+4. awaryjnie `/usr/bin:/bin`, gdyby nic nie zostało.
+
+Efekt na typowym hoście: `PATH` rzędu 45–120 znaków, cała linia ~230.
+
+**Pas bezpieczeństwa:** po zbudowaniu linii skrypt waliduje jej długość
+(`CRON_MAX_ENTRY_LEN=900`) i przerywa z komunikatem tłumaczącym limit — bo
+przekroczyć go można także absurdalnie długą ścieżką repo albo
+`AUTOUPDATE_CRON_LOG`, niezależnie od `PATH`. Walidacja wykonuje się **przed**
+`mkdir -p` i przed odczytem crontaba, więc za długi wpis nie zostawia po sobie
+niczego na dysku.
 
 `PATH` trafia jako **prefiks komendy**, nie jako osobna linia `PATH=` w crontabie
 — linia `PATH=` jest globalna dla wszystkich zadań użytkownika, także cudzych.
@@ -285,6 +309,17 @@ zapisuje.
 16. Brak `crontab` w `PATH` → kod ≠ 0 z czytelnym komunikatem.
 17. `crontab -l` kończy się błędem **innym** niż „no crontab" → abort, crontab
     nietknięty.
+18. Wpis zawiera katalog, w którym realnie leży `make`.
+19. Wpis zawiera `/usr/bin` (standardowe systemowe obecne).
+20. Egzotyczny katalog obecny w `$PATH` procesu **nie** trafia do wpisu — sedno
+    minimalizacji `PATH`. Osobna asercja, że katalog mocka `crontab` też nie
+    wycieka (mock musi zostać w `PATH` *procesu*, ale nie we *wpisie*).
+21. Brak duplikatów katalogów w zbudowanym `PATH`.
+22. Cała linia wpisu < 1000 znaków.
+23. Wymuszone przekroczenie limitu (bardzo długa ścieżka logu) → kod ≠ 0,
+    crontab nietknięty, komunikat wspomina `MAX_COMMAND`.
+
+Łącznie 53 asercje (część przypadków ma po kilka).
 
 Target `test-autoupdate-cron` dokładany do `make help`; jak
 `test-post-deploy-check` i `test-doctor`, nie wchodzi (na razie) do
@@ -313,7 +348,8 @@ bezpośrednio.
 |---|---|
 | Brak katalogu logu → martwy watchdog + mail co 15 min | `mkdir -p` w obu trybach; test 10 |
 | Nadpisanie cudzych wpisów w crontabie | Filtr po markerze + kopia zapasowa + abort przy nieznanym błędzie `-l`; testy 4, 5, 11, 17 |
-| Wpis nie działa przez jałowy `PATH` crona | `PATH` zamrożony w chwili instalacji; test 9 |
+| Wpis nie działa przez jałowy `PATH` crona | Minimalny `PATH` zamrożony w chwili instalacji; testy 9, 18, 19 |
+| Linia dłuższa niż cronowy `MAX_COMMAND` (~1000) → odrzucona lub ucięta | Minimalizacja `PATH` + twarda walidacja długości przed jakimkolwiek zapisem; testy 20–23 |
 | Dublowanie wpisów przy ponownej instalacji | `grep -v` po markerze przed dopisaniem; testy 2, 3 |
 | Zalanie maila roota wyjściem co 15 min | Przekierowanie `>> log 2>&1` w samym wpisie |
 | Rozjazd `%` w ścieżkach | Escaping w części komendy, odrzucenie w harmonogramie; testy 12, 15 |
