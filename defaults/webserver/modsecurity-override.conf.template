@@ -82,3 +82,47 @@ SecRule REQUEST_URI "@rx ^/(bpp|api/v1)/zapytanie/" \
     pass,\
     nolog,\
     ctl:ruleEngine=DetectionOnly"
+
+# ---------------------------------------------------------------------------
+# 10005: 920280 ("Request Missing a Host Header") nie ma sensu pod HTTP/2 i /3
+# ---------------------------------------------------------------------------
+# W HTTP/1.1 adres serwera jedzie w prawdziwym naglowku `Host:`. W HTTP/2 i
+# HTTP/3 zastapil go PSEUDO-NAGLOWEK `:authority`, ktorego konektor
+# ModSecurity-nginx (v1.0.4) nie widzi — on iteruje po liscie naglowkow
+# nginksa, a `:authority` tam nie trafia.
+#
+# Efekt: 920280 (`&REQUEST_HEADERS:Host "@eq 0"`, severity CRITICAL = 5 pkt)
+# zapala sie na KAZDYM zadaniu HTTP/3, samo z siebie osiaga prog anomalii (5)
+# i 949110 blokuje wszystko. Nie tylko ataki — zwykle `GET /`.
+#
+# Zmierzone 2026-08-03 na publikacje-test.up.lublin.pl i odtworzone lokalnie na
+# tym samym obrazie i tej samej konfiguracji, klientem curl z HTTP/3: audit log
+# pokazuje `"http_version":"3.0"` i liste naglowkow BEZ `host`, mimo ze klient
+# wyslal `Host:` — dowod, ze gubi go konektor, a nie klient.
+#
+# UWAGA: `make test-waf` tej klasy bledu NIE ZLAPIE — cala bateria strzela
+# `curl --http1.1`, czyli protokolem, w ktorym `Host:` istnieje. Zeby dolozyc
+# tam przypadek h3, trzeba opublikowac takze 443/udp i miec klienta z QUIC.
+#
+# To NIE jest teoretyczne: vhost reklamuje `Alt-Svc: h3=":443"; ma=86400`
+# (vhost.conf.template), wiec przegladarka raz przelaczona na h3 trzyma sie go
+# przez dobe. Po wlaczeniu blokowania oznaczalo to pelna niedostepnosc serwisu
+# dla Safari/Firefox/Chrome — i to bez komunikatu, bo pod QUIC nasze 444 nie
+# zrywa polaczenia czysto, tylko zostawia klienta wiszacego do timeoutu.
+#
+# Ten sam blad ugryzl juz `_bpp-locations.conf` (pusty `$http_host` pod h3
+# psul redirect logowania) — patrz komentarz przy `location @bpp_login`.
+#
+# Wylaczamy regule TYLKO dla h2/h3, bo dla HTTP/1.0 i /1.1 nadal niesie
+# wartosc. Nic przy tym nie tracimy: nginx sam odrzuca zadanie 2/3 bez
+# `:authority` (i 1.1 bez `Host:`) bledem 400, zanim dojdzie do aplikacji.
+#
+# Regexp znosi obie mozliwe postacie zmiennej ("HTTP/3.0" oraz "3.0"), bo
+# konektor nie gwarantuje ktora zobaczymy. `ctl:ruleRemoveById` dziala, bo
+# 10005 i 920280 sa oba w phase:1, a nasz plik jest includowany PRZED CRS.
+SecRule REQUEST_PROTOCOL "@rx ^(HTTP/)?[23]\." \
+    "id:10005,\
+    phase:1,\
+    pass,\
+    nolog,\
+    ctl:ruleRemoveById=920280"
