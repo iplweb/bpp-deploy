@@ -20,10 +20,19 @@ set -uo pipefail
 
 REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 W="$REPO_DIR/defaults/webserver"
-NET="bpp-waf-test-net"
-BACK="bpp-waf-test-appserver"
-FRONT="bpp-waf-test-webserver"
-PORT="${WAF_TEST_PORT:-18443}"
+# Nazwy i siec sa UNIKALNE dla przebiegu. Wczesniej byly stale i dwa rownolegle
+# przebiegi (dwa terminale, dwa worktree, CI obok reki) kolidowaly nazwa
+# kontenera — `docker run` przegrywal, blad szedl do /dev/null, a skrypt jechal
+# dalej odpytujac CUDZY kontener. Objaw byl nie do odgadniecia: testy HTTP/1.1
+# przechodzily (bo cudzy kontener tez publikuje port), a przypadek h3 zglaszal
+# "klient nie zestawil QUIC" — bo w cudzym kontenerze nie ma naszego aliasu.
+PRZEBIEG="${WAF_TEST_SUFFIX:-$$}"
+NET="bpp-waf-test-net-$PRZEBIEG"
+BACK="bpp-waf-test-appserver-$PRZEBIEG"
+FRONT="bpp-waf-test-webserver-$PRZEBIEG"
+# 0 = dowolny wolny port od jadra; realny numer odczytujemy z `docker port`.
+# Stala 18443 potrafila kolidowac z czyms juz dzialajacym na hoscie.
+PORT_ZADANY="${WAF_TEST_PORT:-0}"
 HOST_NAME="waf-test.example.org"
 TMP="$(mktemp -d)"
 
@@ -31,8 +40,23 @@ TMP="$(mktemp -d)"
 # DetectionOnly, zeby zobaczyc co BY zostalo zablokowane
 ENGINE="${MODSEC_RULE_ENGINE:-On}"
 
+# Klient HTTP/3. Systemowy curl — takze ten z obrazow alpine i curlimages/curl
+# — jest budowany BEZ QUIC (`curl -V` nie pokazuje HTTP3), wiec do tego jednego
+# przypadku bierzemy osobny obraz. Publikuje wylacznie manifest amd64, stad
+# jawne `--platform`: na x86 to no-op, na arm64 wlacza emulacje (zawodna —
+# patrz komentarz przy `sprawdz_http3`).
+H3_IMAGE="${WAF_TEST_H3_IMAGE:-ymuski/curl-http3}"
+H3_PLATFORM="--platform=linux/amd64"
+
 # shellcheck disable=SC2317  # wolane przez `trap`, shellcheck tego nie widzi
 czysc() {
+    # WAF_TEST_KEEP=1 zostawia stack na nogach — bez tego nie da sie po
+    # nieudanym przebiegu zajrzec do logow nginksa ani odpytac go recznie.
+    if [ "${WAF_TEST_KEEP:-0}" = "1" ]; then
+        echo "WAF_TEST_KEEP=1 — kontenery zostaja ($FRONT, $BACK, siec $NET)."
+        echo "Posprzatasz przez: docker rm -f $FRONT $BACK && docker network rm $NET"
+        return
+    fi
     docker rm -f "$FRONT" "$BACK" >/dev/null 2>&1
     docker network rm "$NET" >/dev/null 2>&1
     rm -rf "$TMP"
@@ -75,12 +99,21 @@ docker network create "$NET" >/dev/null 2>&1
 
 # Atrapa backendu MUSI nazywac sie `appserver` — _bpp-locations.conf ma ten
 # hostname zaszyty w proxy_pass.
-docker run -d --name "$BACK" --network "$NET" --network-alias appserver \
+if ! docker run -d --name "$BACK" --network "$NET" --network-alias appserver \
     -v "$TMP/backend.conf:/etc/nginx/conf.d/default.conf:ro" \
     -v "$TMP/html:/html:ro" \
-    nginx:1.30.2 >/dev/null
+    nginx:1.30.2 >/dev/null; then
+    echo "BLAD: nie udalo sie wystartowac atrapy backendu ($BACK)."
+    exit 1
+fi
 
-docker run -d --name "$FRONT" --network "$NET" -p "$PORT:443" \
+# Alias sieciowy = nazwa vhosta. Potrzebny dla przypadku HTTP/3: klient QUIC
+# chodzi z WNETRZA sieci dockerowej (na hoscie nie ma curla z h3), wiec musi
+# rozwiazac `waf-test.example.org` na kontener — inaczej trafilby w
+# `default_server` zamiast w testowany vhost. Reszta testow, strzelana z hosta
+# przez `--resolve`, tego nie uzywa.
+if ! docker run -d --name "$FRONT" --network "$NET" --network-alias "$HOST_NAME" \
+    -p "$PORT_ZADANY:443" \
     -e DJANGO_BPP_HOSTNAMES="$HOST_NAME" \
     -e DJANGO_BPP_SSL_MODE=manual \
     -e MODSEC_RULE_ENGINE="$ENGINE" \
@@ -103,12 +136,24 @@ docker run -d --name "$FRONT" --network "$NET" -p "$PORT:443" \
     -v "$W/_bpp-locations.conf:/etc/nginx/bpp-templates/_bpp-locations.conf:ro" \
     -v "$W/vhost.conf.template:/etc/nginx/bpp-templates/vhost.conf.template:ro" \
     -v "$W/30-render-bpp-vhosts.sh:/docker-entrypoint.d/30-render-bpp-vhosts.sh:ro" \
-    owasp/modsecurity-crs:nginx >/dev/null
+    owasp/modsecurity-crs:nginx >/dev/null; then
+    echo "BLAD: nie udalo sie wystartowac webservera ($FRONT)."
+    exit 1
+fi
+
+# Realny numer portu na hoscie — przy PORT_ZADANY=0 przydziela go jadro.
+PORT="$(docker port "$FRONT" 443/tcp | head -1 | sed 's/.*://')"
+if [ -z "$PORT" ]; then
+    echo "BLAD: nie udalo sie ustalic portu opublikowanego przez $FRONT."
+    docker logs "$FRONT" 2>&1 | tail -5
+    exit 1
+fi
 
 printf "   czekam na start"
+GOTOWY=0
 for _ in $(seq 1 30); do
     if curl -sk --http1.1 --max-time 2 --resolve "$HOST_NAME:$PORT:127.0.0.1" \
-        "https://$HOST_NAME:$PORT/healthz" >/dev/null 2>&1; then break; fi
+        "https://$HOST_NAME:$PORT/healthz" >/dev/null 2>&1; then GOTOWY=1; break; fi
     printf "."; sleep 1
 done
 echo
@@ -118,7 +163,14 @@ if docker logs "$FRONT" 2>&1 | grep -qiE "\[emerg\]"; then
     docker logs "$FRONT" 2>&1 | grep -iE "\[emerg\]" | head -5
     exit 1
 fi
-echo "   silnik regul: $ENGINE"
+# Bez tego skrypt jechal dalej na niedzialajacym stacku i zglaszal 18 z 18
+# niezgodnosci zamiast jednej czytelnej przyczyny.
+if [ "$GOTOWY" -ne 1 ]; then
+    echo "BLAD: webserver nie odpowiedzial na /healthz w 30 s. Ostatnie logi:"
+    docker logs "$FRONT" 2>&1 | tail -10
+    exit 1
+fi
+echo "   silnik regul: $ENGINE, port na hoscie: $PORT"
 echo
 
 # --------------------------------------------------------------------------
@@ -223,11 +275,78 @@ else
     BLEDY=$((BLEDY + 1))
 fi
 
+# Suma przypadkow: tablica PRZYPADKI + inspekcja ciala odpowiedzi. Przypadek
+# HTTP/3 dolicza sie nizej, bo jako jedyny bywa POMIJANY (brak klienta QUIC) —
+# a wtedy nie ma go czym liczyc.
+LACZNIE=$(( ${#PRZYPADKI[@]} + 1 ))
+
+# --------------------------------------------------------------------------
+# Przypadek osobny: legalne zadanie po HTTP/3
+# --------------------------------------------------------------------------
+# Nie siedzi w tablicy PRZYPADKI, bo tamte strzelaja `curl --http1.1` Z HOSTA,
+# a ten potrzebuje klienta QUIC z WNETRZA sieci dockerowej i wlasnego sposobu
+# rozstrzygania wyniku.
+#
+# PO CO TO JEST: w HTTP/2 i /3 naglowek `Host:` zastapil pseudo-naglowek
+# `:authority`, ktorego konektor ModSecurity-nginx nie widzi. Regula CRS 920280
+# ("Request Missing a Host Header", severity CRITICAL = 5 pkt) zapalala sie
+# przez to na KAZDYM zadaniu h3 i sama osiagala prog anomalii — caly serwis byl
+# niedostepny dla kazdej przegladarki, ktora zlapala `Alt-Svc: h3`. Bateria na
+# HTTP/1.1 tego nie widziala, bo tam `Host:` istnieje. Naprawia to regula 10005
+# w modsecurity-override.conf.template; ten przypadek pilnuje, zeby nie
+# wrocilo.
+sprawdz_http3() {
+    local kod rc proba h3_w_logu
+
+    if ! docker run --rm "$H3_PLATFORM" "$H3_IMAGE" curl -V 2>/dev/null | grep -q HTTP3; then
+        printf "  \033[33mPOMIN\033[0m %-46s brak dzialajacego klienta h3 (%s)\n" \
+            "legalne GET / po HTTP/3" "$H3_IMAGE"
+        return 2
+    fi
+
+    # Pod emulacja amd64 klient gubi handshake QUIC mniej wiecej raz na piec
+    # prob i zadanie WCALE nie dochodzi do nginksa. Dlatego wyniku NIE czytamy
+    # z kodu wyjscia curla, tylko z access logu:
+    #   444 przy HTTP/3.0     -> realna blokada WAF-a, to jest FAIL,
+    #   zero linii HTTP/3.0   -> zgubiony handshake, powtarzamy probe.
+    # Bez tego rozroznienia retry maskowalby regresje.
+    for proba in 1 2 3 4; do
+        kod=$(docker run --rm --network "$NET" "$H3_PLATFORM" "$H3_IMAGE" \
+            curl -sk --http3-only -o /dev/null -w '%{http_code}' --max-time 15 \
+            "https://$HOST_NAME/" 2>/dev/null)
+        rc=$?
+        if [ "$rc" -eq 0 ] && [ "$kod" = "200" ]; then
+            printf "  \033[32mOK\033[0m   %-46s HTTP %s (proba %s)\n" \
+                "legalne GET / po HTTP/3" "$kod" "$proba"
+            return 0
+        fi
+    done
+
+    h3_w_logu=$(docker logs "$FRONT" 2>&1 | grep -c 'HTTP/3.0"')
+    if [ "$h3_w_logu" -eq 0 ]; then
+        printf "  \033[33mPOMIN\033[0m %-46s klient nie zestawil QUIC (nginx nie zapisal ani jednego zadania h3)\n" \
+            "legalne GET / po HTTP/3"
+        return 2
+    fi
+
+    printf "  \033[31mFAIL\033[0m %-46s WAF zablokowal legalne zadanie po h3\n" \
+        "legalne GET / po HTTP/3"
+    docker logs "$FRONT" 2>&1 | grep -o '"GET / HTTP/3.0" [0-9]*' | sort | uniq -c | sed 's/^/         /'
+    return 1
+}
+
+sprawdz_http3
+case $? in
+    0) LACZNIE=$((LACZNIE + 1)) ;;
+    1) LACZNIE=$((LACZNIE + 1)); BLEDY=$((BLEDY + 1)) ;;
+    *) : ;;   # pominiety — nie liczymy go w sumie
+esac
+
 echo
 if [ "$BLEDY" -eq 0 ]; then
-    echo "Wszystkie ${#PRZYPADKI[@]} przypadkow + inspekcja odpowiedzi zgodnie z oczekiwaniem."
+    echo "Wszystkie $LACZNIE przypadkow zgodnie z oczekiwaniem."
 else
-    echo "NIEZGODNOSCI: $BLEDY z $(( ${#PRZYPADKI[@]} + 1 ))."
+    echo "NIEZGODNOSCI: $BLEDY z $LACZNIE."
     echo
     echo "Trafienia regul CRS z tego przebiegu:"
     docker logs "$FRONT" 2>&1 | grep -o '"ruleId":"[0-9]*"' | sort | uniq -c | sort -rn | head -10
