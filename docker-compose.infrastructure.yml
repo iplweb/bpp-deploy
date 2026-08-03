@@ -17,9 +17,12 @@ services:
     env_file: ${BPP_CONFIGS_DIR}/.env
     environment:
       # ── ModSecurity / CRS ───────────────────────────────────────────────
-      # ROZRUCH DWUETAPOWY: DetectionOnly tylko loguje, niczego nie blokuje.
-      # Przelaczenie na "On" dopiero po baseline — patrz docs/architektura/waf.md.
-      MODSEC_RULE_ENGINE: "${MODSEC_RULE_ENGINE:-DetectionOnly}"
+      # BLOKUJE. Zadanie z rozpoznanym atakiem dostaje 403 od ModSecurity,
+      # ktore _bpp-locations.conf zamienia na 444 (zerwane polaczenie bez
+      # odpowiedzi). Dwie sciezki sa z tego wylaczone i tylko obserwowane —
+      # patrz reguly 10002/10003 w modsecurity-override.conf.template.
+      # Awaryjne zejscie do obserwacji: MODSEC_RULE_ENGINE=DetectionOnly w .env.
+      MODSEC_RULE_ENGINE: "${MODSEC_RULE_ENGINE:-On}"
       BLOCKING_PARANOIA: "${BLOCKING_PARANOIA:-1}"
       # Limity ciala zadania MUSZA byc spojne z client_max_body_size 120M
       # z vhost.conf.template. Domyslne w ModSecurity to 13107200 (12,5 MiB)
