@@ -192,9 +192,14 @@ make test-upgrade TAG=...     # Próba generalna jawnie wskazanego kandydata
 make test-upgrade-clean       # Sprzątnięcie shadow stacka po nieudanej próbie
 make autoupdate               # Pętla: co ~2h sprawdź nowy obraz/commit → auto-deploy
 make screen-with-autoupdate   # Odpal pętlę auto-update w tle, w sesji screen
+make setup-autoupdate-cron    # Wpis cron pilnujący pętli (przeżywa reboot i crash sesji)
+make remove-autoupdate-cron   # Usuń wpis cron auto-aktualizacji
+make test-autoupdate-cron     # Unit-testy scripts/setup-autoupdate-cron.sh
 ```
 
 Pełny opis przepływu bezpiecznej aktualizacji (pinowanie wersji, shadow stack,
 rollback): [Aktualizacje i wersje obrazów](aktualizacje.md).
 Nienadzorowana pętla auto-update (`make autoupdate` pod `screen`):
 [Automatyczna aktualizacja](aktualizacje.md#automatyczna-aktualizacja-make-autoupdate).
+Strażnik pilnujący, żeby pętla żyła:
+[Strażnik w cronie](aktualizacje.md#straznik-w-cronie-make-setup-autoupdate-cron).

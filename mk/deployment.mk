@@ -1,4 +1,4 @@
-.PHONY: all run refresh up up-quick up-appserver up-webserver stop rmrf restart restart-appserver health check-quic validate-env-quotes fix-env-quotes test-validate-env-quotes test-upgrade test-upgrade-clean autoupdate screen-with-autoupdate test-autoupdate
+.PHONY: all run refresh up up-quick up-appserver up-webserver stop rmrf restart restart-appserver health check-quic validate-env-quotes fix-env-quotes test-validate-env-quotes test-upgrade test-upgrade-clean autoupdate screen-with-autoupdate test-autoupdate setup-autoupdate-cron remove-autoupdate-cron test-autoupdate-cron
 
 all: run
 
@@ -130,6 +130,32 @@ screen-with-autoupdate:
 		echo "  Podglad: screen -r $(AUTOUPDATE_SCREEN_NAME)   (odlaczenie: Ctrl-A D)"; \
 		echo "  Stop:    screen -S $(AUTOUPDATE_SCREEN_NAME) -X quit"; \
 	fi
+
+# Straznik (watchdog) petli auto-update jako wpis w crontabie uzytkownika.
+# `screen-with-autoupdate` jest idempotentny, wiec wystarczy wolac go okresowo:
+# jeden wpis cron pokrywa ZAROWNO restart hosta (nie trzeba osobnego @reboot),
+# JAK I padniecie sesji screen miedzy restartami (OOM, `screen -X quit`, zabity
+# proces) — bez tego auto-aktualizacja milkla po cichu i nikt sie nie dowiadywal.
+# Cala logika (walidacja harmonogramu, zamrozenie PATH, kopia crontaba, filtr po
+# markerze) siedzi w scripts/setup-autoupdate-cron.sh; targety sa cienkie.
+# AUTOUPDATE_CRON_LOG celowo puste — pusta wartosc skrypt traktuje jak "nie
+# ustawiono" i sam wylicza domyslna sciezke ($BPP_CONFIGS_DIR/logs/...), wiec
+# ta logika nie jest tu dublowana.
+AUTOUPDATE_CRON_SCHEDULE ?= */15 * * * *
+AUTOUPDATE_CRON_LOG ?=
+
+setup-autoupdate-cron:
+	@AUTOUPDATE_CRON_SCHEDULE='$(AUTOUPDATE_CRON_SCHEDULE)' \
+	 AUTOUPDATE_CRON_LOG='$(AUTOUPDATE_CRON_LOG)' \
+	 bash scripts/setup-autoupdate-cron.sh
+
+remove-autoupdate-cron:
+	@AUTOUPDATE_CRON_LOG='$(AUTOUPDATE_CRON_LOG)' \
+	 bash scripts/setup-autoupdate-cron.sh --remove
+
+# Unit-testy scripts/setup-autoupdate-cron.sh (mock crontab, bez prawdziwego crona).
+test-autoupdate-cron:
+	@bash scripts/test-autoupdate-cron.sh
 
 # Unit-testy scripts/autoupdate.sh (mock git/docker/make, bez sieci/dockera).
 test-autoupdate:

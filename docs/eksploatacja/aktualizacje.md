@@ -175,16 +175,95 @@ screen -dmS bpp-autoupdate make autoupdate
 ```
 
 `make autoupdate` nie demonizuje się sam — to celowo najprostsza forma:
-widoczna, podpinana, bez uprawnień roota. Jeśli chcesz, żeby pętla wstawała po
-restarcie hosta, dodaj jedną linię do crontaba użytkownika (`crontab -e`) —
-target sam pilnuje, że nie wystartuje duplikatu:
+widoczna, podpinana, bez uprawnień roota. Żeby pętla przeżyła restart hosta
+**i** padnięcie sesji, zainstaluj strażnika w cronie (niżej).
 
-```cron
-@reboot cd /ścieżka/do/bpp-deploy && make screen-with-autoupdate
+### Strażnik w cronie (`make setup-autoupdate-cron`)
+
+Sama sesja `screen` nie wstaje po restarcie hosta, a gdy padnie (OOM,
+przypadkowe `screen -X quit`, zabity proces), auto-aktualizacja milknie i nikt
+się o tym nie dowie — host po cichu przestaje się aktualizować. Jedno polecenie
+instaluje w crontabie użytkownika wpis-strażnik, który tego pilnuje:
+
+```bash
+make setup-autoupdate-cron    # zainstaluj wpis (domyślnie co 15 minut)
+make remove-autoupdate-cron   # usuń wpis
+make test-autoupdate-cron     # unit-testy skryptu instalującego
 ```
 
-(Ten sam `scripts/autoupdate.sh` można też wołać bezpośrednio z crona/systemd —
-logika jednego cyklu jest oddzielona od harmonogramu.)
+Zainstalowany wpis to jedna linia postaci:
+
+```cron
+*/15 * * * * cd '/opt/bpp-deploy' && PATH='…' make screen-with-autoupdate >> '…/autoupdate-cron.log' 2>&1  # BPP-AUTOUPDATE
+```
+
+Ponieważ `make screen-with-autoupdate` jest **idempotentny** (nie startuje
+drugiej sesji, gdy pierwsza żyje), jeden okresowy wpis pokrywa **zarówno**
+restart hosta, **jak i** padnięcie sesji. To główna przewaga nad zalecanym
+wcześniej wpisem `@reboot`, który reaguje wyłącznie na restart.
+
+We wpisie zamrażany jest **minimalny** `PATH` — same katalogi, w których leżą
+`make`, `docker`, `git`, `screen` i `bash`, plus standardowe systemowe. Powód
+jest dwojaki: cron startuje zadania z jałowym `PATH=/usr/bin:/bin`, w którym te
+binarki bywają niewidoczne, ale wklejenie całego `PATH` powłoki też jest złe —
+crony z rodziny Vixie (Debian, Ubuntu, `cronie`) tną komendę powyżej ok. 1000
+znaków, a rozbudowany `PATH` (`nvm`, `pyenv`, `asdf`, homebrew) sam potrafi mieć
+kilka tysięcy. Skrypt pilnuje tego limitu i odmówi instalacji zbyt długiego
+wpisu, zamiast zapisać uszkodzony.
+
+`make remove-autoupdate-cron` usuwa wyłącznie linie oznaczone markerem
+`# BPP-AUTOUPDATE`. **Nie ubija** przy tym działającej sesji — jeśli chcesz
+zatrzymać także pętlę, zrób to osobno:
+
+```bash
+make remove-autoupdate-cron
+screen -S bpp-autoupdate -X quit
+```
+
+Instalacja (i usuwanie) przepisuje cały crontab użytkownika, więc przed zapisem
+powstaje kopia zapasowa `crontab.bak.<timestamp>` w katalogu logu strażnika.
+Cudze wpisy w crontabie są zachowywane — filtrowany jest tylko marker
+`# BPP-AUTOUPDATE`. Ponowna instalacja (także ze zmienionym harmonogramem)
+podmienia wpis, nie dubluje go.
+
+#### Log strażnika
+
+Wyjście wpisu trafia do `AUTOUPDATE_CRON_LOG`, domyślnie
+`$BPP_CONFIGS_DIR/logs/autoupdate-cron.log` (katalog jest zakładany przy
+instalacji). Przy żywej sesji strażnik dopisuje dokładnie 2 linie na tick
+(„sesja już działa" + podpowiedź `screen -r`), czyli ~9,6 kB na dobę przy
+domyślnym `*/15` — **ok. 3,5 MB rocznie**. Wyjście właściwego deploya tam nie
+idzie: `screen -dmS` odłącza sesję, więc logi `make run` zostają w buforze
+screena.
+
+Rotacji logu **celowo nie ma** — przy tym tempie przyrostu logrotate byłby
+nieproporcjonalny. Ręczne wyjście awaryjne, gdy plik urośnie:
+
+```bash
+truncate -s 0 "$BPP_CONFIGS_DIR/logs/autoupdate-cron.log"
+```
+
+!!! warning "Sesja wskrzeszona przez crona nie ma agenta SSH"
+    Gdy strażnik restartuje pętlę, sesja dziedziczy **środowisko crona** —
+    bez `SSH_AUTH_SOCK` i z minimalnym zestawem zmiennych. Jeśli `origin`
+    repozytorium jest po SSH z kluczem chronionym passphrase w agencie,
+    `git fetch` w `scripts/autoupdate.sh` zawiedzie. Skrypt traktuje to
+    **miękko**: loguje ostrzeżenie i pomija część gitową — auto-aktualizacja
+    po cichu degraduje do „tylko nowe obrazy Docker", inaczej niż sesja
+    odpalona ręcznie z Twojej powłoki. Dla nienadzorowanej aktualizacji ustaw
+    `origin` po **HTTPS** albo użyj klucza **bez passphrase**.
+
+!!! tip "Wolisz własny wpis w crontabie?"
+    Ręczny wariant nadal działa — dopisz do `crontab -e` linię wołającą ten sam
+    idempotentny target (`@reboot` pokrywa wtedy tylko restart hosta, nie crash
+    sesji):
+
+    ```cron
+    @reboot cd /ścieżka/do/bpp-deploy && make screen-with-autoupdate
+    ```
+
+    Ten sam `scripts/autoupdate.sh` można też wołać bezpośrednio z crona lub
+    z timera `systemd` — logika jednego cyklu jest oddzielona od harmonogramu.
 
 ### Konfiguracja (zmienne środowiskowe / `.env`)
 
@@ -193,9 +272,19 @@ logika jednego cyklu jest oddzielona od harmonogramu.)
 | `AUTOUPDATE_INTERVAL` | `7200` | Odstęp między cyklami w sekundach. |
 | `AUTOUPDATE_DB_BACKUP` | `0` (wył.) | `1` = `make db-backup` **przed** każdym auto-deployem. Gdy backup się nie uda, deploy jest przerywany (fail-safe). |
 | `AUTOUPDATE_SCREEN_NAME` | `bpp-autoupdate` | Nazwa sesji `screen` używana przez `make screen-with-autoupdate`. |
+| `AUTOUPDATE_CRON_SCHEDULE` | `*/15 * * * *` | Harmonogram wpisu-strażnika instalowanego przez `make setup-autoupdate-cron`. Akceptuje pięć pól cronowych albo makro (`@reboot`, `@hourly`, `@daily`, `@midnight`, `@weekly`, `@monthly`, `@yearly`, `@annually`). |
+| `AUTOUPDATE_CRON_LOG` | `$BPP_CONFIGS_DIR/logs/autoupdate-cron.log` | Plik, do którego strażnik dopisuje swoje wyjście; w tym samym katalogu ląduje kopia zapasowa crontaba. |
 
 Wartości można ustawić w `$BPP_CONFIGS_DIR/.env` albo doraźnie w środowisku,
-np. `AUTOUPDATE_INTERVAL=3600 make autoupdate`.
+np. `AUTOUPDATE_INTERVAL=3600 make autoupdate` czy
+`AUTOUPDATE_CRON_SCHEDULE='*/5 * * * *' make setup-autoupdate-cron`.
+
+!!! note "Nadpisanie w `.env` trafia też do kontenerów"
+    `$BPP_CONFIGS_DIR/.env` jest wciągany hurtowo przez `env_file`, więc
+    zmienne `AUTOUPDATE_*` ustawione tam wylądują również w środowisku
+    kontenerów. Jest to nieszkodliwe (żadna usługa ich nie czyta), ale warto
+    o tym wiedzieć, oglądając `docker compose exec … env`. Alternatywa:
+    podać wartość doraźnie w wywołaniu `make`.
 
 !!! warning "Auto-deploy uruchamia migracje bazy bez nadzoru"
     `make run` odpala migracje Django automatycznie. Auto-update robi to **bez

@@ -31,6 +31,10 @@ site/
 # Auto-update lock (make autoupdate / scripts/autoupdate.sh)
 .autoupdate.lock.d/
 
+# Auto-update cron watchdog: log i kopie crontaba (fallback, gdy BPP_CONFIGS_DIR puste)
+.autoupdate-cron.log
+crontab.bak.*
+
 # Emacs backup / autosave / lockfiles
 *~
 \#*\#
