@@ -183,7 +183,7 @@ printf -- '---------------------------------------------------------------------
 # --- WAF: audit log JSON -> pelny rozklad na pola ---
 sprawdz_audit "WAF: SQLi zablokowane" 'UNION%20ALL%20SELECT' \
     detected_level=warn modsec_action=blocked modsec_rule_id=942100 \
-    modsec_attack=sqli modsec_direction=inbound modsec_code=403
+    modsec_attack=sqli modsec_direction=inbound modsec_code=403 modsec_src=audit
 
 sprawdz_audit "WAF: path traversal -> kategoria lfi" '/etc/passwd' \
     detected_level=warn modsec_action=blocked modsec_rule_id=930100 modsec_attack=lfi
@@ -200,6 +200,17 @@ sprawdz_audit "WAF: inspekcja odpowiedzi (outbound)" 'wyciek-php' \
 # malowal dashboardu bledow aplikacji na czerwono.
 sprawdz "WAF: linia error.log dostaje warn, nie error" 'ModSecurity: Access denied' \
     detected_level=warn
+
+# Blizniak z error.log to linia, na ktora patrzy czlowiek w "Log Monitoring".
+# Bez wlasnych pol dalo sie go filtrowac wylacznie pelnotekstowo.
+sprawdz "WAF: linia error.log ma wlasne pola modsec_*" 'ModSecurity: Access denied' \
+    modsec_src=nginx modsec_action=blocked modsec_rule_id=949110 \
+    modsec_direction=inbound modsec_score=10
+
+# Blizniaki MUSZA byc rozroznialne, inaczej panele agregujace licza kazde
+# zadanie dwa razy.
+sprawdz_audit "WAF: wpis audit oznaczony jako src=audit" '/etc/passwd' \
+    modsec_src=audit
 
 # Linia startowa modulu NIE jest trafieniem — nie moze wpasc w blok WAF-a.
 sprawdz "WAF: linia startowa modulu to info" 'rules loaded inline' \

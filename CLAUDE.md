@@ -135,7 +135,7 @@ Vocabulary is a **closed set of 7**: `critical, error, warn, info, debug, trace,
 
 `stage.template` **always creates** its `source` key, and referencing a key `stage.json` didn't create renders the literal `<no value>` — every template touching an optional field needs an `{{ if … }}` guard. Verify with `make test-alloy` (runs the real config through real log lines via `loki.echo`).
 
-WAF hits are parsed from the **JSON audit log**, not the error.log line: with CRS anomaly scoring only the decision rules (`949110`/`959100`) reach error.log, so the attack type lives solely in the JSON. 15 `modsec_*` fields go to **structured metadata**, never stream labels (`modsec_uri`/`modsec_client` would explode stream cardinality). Hits are levelled `warn`, not `error`, for the same reason `limit_req_log_level` is `warn`. Detail: `docs/architektura/waf.md`.
+WAF hits produce **two Loki entries per request** — the JSON audit log and the human-readable nginx error.log line — and **both** carry `modsec_*` fields, discriminated by **`modsec_src`** (`audit` / `nginx`). Only the JSON has `modsec_attack`/`modsec_rules` (with CRS anomaly scoring only the decision rules `949110`/`959100` reach error.log). **Any aggregation must filter `modsec_src="audit"` or it double-counts every request**; the logs panel deliberately shows `nginx`. 15 `modsec_*` fields go to **structured metadata**, never stream labels (`modsec_uri`/`modsec_client` would explode stream cardinality). Hits are levelled `warn`, not `error`, for the same reason `limit_req_log_level` is `warn`. Detail: `docs/architektura/waf.md`.
 
 ### Logging — add `logging` to new services
 
