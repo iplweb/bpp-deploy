@@ -1,0 +1,800 @@
+{
+  "annotations": {
+    "list": []
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "id": null,
+  "links": [],
+  "panels": [
+    {
+      "type": "stat",
+      "title": "Trafienia WAF-a",
+      "description": "Liczba zadan oflagowanych przez ModSecurity w wybranym zakresie czasu. Jedno zadanie = jeden wpis audit logu, niezaleznie od tego ile regul CRS sie na nim zapalilo.",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 0,
+        "y": 0
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "text"
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "editorMode": "code",
+          "expr": "sum(count_over_time({job=\"docker\", service=\"webserver\"} | modsec_action != \"\" | modsec_hostname =~ \"$vhost\" | modsec_action =~ \"$action\" [$__range]))",
+          "queryType": "instant",
+          "refId": "A",
+          "instant": true,
+          "range": false
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Zablokowane",
+      "description": "Zadania, ktorym ModSecurity przerwal obsluge (403 -> nasze 444, zerwane polaczenie). Reszta to trafienia w trybie DetectionOnly — zalogowane, ale przepuszczone (reguly 10002/10003).",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 6,
+        "y": 0
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "red"
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "editorMode": "code",
+          "expr": "sum(count_over_time({job=\"docker\", service=\"webserver\"} | modsec_action = \"blocked\" | modsec_hostname =~ \"$vhost\" [$__range]))",
+          "queryType": "instant",
+          "refId": "A",
+          "instant": true,
+          "range": false
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Unikalne adresy IP",
+      "description": "Ile roznych adresow IP zostalo oflagowanych. Duza liczba przy malej liczbie trafien na adres to sygnatura skanu rozproszonego — takiego, na ktory per-IP limit_req nie ma jak zadzialac.",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 12,
+        "y": 0
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "text"
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "editorMode": "code",
+          "expr": "count(sum by (modsec_client) (count_over_time({job=\"docker\", service=\"webserver\"} | modsec_action != \"\" | modsec_hostname =~ \"$vhost\" | modsec_action =~ \"$action\" [$__range])))",
+          "queryType": "instant",
+          "refId": "A",
+          "instant": true,
+          "range": false
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Unikalnych regul",
+      "description": "Ile roznych regul CRS sie zapalilo. Liczone po regule WIODACEJ (pierwszej dopasowanej), nie po regule progowej 949110, ktora zapala sie przy kazdej blokadzie.",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 18,
+        "y": 0
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "text"
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "editorMode": "code",
+          "expr": "count(sum by (modsec_rule_id) (count_over_time({job=\"docker\", service=\"webserver\"} | modsec_action != \"\" | modsec_hostname =~ \"$vhost\" | modsec_action =~ \"$action\" [$__range])))",
+          "queryType": "instant",
+          "refId": "A",
+          "instant": true,
+          "range": false
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Trafienia w czasie (zablokowane vs tylko wykryte)",
+      "description": "Slupki stackowane. `blocked` = polaczenie zerwane; `detected` = trafienie na sciezce wyjetej z blokowania (reguly 10002/10003 w modsecurity-override.conf.template) — zalogowane, ale przepuszczone. Nagly slup `blocked` z jednego zrodla to zwykle skan.",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 4
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "bars",
+            "fillOpacity": 70,
+            "lineWidth": 0,
+            "stacking": {
+              "group": "A",
+              "mode": "normal"
+            },
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "gradientMode": "none",
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never"
+          },
+          "mappings": [],
+          "unit": "short"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "blocked"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "red",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "detected"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "orange",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "calcs": [
+            "sum"
+          ],
+          "displayMode": "table",
+          "placement": "right",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "editorMode": "code",
+          "expr": "sum by (modsec_action) (count_over_time({job=\"docker\", service=\"webserver\"} | modsec_action != \"\" | modsec_hostname =~ \"$vhost\" | modsec_action =~ \"$action\" [$__interval]))",
+          "queryType": "range",
+          "refId": "A",
+          "legendFormat": "{{modsec_action}}"
+        }
+      ]
+    },
+    {
+      "type": "table",
+      "title": "Najczestsze reguly CRS",
+      "description": "Regula WIODACA, czyli PIERWSZA dopasowana w transakcji — ta merytoryczna (942xxx SQLi, 941xxx XSS, 930xxx LFI). Regula progowa 949110 jest w transakcji OSTATNIA, wiec tu nie trafia i nie przykrywa rankingu, mimo ze zapala sie przy kazdej blokadzie. Wysoka pozycja reguly przy legalnym ruchu = kandydat na wykluczenie (patrz docs/architektura/waf.md).",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 14,
+        "x": 0,
+        "y": 12
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "filterable": false
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "countRows": false,
+          "fields": "",
+          "reducer": [
+            "sum"
+          ],
+          "show": false
+        },
+        "sortBy": [
+          {
+            "desc": true,
+            "displayName": "Trafien"
+          }
+        ]
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "editorMode": "code",
+          "expr": "topk(10, sum by (modsec_rule_id, modsec_msg) (count_over_time({job=\"docker\", service=\"webserver\"} | modsec_action != \"\" | modsec_hostname =~ \"$vhost\" | modsec_action =~ \"$action\" [$__range])))",
+          "queryType": "instant",
+          "refId": "A",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true
+            },
+            "renameByName": {
+              "modsec_rule_id": "Regula",
+              "modsec_msg": "Opis",
+              "Value": "Trafien"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "type": "table",
+      "title": "Kategorie atakow",
+      "description": "Kategoria z tagow CRS (`attack-sqli` -> `sqli`). Brana z tagow WSZYSTKICH regul transakcji, pierwsza napotkana. Zadania bez tagu `attack-*` (np. czysto progowe) sa pominiete.",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 10,
+        "x": 14,
+        "y": 12
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "filterable": false
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "countRows": false,
+          "fields": "",
+          "reducer": [
+            "sum"
+          ],
+          "show": false
+        },
+        "sortBy": [
+          {
+            "desc": true,
+            "displayName": "Trafien"
+          }
+        ]
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "editorMode": "code",
+          "expr": "sum by (modsec_attack) (count_over_time({job=\"docker\", service=\"webserver\"} | modsec_action != \"\" | modsec_hostname =~ \"$vhost\" | modsec_action =~ \"$action\" | modsec_attack != \"\" [$__range]))",
+          "queryType": "instant",
+          "refId": "A",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true
+            },
+            "renameByName": {
+              "modsec_attack": "Kategoria",
+              "Value": "Trafien"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "type": "table",
+      "title": "Najaktywniejsze adresy IP",
+      "description": "Adres z pola `client_ip` audit logu. UWAGA: to adres, ktory widzi nginx — jesli przed BPP stoi proxy/CDN, zobaczysz jego adres, nie klienta koncowego.",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 8,
+        "x": 0,
+        "y": 21
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "filterable": false
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "countRows": false,
+          "fields": "",
+          "reducer": [
+            "sum"
+          ],
+          "show": false
+        },
+        "sortBy": [
+          {
+            "desc": true,
+            "displayName": "Trafien"
+          }
+        ]
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "editorMode": "code",
+          "expr": "topk(15, sum by (modsec_client) (count_over_time({job=\"docker\", service=\"webserver\"} | modsec_action != \"\" | modsec_hostname =~ \"$vhost\" | modsec_action =~ \"$action\" [$__range])))",
+          "queryType": "instant",
+          "refId": "A",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true
+            },
+            "renameByName": {
+              "modsec_client": "Adres IP",
+              "Value": "Trafien"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "type": "table",
+      "title": "Najczesciej atakowane sciezki",
+      "description": "URI z query stringiem — czyli zwykle z samym payloadem ataku. Powtarzajaca sie LEGALNA sciezka oznacza falszywy alarm i kandydata na wykluczenie reguly.",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 10,
+        "x": 8,
+        "y": 21
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "filterable": false
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "countRows": false,
+          "fields": "",
+          "reducer": [
+            "sum"
+          ],
+          "show": false
+        },
+        "sortBy": [
+          {
+            "desc": true,
+            "displayName": "Trafien"
+          }
+        ]
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "editorMode": "code",
+          "expr": "topk(15, sum by (modsec_uri) (count_over_time({job=\"docker\", service=\"webserver\"} | modsec_action != \"\" | modsec_hostname =~ \"$vhost\" | modsec_action =~ \"$action\" [$__range])))",
+          "queryType": "instant",
+          "refId": "A",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true
+            },
+            "renameByName": {
+              "modsec_uri": "URI",
+              "Value": "Trafien"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "type": "table",
+      "title": "Anomaly score",
+      "description": "Suma punktow CRS w momencie decyzji. Prog blokowania to 5 (inbound) i 4 (outbound). Duzo trafien tuz przy progu = warto rozwazyc strojenie; wysokie wyniki to jednoznaczne ataki.",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 6,
+        "x": 18,
+        "y": 21
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "filterable": false
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "countRows": false,
+          "fields": "",
+          "reducer": [
+            "sum"
+          ],
+          "show": false
+        },
+        "sortBy": [
+          {
+            "desc": true,
+            "displayName": "Trafien"
+          }
+        ]
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "editorMode": "code",
+          "expr": "sum by (modsec_score) (count_over_time({job=\"docker\", service=\"webserver\"} | modsec_action != \"\" | modsec_hostname =~ \"$vhost\" | modsec_action =~ \"$action\" | modsec_score != \"\" [$__range]))",
+          "queryType": "instant",
+          "refId": "A",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true
+            },
+            "renameByName": {
+              "modsec_score": "Score",
+              "Value": "Trafien"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "type": "logs",
+      "title": "Ostatnie trafienia",
+      "description": "Surowe wpisy audit logu ModSecurity (JSON). Rozwin wpis, zeby zobaczyc pola modsec_* w structured metadata. `modsec_unique_id` spina ten wpis z blizniacza linia nginksowego error.log. Ciala zadan i odpowiedzi ORAZ naglowki (a wiec Cookie z sessionid) NIE sa tu logowane — patrz MODSEC_AUDIT_LOG_PARTS=AHZ.",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "h": 12,
+        "w": 24,
+        "x": 0,
+        "y": 30
+      },
+      "options": {
+        "dedupStrategy": "none",
+        "enableLogDetails": true,
+        "prettifyLogMessage": true,
+        "showCommonLabels": false,
+        "showLabels": false,
+        "showTime": true,
+        "sortOrder": "Descending",
+        "wrapLogMessage": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "editorMode": "code",
+          "expr": "{job=\"docker\", service=\"webserver\"} | modsec_action != \"\" | modsec_hostname =~ \"$vhost\" | modsec_action =~ \"$action\"",
+          "queryType": "range",
+          "refId": "A"
+        }
+      ]
+    }
+  ],
+  "preload": false,
+  "refresh": "1m",
+  "schemaVersion": 42,
+  "tags": [
+    "waf",
+    "modsecurity",
+    "security"
+  ],
+  "templating": {
+    "list": [
+      {
+        "type": "textbox",
+        "name": "vhost",
+        "label": "Vhost",
+        "description": "Regex po nazwie vhosta (modsec_hostname). Domyslnie .* = wszystkie.",
+        "query": ".*",
+        "current": {
+          "text": ".*",
+          "value": ".*"
+        },
+        "options": [],
+        "hide": 0,
+        "skipUrlSync": false
+      },
+      {
+        "type": "custom",
+        "name": "action",
+        "label": "Akcja",
+        "description": "blocked = polaczenie zerwane; detected = przepuszczone (DetectionOnly).",
+        "query": ".* : Wszystkie, blocked : Zablokowane, detected : Tylko wykryte",
+        "current": {
+          "text": "Wszystkie",
+          "value": ".*"
+        },
+        "options": [
+          {
+            "selected": true,
+            "text": "Wszystkie",
+            "value": ".*"
+          },
+          {
+            "selected": false,
+            "text": "Zablokowane",
+            "value": "blocked"
+          },
+          {
+            "selected": false,
+            "text": "Tylko wykryte",
+            "value": "detected"
+          }
+        ],
+        "hide": 0,
+        "skipUrlSync": false,
+        "multi": false,
+        "includeAll": false
+      }
+    ]
+  },
+  "time": {
+    "from": "now-24h",
+    "to": "now"
+  },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "WAF (ModSecurity / OWASP CRS)",
+  "uid": "waf-modsecurity",
+  "version": 1,
+  "weekStart": ""
+}

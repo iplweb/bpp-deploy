@@ -30,18 +30,19 @@ Bind-mountowany bezpośrednio do kontenerów.
 
 Katalog `defaults/` repozytorium trzyma szablonowe configi kopiowane przez `init-configs`
 **bez nadpisywania istniejących** (`copy_if_missing`) — więc dostrojone przez użytkownika
-configi (`loki/`, `netdata/health.d/`, `netdata/go.d/`, `alloy/`) przeżywają aktualizacje.
+configi (`loki/`, `netdata/health.d/`, `netdata/go.d/`) przeżywają aktualizacje.
 
 ## Pliki force-syncowane (nadpisywane przy każdym deploy)
 
 !!! warning "Wyjątek od `copy_if_missing`"
-    Trzy artefakty są **nadpisywane z `defaults/` przy każdym `ensure-config-files`**
+    Cztery artefakty są **nadpisywane z `defaults/` przy każdym `ensure-config-files`**
     (czyli każdym `make up` / `refresh` / `run`) przez `copy_always` (tylko gdy treść
     się różni):
 
     - `grafana/provisioning/dashboards/*`
     - `grafana/provisioning/datasources/datasources.yaml.tpl`
     - `netdata/netdata.conf`
+    - `alloy/config.alloy`
 
 To dlatego, że są to wersjonowane, „read-only-w-UI" artefakty: zaktualizowany dashboard
 albo datasource w repo ma trafić na żywe wdrożenie automatycznie z `git pull && make up`,
@@ -59,6 +60,29 @@ Pokrętła dla użytkownika (retencja dbengine) są parametryzowane przez `.env`
 (`NETDATA_DBENGINE_TIER0_RETENTION_MB`, `NETDATA_DBENGINE_PAGE_CACHE_MB`), żeby
 force-overwrite nie kasował ręcznego strojenia. **Nie edytuj `netdata.conf` ręcznie —
 strój przez `.env`.**
+
+### `config.alloy` — dlaczego force-sync
+
+Pipeline logów w Alloy (wykrywanie poziomu, rozkładanie trafień WAF-a na pola) to
+**kod wersjonowany, nie konfiguracja użytkownika** — nie ma w nim ani jednego
+pokrętła opisanego jako do edycji; wszystko, co operator stroi, siedzi w `.env`
+albo w `loki/local-config.yaml`.
+
+Przy `copy_if_missing` ten plik był **zamrożony w stanie z dnia instalacji na
+zawsze**. Dotknęło to konkretnej zmiany: mapowanie severity OWASP CRS na poziom
+logu, dodane w commicie `60ea290` i opisane w dokumentacji jako działające, nie
+dotarło na żadne istniejące wdrożenie. Ta sama pułapka co przy
+`datasources.yaml.tpl`, tylko wykryta później.
+
+!!! danger "Nie edytuj `config.alloy` ręcznie"
+    Zmiany przepadną przy najbliższym `make up`. Jeśli potrzebujesz innego
+    zachowania pipeline'u logów — to zmiana w repo, nie w katalogu konfiguracyjnym.
+
+Uwaga na kolejność zależności: wyłączenie wbudowanego wykrywania poziomu w Loki
+**nie** mogło pojechać tą samą drogą, bo `loki/local-config.yaml` zostaje przy
+`copy_if_missing` (trzyma retencję, którą operator stroi). Dlatego jedzie flagą
+CLI w `docker-compose.monitoring.yml` — patrz
+[Logowanie](../monitoring/logowanie.md#poziom-logu-detected_level).
 
 ### `datasources.yaml.tpl` — dlaczego force-sync
 

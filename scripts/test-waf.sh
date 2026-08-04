@@ -112,6 +112,12 @@ fi
 # rozwiazac `waf-test.example.org` na kontener — inaczej trafilby w
 # `default_server` zamiast w testowany vhost. Reszta testow, strzelana z hosta
 # przez `--resolve`, tego nie uzywa.
+# MODSEC_AUDIT_LOG_PARTS=AHZ ponizej to DOKLADNIE to, co ma produkcja
+# (docker-compose.infrastructure.yml). Bylo tu ABHZ, czyli Z czescia B (naglowki
+# zadania) — a produkcja nie ma jej CELOWO, zeby `Cookie` z sessionid nie trafial
+# do Loki. Test strzelal wiec inna konfiguracja logowania niz ta, ktorej broni,
+# a fixture zebrany z takiego przebiegu (tests/fixtures/alloy-loglines.txt)
+# zawieralby `request.headers`, ktorego na produkcji w audit logu nie ma.
 if ! docker run -d --name "$FRONT" --network "$NET" --network-alias "$HOST_NAME" \
     -p "$PORT_ZADANY:443" \
     -e DJANGO_BPP_HOSTNAMES="$HOST_NAME" \
@@ -120,7 +126,7 @@ if ! docker run -d --name "$FRONT" --network "$NET" --network-alias "$HOST_NAME"
     -e BLOCKING_PARANOIA=1 \
     -e MODSEC_AUDIT_ENGINE=RelevantOnly \
     -e MODSEC_AUDIT_LOG_FORMAT=JSON \
-    -e MODSEC_AUDIT_LOG_PARTS=ABHZ \
+    -e MODSEC_AUDIT_LOG_PARTS=AHZ \
     -e MODSEC_REQ_BODY_LIMIT=132120576 \
     -e MODSEC_REQ_BODY_NOFILES_LIMIT=4194304 \
     -v "$TMP/ssl:/etc/ssl/private:ro" \

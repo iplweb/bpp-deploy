@@ -33,92 +33,251 @@ loki.write "local" {
   }
 }
 
-// Log processing pipeline for level extraction
+// ============================================================================
+// Wykrywanie poziomu logu + parsowanie trafien WAF-a.
+//
+// UWAGA NA KOLEJNOSC: kolejne `stage.regex` NIE dzialaja jak "sprobuj po kolei,
+// przerwij na pierwszym trafieniu". Kazdy trafiony etap NADPISUJE ten sam klucz,
+// wiec wygrywa OSTATNI. Wczesniejsza wersja tego pliku byla ulozona od
+// najbardziej do najmniej wiarygodnego detektora — czyli odwrotnie do tego, jak
+// to dziala — przez co "last resort" (\berror\b gdziekolwiek w linii) przykrywal
+// wszystko powyzej i nadawal detected_level=error linii access logu
+// `GET /jakas-error-page`.
+//
+// Dlatego kazdy detektor pisze do WLASNEGO klucza (`lvl_*`), a wyboru dokonuje
+// jedna bramka na koncu. Dodanie nowego detektora nie moze juz popsuc istniejacych.
+// ============================================================================
 loki.process "log_levels" {
-  // Try JSON structured logs first (e.g., Dozzle)
+
+  // ── Detektory poziomu ────────────────────────────────────────────────────
+  // Kazdy zapisuje do wlasnego klucza; zaden nie moze nadpisac innego.
+
+  // Logi strukturalne JSON (np. Dozzle).
   stage.json {
-    expressions = { extracted_level = "level" }
+    expressions = { lvl_json = "level" }
   }
 
-  // Try key-value format: level=INFO, level=ERROR
+  // Format klucz-wartosc: level=INFO, level=ERROR
   stage.regex {
-    expression = "level=(?P<extracted_level>(?i:TRACE|DEBUG|INFO|WARN(?:ING)?|ERROR|FATAL|CRITICAL))\\b"
+    expression = "level=(?P<lvl_kv>(?i:TRACE|DEBUG|INFO|WARN(?:ING)?|ERROR|FATAL|CRITICAL))\\b"
   }
 
-  // Try Python logging format: INFO:module:message
+  // Format loggera Pythona: INFO:modul:komunikat
   stage.regex {
-    expression = "^(?P<extracted_level>(?i:DEBUG|INFO|WARNING|ERROR|CRITICAL)):"
+    expression = "^(?P<lvl_py>(?i:DEBUG|INFO|WARNING|ERROR|CRITICAL)):"
   }
 
-  // Try bracketed format: [info], [ERROR]
+  // Format w nawiasach kwadratowych: [info], [ERROR] — m.in. nginx.
   stage.regex {
-    expression = "\\[(?P<extracted_level>(?i:trace|debug|info|warn(?:ing)?|error|fatal|critical))\\]"
+    expression = "\\[(?P<lvl_bracket>(?i:trace|debug|info|notice|warn(?:ing)?|error|crit(?:ical)?|alert|emerg(?:ency)?))\\]"
   }
 
-  // Catch Python warnings: UserWarning, SecurityWarning, etc.
+  // Ostrzezenia Pythona: UserWarning, SecurityWarning, DeprecationWarning…
   stage.regex {
-    expression = "(?P<extracted_level>(?i:UserWarning|SecurityWarning|DeprecationWarning|RuntimeWarning))"
+    expression = "(?P<lvl_pywarn>(?i:[A-Za-z]*Warning))\\b"
   }
 
-  // Last resort: standalone level words anywhere in log
-  stage.regex {
-    expression = "\\b(?P<extracted_level>(?i:TRACE|DEBUG|INFO|WARN(?:ING)?|ERROR|FATAL|CRITICAL))\\b"
-  }
-
-  // Normalize WARN → warning
-  stage.replace {
-    expression = "(?i)^warn$"
-    replace    = "warning"
-    source     = "extracted_level"
-  }
-
-  // Normalize FATAL → error
-  stage.replace {
-    expression = "(?i)^fatal$"
-    replace    = "error"
-    source     = "extracted_level"
-  }
-
-  // Normalize Python warnings → warning
-  stage.replace {
-    expression = "(?i)^.*Warning$"
-    replace    = "warning"
-    source     = "extracted_level"
-  }
-
-  // Convert to lowercase for consistency
-  stage.template {
-    source   = "extracted_level"
-    template = "{{ .Value | ToLower }}"
-  }
-
-  // ModSecurity / OWASP CRS (audit log WAF-a).
+  // Ostatnia deska ratunku: samodzielne slowo-poziom gdziekolwiek w linii.
+  // NAJMNIEJ wiarygodne — bramka nizej siega po nie dopiero gdy nic innego
+  // nie trafilo.
   //
-  // Musi byc PO ogolnych regulach wyzej, bo je nadpisuje. Audit log ModSecurity
-  // to JSON BEZ pola `level`, wiec zadna z powyzszych regul nie trafia i konczy
-  // sie na detected_level=unknown. Poziom bierzemy z `severity` reguly CRS,
-  // ktora jest w skali sysloga:
-  //   0 EMERGENCY  1 ALERT  2 CRITICAL  3 ERROR
-  //   4 WARNING    5 NOTICE 6 INFO      7 DEBUG
+  // `(?:^|[^\w/])` — slowo NIE moze byc poprzedzone ukosnikiem. Bez tego
+  // warunku linia access logu `GET /raport/error-summary.html` dostawala
+  // detected_level=error, bo `\berror\b` trafia w SRODEK sciezki URL (ukosnik
+  // i myslnik to dla `\b` granice slowa). Zadna z wyzszych regul nie ma czym
+  // takiej linii przykryc, wiec sama kolejnosc detektorow tego nie leczy.
+  stage.regex {
+    expression = "(?:^|[^\\w/])(?P<lvl_any>(?i:TRACE|DEBUG|INFO|WARN(?:ING)?|ERROR|FATAL|CRITICAL))\\b"
+  }
+
+  // ── ModSecurity: audit log (JSON) ────────────────────────────────────────
   //
-  // Transakcja bez dopasowanej reguly (przy MODSEC_AUDIT_ENGINE=On) nie ma
-  // sekcji `messages` — wtedy severity jest puste i ustawiamy `info`.
+  // Kazde oflagowane zadanie zostawia w stdout webservera DWA wpisy:
+  //   1. linia tekstowa nginksowego error.log ("ModSecurity: Access denied…"),
+  //   2. TEN wpis — pelny audit log w JSON.
+  //
+  // Cala tresc analityczna jest w (2). W (1) laduja WYLACZNIE reguly decyzyjne
+  // (949110 inbound, 959100 outbound) — indywidualne reguly ataku (942xxx SQLi,
+  // 941xxx XSS, 930xxx LFI) w CRS z anomaly scoring NIE logują się do error.log.
+  // Sprawdzone empirycznie: 8 linii error.log vs 11 wpisow audit na tym samym
+  // przebiegu `make test-waf`, i tylko wpisy audit znaja rodzaj ataku.
+  //
+  // `is_interrupted` rozdziela zablokowane od tylko wykrytych — sciezki wyjete
+  // regulami 10002/10003 (ctl:ruleEngine=DetectionOnly) maja `false` + HTTP 200.
+  //
+  // Selektor po "is_interrupted": klucz wystepuje wylacznie w audit logu.
+  // Marker "ModSecurity-nginx" NIE nadaje sie — jest tez w linii startowej
+  // "[notice] ModSecurity-nginx v1.0.4 (rules loaded…)".
+  //
+  // Wymaga MODSEC_AUDIT_LOG_FORMAT=JSON (domyslne w obrazie CRS). Pola pochodza
+  // z czesci A i H (MODSEC_AUDIT_LOG_PARTS=AHZ) — CELOWO bez czesci B, wiec
+  // `request.headers` (a w nich Cookie z sessionid) tutaj nie ma. Nie dodawaj B.
   stage.match {
-    selector = "{job=\"docker\"} |~ \"ModSecurity-nginx\""
+    selector = "{job=\"docker\"} |~ \"is_interrupted\""
 
     stage.json {
       expressions = {
-        modsec_severity = "transaction.messages[0].details.severity",
+        modsec_blocked   = "transaction.is_interrupted",
+        modsec_client    = "transaction.client_ip",
+        modsec_unique_id = "transaction.unique_id",
+        modsec_hostname  = "transaction.request.hostname",
+        modsec_method    = "transaction.request.method",
+        modsec_uri       = "transaction.request.uri",
+        modsec_code      = "transaction.response.http_code",
+        // messages[0] to PIERWSZA dopasowana regula, czyli ta merytoryczna
+        // (942100 SQLi, 941100 XSS…). Regula decyzyjna 949110 jest OSTATNIA
+        // i ma severity 0 — brac jej za "te reguly" byloby bez wartosci.
+        modsec_rule_id   = "transaction.messages[0].details.ruleId",
+        modsec_msg       = "transaction.messages[0].message",
+        modsec_severity  = "transaction.messages[0].details.severity",
+        // Pelny lancuch regul, do wyszukiwania (`|~`), nie do grupowania.
+        modsec_rules     = "join(',', transaction.messages[*].details.ruleId)",
+        // Kategoria ataku z tagow CRS. `| [0]` bo ta sama kategoria powtarza
+        // sie w kazdej dopasowanej regule (bez tego: "attack-sqli,attack-sqli").
+        modsec_attack    = "transaction.messages[].details.tags[?starts_with(@, 'attack-')][] | [0]",
+        modsec_paranoia  = "transaction.messages[].details.tags[?starts_with(@, 'paranoia-level/')][] | [0]",
+        // Komunikat reguly progowej — zrodlo anomaly score i kierunku.
+        // Po tresci, nie po ID: ta sama fraza obsluguje 949110 i 959100.
+        modsec_scoremsg  = "transaction.messages[?contains(message, 'Anomaly Score Exceeded')].message | [0]",
+      }
+    }
+
+    // Prefiksy tagow CRS sa szumem w legendzie wykresu: "attack-sqli" -> "sqli",
+    // "paranoia-level/1" -> "1".
+    //
+    // KAZDY szablon ponizej musi miec straznika `{{ if … }}`. Odwolanie do
+    // klucza, ktorego stage.json nie utworzyl, renderuje sie jako LITERAL
+    // "<no value>" (nie pusty string), a stage.template ZAWSZE tworzy klucz
+    // `source` — bez straznika trafienie bez tagu attack-* wpisaloby do
+    // structured metadata dokladnie "<no value>".
+    stage.template {
+      source   = "modsec_attack"
+      template = "{{ if .modsec_attack }}{{ regexReplaceAll \"^attack-\" .modsec_attack \"\" }}{{ end }}"
+    }
+
+    stage.template {
+      source   = "modsec_paranoia"
+      template = "{{ if .modsec_paranoia }}{{ regexReplaceAll \"^paranoia-level/\" .modsec_paranoia \"\" }}{{ end }}"
+    }
+
+    // "Inbound Anomaly Score Exceeded (Total Score: 10)" -> score 10, inbound.
+    // Kierunek ma znaczenie operacyjne: trafienia OUTBOUND (RESPONSE-95x, faza 4)
+    // to ta klasa, ktora potrafi uciac odpowiedz juz po wyslaniu naglowkow —
+    // patrz regula 10004 w modsecurity-override.conf.template.
+    stage.regex {
+      source     = "modsec_scoremsg"
+      expression = "Total Score: (?P<modsec_score>\\d+)"
+    }
+
+    stage.regex {
+      source     = "modsec_scoremsg"
+      expression = "^(?P<modsec_direction>Inbound|Outbound)"
+    }
+
+    stage.template {
+      source   = "modsec_direction"
+      template = "{{ if .modsec_direction }}{{ ToLower .modsec_direction }}{{ end }}"
+    }
+
+    stage.template {
+      source   = "modsec_action"
+      template = "{{ if eq .modsec_blocked \"true\" }}blocked{{ else if .modsec_blocked }}detected{{ end }}"
+    }
+
+    // Structured metadata, NIE labele. `modsec_uri`, `modsec_client`
+    // i `modsec_unique_id` jako stream labele wysadzilyby kardynalnosc indeksu
+    // strumieni (kazda para IP x URI = nowy strumien na dysku). Structured
+    // metadata filtruje sie i grupuje w LogQL bez parsera i bez tego kosztu.
+    stage.structured_metadata {
+      values = {
+        modsec_action    = "",
+        modsec_rule_id   = "",
+        modsec_msg       = "",
+        modsec_severity  = "",
+        modsec_rules     = "",
+        modsec_attack    = "",
+        modsec_paranoia  = "",
+        modsec_direction = "",
+        modsec_score     = "",
+        modsec_uri       = "",
+        modsec_method    = "",
+        modsec_client    = "",
+        modsec_hostname  = "",
+        modsec_code      = "",
+        modsec_unique_id = "",
       }
     }
 
     stage.template {
-      source = "extracted_level"
-      template = "{{ if eq .modsec_severity \"0\" }}critical{{ else if eq .modsec_severity \"1\" }}critical{{ else if eq .modsec_severity \"2\" }}critical{{ else if eq .modsec_severity \"3\" }}error{{ else if eq .modsec_severity \"4\" }}warning{{ else if eq .modsec_severity \"5\" }}info{{ else if eq .modsec_severity \"6\" }}info{{ else if eq .modsec_severity \"7\" }}debug{{ else }}info{{ end }}"
+      source   = "lvl_modsec"
+      template = "warn"
     }
   }
 
-  // Add as label if extracted
+  // ── ModSecurity: linia error.log ─────────────────────────────────────────
+  //
+  // Blizniacza linia tekstowa do wpisu audit powyzej. NIE parsujemy jej na pola
+  // — wszystko, co ma, jest w JSON-ie, spiete przez unique_id. Ustawiamy jej
+  // tylko poziom.
+  //
+  // `warn`, a nie `error`, mimo ze nginx loguje ja jako [error]. Ta sama decyzja
+  // co przy `limit_req_log_level warn` w _bpp-locations.conf: powodz zdarzen
+  // bezpieczenstwa nie ma zalewac dashboardu bledow APLIKACJI. Skan z lipca 2026
+  // to bylo 2165 zadan z 1342 adresow IP — kazde trafienie to osobna linia
+  // [error], czyli tysiace "bledow" przy w pelni sprawnej aplikacji.
+  // Trafienia WAF-a maja wlasny dashboard (grafana/dashboards/waf.json).
+  stage.match {
+    selector = "{job=\"docker\"} |~ \"ModSecurity: (Access denied|Warning|Access allowed)\""
+
+    stage.template {
+      source   = "lvl_modsec"
+      template = "warn"
+    }
+  }
+
+  // ── Bramka: wybor + normalizacja do zamknietego slownika ─────────────────
+  //
+  // Bierze PIERWSZY niepusty klucz w kolejnosci wiarygodnosci i mapuje go na
+  // jedna z siedmiu dozwolonych wartosci. Wszystko inne -> `unknown`.
+  //
+  // Slownik jest ZAMKNIETY z rozmyslem: wczesniej `SecurityWarning` przeciekal
+  // na label jako `securitywarning`, bo normalizacja byla lancuchem lat, a nie
+  // brama. Tutaj wartosc spoza slownika nie ma jak sie przedostac.
+  //
+  // Slownik pokrywa sie z tym, ktorego uzywa wbudowana detekcja Loki
+  // (`discover_log_levels`) — my ja wylaczamy flaga w docker-compose.monitoring.yml,
+  // zeby zrodlo bylo JEDNO, ale zgodnosc slownika zostawia furtke powrotu
+  // i pasuje do kolorowania poziomow w Grafanie.
+  stage.template {
+    source = "extracted_level"
+    template = `{{- $l := "" -}}
+{{- if .lvl_modsec }}{{ $l = .lvl_modsec }}
+{{- else if .lvl_json }}{{ $l = .lvl_json }}
+{{- else if .lvl_kv }}{{ $l = .lvl_kv }}
+{{- else if .lvl_py }}{{ $l = .lvl_py }}
+{{- else if .lvl_bracket }}{{ $l = .lvl_bracket }}
+{{- else if .lvl_pywarn }}{{ $l = .lvl_pywarn }}
+{{- else if .lvl_any }}{{ $l = .lvl_any }}
+{{- end -}}
+{{- $l = ToLower $l -}}
+{{- $l = regexReplaceAll "^.*warning$" $l "warn" -}}
+{{- if eq $l "critical" }}critical
+{{- else if eq $l "crit" }}critical
+{{- else if eq $l "fatal" }}critical
+{{- else if eq $l "alert" }}critical
+{{- else if eq $l "emerg" }}critical
+{{- else if eq $l "emergency" }}critical
+{{- else if eq $l "error" }}error
+{{- else if eq $l "err" }}error
+{{- else if eq $l "warn" }}warn
+{{- else if eq $l "notice" }}info
+{{- else if eq $l "info" }}info
+{{- else if eq $l "debug" }}debug
+{{- else if eq $l "trace" }}trace
+{{- else }}unknown
+{{- end -}}`
+  }
+
   stage.labels {
     values = {
       detected_level = "extracted_level",

@@ -47,6 +47,24 @@ schema_config:
         period: 24h
 
 limits_config:
+  # Wbudowana detekcja poziomu logu w Loki — WYLACZONA. Zrodlem `detected_level`
+  # jest wylacznie Alloy (defaults/alloy/config.alloy), bo tylko on umie odczytac
+  # trafienia WAF-a. Przy dwoch detektorach pod ta sama nazwa dropdown "Log Level"
+  # w Grafanie pokazywal sume dwoch slownikow, a w szczegolach linii pojawial sie
+  # `detected_level_extracted`.
+  #
+  # Ten klucz dziala tylko na SWIEZYCH instalacjach (plik jest copy_if_missing).
+  # Dla istniejacych to samo robi flaga -validation.discover-log-levels=false
+  # w docker-compose.monitoring.yml — i to ona jest wlasciwym mechanizmem;
+  # ten wpis jest tu dla jawnosci i musi byc z nia ZGODNY.
+  #
+  # UWAGA: blizniaczego `discover_service_name` (dokleja `service_name`
+  # duplikujacy nasz label `service`) NIE da sie wylaczyc analogiczna flaga —
+  # `-validation.discover-service-name=` dopisuje pusty wpis do listy domyslnej
+  # zamiast ja czyscic. Zostaje wiec wlaczone wszedzie, zeby swieze i istniejace
+  # instalacje zachowywaly sie tak samo. To kosmetyczny duplikat, nie problem.
+  discover_log_levels: false
+
   # Default retention dla wszystkich strumieni bez dopasowania ponizej.
   retention_period: 720h  # 30 dni
 

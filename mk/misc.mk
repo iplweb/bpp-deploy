@@ -1,4 +1,4 @@
-.PHONY: clean wait debug-show-current-settings test-docker-versions test-waf
+.PHONY: clean wait debug-show-current-settings test-docker-versions test-waf test-alloy
 
 clean:
 	-find . -name '*~' -o -name '\#*' -o -name '.*~' | xargs rm -f
@@ -20,3 +20,12 @@ test-docker-versions:
 # ustaw DetectionOnly, zeby zobaczyc co BY zostalo zablokowane).
 test-waf:
 	@./scripts/test-waf.sh
+
+# Test pipeline'u logow Alloy. Przepuszcza PRAWDZIWY defaults/alloy/config.alloy
+# przez fixture z prawdziwymi liniami (audit log WAF-a + typowe formaty logow
+# aplikacji), podmieniajac tylko zrodlo (plik zamiast dockera) i ujscie
+# (loki.echo zamiast loki.write). Sprawdza `detected_level` i pola `modsec_*`.
+# Nie wymaga .env, Loki ani dzialajacej instalacji.
+# Zmienne: ALLOY_TEST_KEEP=1 (zostaw kontener), ALLOY_TEST_WAIT (sekundy).
+test-alloy:
+	@./scripts/test-alloy.sh

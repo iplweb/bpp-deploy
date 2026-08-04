@@ -16,6 +16,21 @@ Liczba błędów w czasie (per serwer) + log błędów z Loki. Dropdowny
 `var-service` (data link) i zawęża logi; drag-select po wykresie zawęża czas. Panel
 „Error Logs" z `enableInfiniteScrolling`.
 
+### WAF (ModSecurity / OWASP CRS)
+
+Trafienia WAF-a w jednym miejscu, żeby ruch skanerów nie mieszał się z awariami
+aplikacji w „Error Monitoring". Panele: rząd statystyk (trafienia, zablokowane,
+unikalne adresy IP, unikalne reguły), oś czasu z podziałem `blocked` / `detected`,
+ranking reguł wiodących, kategorie ataków, najaktywniejsze adresy IP, najczęściej
+atakowane ścieżki, rozkład anomaly score i surowe wpisy audit logu.
+
+Filtry u góry: **Vhost** (regex po nazwie hosta — istotne przy multi-host) i **Akcja**
+(`blocked` = połączenie zerwane; `detected` = trafienie na ścieżce wyjętej z blokowania
+regułami 10002/10003, zalogowane ale przepuszczone).
+
+Źródłem danych są pola `modsec_*` wyciągane z audit logu przez Alloy — opis pól i
+przykładowe zapytania: [WAF](../architektura/waf.md#logi-waf-a-w-grafanie).
+
 ### Slow queries (log) i Top 100 queries (pg_stat_statements)
 
 Monitoring wolnych zapytań — opisany osobno: [Wolne zapytania](slow-queries.md).

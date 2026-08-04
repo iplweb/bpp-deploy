@@ -2,6 +2,39 @@
 
 Data: 2026-08-04
 
+!!! note "Rewizja po weryfikacji empirycznej — czytaj razem z tą sekcją"
+    Implementacja **rozeszła się z punktami D i E** tego dokumentu. Powód: po
+    zebraniu prawdziwych linii z przebiegu `make test-waf` okazało się, że do
+    nginksowego error.log trafiają **wyłącznie reguły decyzyjne** (`949110`,
+    `959100`) — w CRS z anomaly scoringiem pojedyncze reguły ataku się tam nie
+    logują. Rodzaj ataku (`942xxx` SQLi, `941xxx` XSS, `930xxx` LFI) jest
+    **tylko** w JSON-owym audit logu. 8 linii error.log wobec 11 wpisów audit
+    na tym samym przebiegu.
+
+    Zmiany względem opisu poniżej:
+
+    - **Źródłem pól jest audit log JSON, nie error.log.** Linia z error.log
+      dostaje sam poziom (`warn`); spina je `modsec_unique_id`.
+    - **15 pól zamiast 11**, wyciąganych **JMESPath-em** w `stage.json`
+      (`join(',', …)`, filtr `[?starts_with(@,'attack-')]`) — mechanizm, którego
+      ten dokument nie przewidywał. Doszły `modsec_rules`, `modsec_paranoia`,
+      `modsec_direction`, `modsec_method`, `modsec_code`.
+    - **`modsec_action` bierze się z `transaction.is_interrupted`**, a nie
+      z parsowania frazy „Access denied" — czystszy rozdział `blocked`/`detected`.
+    - **Zmienne dashboardu to `textbox`/`custom`, nie `query_result`.** Dla
+      źródła Loki taki typ zmiennej nie istnieje (edytor oferuje tylko „Label
+      names"/„Label values"), a structured metadata i tak nie występuje
+      w `/loki/api/v1/labels`.
+    - **Punkt „wyłączyć `discover_service_name`" odpadł** —
+      `-validation.discover-service-name=` dopisuje pusty wpis do listy domyślnej
+      zamiast ją czyścić.
+    - **Naprawa `\berror\b` w URL-u wymagała zmiany wzorca**, nie tylko kolejności
+      detektorów: gdy trafia *wyłącznie* „ostatnia deska ratunku", nie ma jej co
+      przykryć. Wzorzec wymaga teraz, by słowo nie było poprzedzone ukośnikiem.
+
+    Stan faktyczny opisuje `docs/architektura/waf.md` i
+    `docs/monitoring/logowanie.md`.
+
 ## Problem
 
 ### 1. Bałagan w wartościach `detected_level`
