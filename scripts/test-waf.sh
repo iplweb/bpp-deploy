@@ -110,6 +110,23 @@ if ! docker run -d --name "$BACK" --network "$NET" --network-alias appserver \
     exit 1
 fi
 
+# Katalog roboczy musi byc CZYTELNY DLA KONTENERA. `mktemp -d` daje 0700,
+# a openssl zapisuje klucz jako 0600 — obie rzeczy nalezace do uzytkownika,
+# ktory odpalil test. Nginx w obrazie CRS chodzi jako uid 101, wiec przez bind
+# mount nie przejdzie ani przez katalog, ani do klucza:
+#
+#   [emerg] cannot load certificate key "/etc/ssl/private/key.pem":
+#           ... Permission denied
+#
+# Na macOS/OrbStack tego nie widac (bind mounty pokazuja sie jako wlasnosc
+# uzytkownika kontenera), na Linuksie owszem — wyszlo dopiero po wpieciu tego
+# skryptu do CI. Na produkcji problemu nie ma, bo $BPP_CONFIGS_DIR powstaje
+# przez `mkdir -p` z normalna umaska, czyli jest przechodni.
+#
+# `a+rX` = odczyt dla wszystkich, wykonywalnosc TYLKO na katalogach. Klucz jest
+# jednorazowym snakeoilem, generowanym na ten przebieg i kasowanym razem z $TMP.
+chmod -R a+rX "$TMP"
+
 # Wolumen access logu — NAZWANY, dokladnie jak na produkcji, i to jest istotne.
 #
 # Wczesniej byl tu bind mount z `mktemp -d`. To DWA ROZNE mechanizmy uprawnien:
