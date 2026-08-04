@@ -49,6 +49,30 @@ jobs:
           python -m pip freeze --local
           pre-commit run --all-files --show-diff-on-failure --color=always
 
+  # Testy stawiajace prawdziwe kontenery. Wymagaja linuksowego daemona Dockera,
+  # wiec TYLKO ubuntu — runnery macOS i Windows go nie maja.
+  #
+  # Do 2026-08-04 zaden z tych dwoch skryptow nie byl uruchamiany w CI: workflow
+  # wolal wylacznie tests/test_makefile.sh. `make test-waf` istnial od migracji na
+  # WAF i przechodzil lokalnie, ale nikt go nie egzekwowal przy PR-ach.
+  test-runtime:
+    name: Testy runtime (WAF + pipeline logow)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v5
+
+      # Stawia obraz CRS z prawdziwa konfiguracja z defaults/webserver/ i strzela
+      # prawdziwymi payloadami sqlmap. Sprawdza takze, ze nginx (uid 101) potrafi
+      # pisac do wolumenu NAZWANEGO — czyli tego typu storage'u, ktory ma produkcja.
+      - name: WAF (ModSecurity + OWASP CRS)
+        run: ./scripts/test-waf.sh
+
+      # Przepuszcza prawdziwy defaults/alloy/config.alloy przez prawdziwe linie
+      # logu i sprawdza detected_level oraz pola modsec_*.
+      - name: Pipeline logow Alloy
+        run: ./scripts/test-alloy.sh
+
   test-windows:
     name: Testy Makefile (Windows)
     runs-on: windows-latest

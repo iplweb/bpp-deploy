@@ -28,6 +28,8 @@ W="$REPO_DIR/defaults/webserver"
 # "klient nie zestawil QUIC" — bo w cudzym kontenerze nie ma naszego aliasu.
 PRZEBIEG="${WAF_TEST_SUFFIX:-$$}"
 NET="bpp-waf-test-net-$PRZEBIEG"
+# Wolumen NAZWANY, nie bind mount z $TMP — patrz komentarz przy `docker run` nizej.
+VOL="bpp-waf-test-log-$PRZEBIEG"
 BACK="bpp-waf-test-appserver-$PRZEBIEG"
 FRONT="bpp-waf-test-webserver-$PRZEBIEG"
 # 0 = dowolny wolny port od jadra; realny numer odczytujemy z `docker port`.
@@ -54,17 +56,18 @@ czysc() {
     # nieudanym przebiegu zajrzec do logow nginksa ani odpytac go recznie.
     if [ "${WAF_TEST_KEEP:-0}" = "1" ]; then
         echo "WAF_TEST_KEEP=1 — kontenery zostaja ($FRONT, $BACK, siec $NET)."
-        echo "Posprzatasz przez: docker rm -f $FRONT $BACK && docker network rm $NET"
+        echo "Posprzatasz przez: docker rm -f $FRONT $BACK && docker network rm $NET && docker volume rm $VOL"
         return
     fi
     docker rm -f "$FRONT" "$BACK" >/dev/null 2>&1
     docker network rm "$NET" >/dev/null 2>&1
+    docker volume rm "$VOL" >/dev/null 2>&1
     rm -rf "$TMP"
 }
 trap czysc EXIT
 
 echo "== przygotowanie =="
-mkdir -p "$TMP"/{ssl,letsencrypt,certbot,static,media,nginxlog,html}
+mkdir -p "$TMP"/{ssl,letsencrypt,certbot,static,media,html}
 openssl req -x509 -newkey rsa:2048 -nodes -days 1 \
     -keyout "$TMP/ssl/key.pem" -out "$TMP/ssl/cert.pem" \
     -subj "/CN=$HOST_NAME" >/dev/null 2>&1
@@ -107,6 +110,31 @@ if ! docker run -d --name "$BACK" --network "$NET" --network-alias appserver \
     exit 1
 fi
 
+# Wolumen access logu — NAZWANY, dokladnie jak na produkcji, i to jest istotne.
+#
+# Wczesniej byl tu bind mount z `mktemp -d`. To DWA ROZNE mechanizmy uprawnien:
+# bind mount dziedziczy wlasciciela katalogu z hosta (i uid 101 w kontenerze
+# zwykle moze w nim pisac), a swiezy wolumen nazwany Docker tworzy jako
+# `root:root 0755`. Obraz CRS startuje nginksa jako NIEUPRZYWILEJOWANEGO
+# uzytkownika (uid 101), wiec na wolumenie nazwanym dostaje:
+#
+#   [emerg] open() "/var/log/nginx-shared/bpp_access.log" failed (13: Permission denied)
+#
+# i nie wstaje wcale. Test na bind moucie byl STRUKTURALNIE niezdolny to zlapac —
+# sprawdzal konfiguracje nginksa na innym typie storage'u niz produkcyjny.
+#
+# `chown` ponizej ODWZOROWUJE serwis `nginx-log-init` z
+# docker-compose.infrastructure.yml. Ze sam serwis jest w compose zadeklarowany
+# i wpiety w `depends_on` webservera pilnuje osobna asercja w tests/test_makefile.sh
+# — tutaj sprawdzamy, ze ten mechanizm faktycznie wystarcza nginksowi do startu.
+docker volume create "$VOL" >/dev/null
+if ! docker run --rm --user 0:0 -v "$VOL:/var/log/nginx-shared" \
+        --entrypoint sh owasp/modsecurity-crs:nginx \
+        -c 'chown -R nginx:nginx /var/log/nginx-shared' >/dev/null 2>&1; then
+    echo "BLAD: nie udalo sie przygotowac wolumenu access logu ($VOL)."
+    exit 1
+fi
+
 # Alias sieciowy = nazwa vhosta. Potrzebny dla przypadku HTTP/3: klient QUIC
 # chodzi z WNETRZA sieci dockerowej (na hoscie nie ma curla z h3), wiec musi
 # rozwiazac `waf-test.example.org` na kontener — inaczej trafilby w
@@ -134,7 +162,7 @@ if ! docker run -d --name "$FRONT" --network "$NET" --network-alias "$HOST_NAME"
     -v "$TMP/certbot:/var/www/certbot:ro" \
     -v "$TMP/static:/var/www/html/staticroot" \
     -v "$TMP/media:/mediaroot" \
-    -v "$TMP/nginxlog:/var/log/nginx-shared" \
+    -v "$VOL:/var/log/nginx-shared" \
     -v "$W/default.conf.template:/etc/nginx/templates/conf.d/default.conf.template:ro" \
     -v "$W/modsecurity-override.conf.template:/etc/nginx/templates/modsecurity.d/modsecurity-override.conf.template:ro" \
     -v "$W/00-log-format.conf:/etc/nginx/conf.d/00-log-format.conf:ro" \
@@ -347,6 +375,25 @@ case $? in
     1) LACZNIE=$((LACZNIE + 1)); BLEDY=$((BLEDY + 1)) ;;
     *) : ;;   # pominiety — nie liczymy go w sumie
 esac
+
+# Access log na wolumenie WSPOLDZIELONYM z netdata (kolektor web_log).
+# Sam start nginksa juz dowodzi, ze zapis dziala (inaczej byloby [emerg]), ale
+# ta asercja nazywa te wlasnosc wprost — bez niej regres uprawnien objawilby sie
+# jako "wszystkie przypadki failuja z curl 7", czyli przyczyna nie do odgadniecia.
+echo
+printf "%-6s %-46s %s\n" "WYNIK" "ACCESS LOG DLA NETDATY" "SZCZEGOLY"
+printf -- '----------------------------------------------------------------------------------\n'
+LACZNIE=$((LACZNIE + 1))
+linie_logu=$(docker exec "$FRONT" sh -c 'wc -l < /var/log/nginx-shared/bpp_access.log' 2>/dev/null | tr -d ' \r')
+if [ -n "$linie_logu" ] && [ "$linie_logu" -gt 0 ] 2>/dev/null; then
+    printf "  \033[32mOK\033[0m   %-46s %s linii na wolumenie nazwanym\n" \
+        "nginx (uid 101) zapisuje bpp_access.log" "$linie_logu"
+else
+    printf "  \033[31mFAIL\033[0m %-46s %s\n" \
+        "nginx (uid 101) zapisuje bpp_access.log" \
+        "brak zapisu — sprawdz uprawnienia wolumenu (serwis nginx-log-init)"
+    BLEDY=$((BLEDY + 1))
+fi
 
 echo
 if [ "$BLEDY" -eq 0 ]; then

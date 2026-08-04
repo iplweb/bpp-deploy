@@ -357,6 +357,24 @@ test_compose_bind_mounts() {
             assert_file_contains "$f.yml env_file" 'BPP_CONFIGS_DIR' "$file"
         fi
     done
+
+    # nginx-log-init MUSI istniec i MUSI poprzedzac webserver.
+    #
+    # Obraz owasp/modsecurity-crs:nginx startuje nginksa jako uid 101, a swiezy
+    # wolumen nazwany Docker tworzy jako root:root — bez tego chownu nginx
+    # dostaje [emerg] Permission denied i CALY SERWIS LEZY. Zdarzylo sie na
+    # produkcji 2026-08-04.
+    #
+    # `scripts/test-waf.sh` sprawdza, ze sam mechanizm wystarcza nginksowi do
+    # startu, ale robi to wlasnym `docker run` — nie zauwazylby, gdyby serwis
+    # zniknal z compose. Stad ta asercja.
+    local infra="$REPO_DIR/docker-compose.infrastructure.yml"
+    assert_file_contains "nginx-log-init zadeklarowany" '^  nginx-log-init:' "$infra"
+    assert_file_contains "nginx-log-init chownuje wolumen access logu" \
+        'chown -R nginx:nginx /var/log/nginx-shared' "$infra"
+    assert_file_contains "nginx-log-init dziala jako root" 'user: "0:0"' "$infra"
+    assert_file_contains "webserver czeka na nginx-log-init" \
+        'condition: service_completed_successfully' "$infra"
 }
 
 # ============================================================
