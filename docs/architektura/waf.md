@@ -305,16 +305,30 @@ po wyniku HTTP — bo [blokowanie wychodzące jest wyścigiem](#reguly-wychodzac
 i wynik HTTP migotał (1 na 5 przebiegów kończył się inaczej). Wykrycie jest
 deterministyczne, egzekucja nie.
 
+Trzecie osobne sprawdzenie to **legalne `GET /` po HTTP/3** — przypadek, dla
+którego powstała reguła `10005`. Klient QUIC chodzi z **wnętrza** sieci
+dockerowej, bo systemowy curl (także ten z obrazów `alpine` i
+`curlimages/curl`) jest budowany bez QUIC; stąd `--network-alias` z nazwą
+vhosta na kontenerze webservera. Wynik znów rozstrzyga **access log**, a nie
+kod wyjścia curla:
+
+- `444` przy `HTTP/3.0` w logu — realna blokada WAF-a, czyli `FAIL`,
+- zero linii `HTTP/3.0` — klient zgubił handshake i żądanie w ogóle nie
+  dotarło, więc próba się powtarza (po czterech nieudanych: `POMIN`).
+
+Pod emulacją amd64 (host arm64) handshake gubi się mniej więcej raz na pięć
+prób. Bez tego rozróżnienia retry maskowałby regresję.
+
 !!! note "Czego ten test NIE obejmuje"
     Sprawdza wyłącznie warstwę brzegową. Sondy o pliki `*.php` (phpMyAdmin,
     WordPress) przechodzą tutaj, bo blokuje je dopiero
     `MaliciousRequestBlockingMiddleware` po stronie Django — a w tym stacku
     backend jest atrapą. To jest w teście oznaczone jako oczekiwany `PASS`.
 
-    **Nie łapie też błędów specyficznych dla HTTP/2 i /3** (jak ten, dla którego
-    powstała reguła `10005`): cała bateria strzela `curl --http1.1`, czyli
-    protokołem, w którym `Host:` istnieje. Żeby dołożyć przypadek h3, trzeba
-    opublikować także `443/udp` i mieć klienta z QUIC.
+    **Sama tabelka przypadków nie łapie błędów specyficznych dla HTTP/2 i /3** —
+    strzela `curl --http1.1`, czyli protokołem, w którym `Host:` istnieje.
+    Dlatego h3 ma osobne sprawdzenie (opisane wyżej); dokładając nowy przypadek
+    do tabelki, pamiętaj, że pokrywa on wyłącznie HTTP/1.1.
 
     **Nie weryfikuje samego wykluczenia `10004`.** Lokalnie `auth_request`
     tłumi inspekcję odpowiedzi na lokacjach paneli — więc `/grafana/` przechodzi
