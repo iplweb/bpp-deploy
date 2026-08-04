@@ -86,7 +86,19 @@ copy_always() {
     fi
 }
 
-copy_if_missing "$DEFAULTS_DIR/alloy/config.alloy" "$BPP_CONFIGS_DIR/alloy/config.alloy"
+# Alloy: force-sync. To wersjonowany artefakt, ktorego operator NIE stroi recznie
+# — nie ma w nim ani jednego parametru udokumentowanego jako do edycji (inaczej
+# niz netdata.conf, gdzie knoby wyciagnieto do .env, i inaczej niz local-config.yaml
+# nizej). Przy copy_if_missing plik byl zamrozony w stanie z dnia instalacji NA
+# ZAWSZE: mapowanie severity CRS dodane w 60ea290 nie dotarlo na zadne istniejace
+# wdrozenie, mimo ze dokumentacja opisywala je jako dzialajace. Ta sama pulapka
+# co przy datasources.yaml.tpl, tylko wykryta pozniej.
+copy_always "$DEFAULTS_DIR/alloy/config.alloy" "$BPP_CONFIGS_DIR/alloy/config.alloy"
+
+# Loki: NADAL copy_if_missing. Tu siedzi polityka retencji per-stream, ktora
+# operator ma prawo dostosowac do swojego dysku — docs/monitoring/logowanie.md
+# wprost instruuje "Strojenie: edytuj...". Dlatego wylaczenie wbudowanej detekcji
+# poziomow jedzie FLAGA CLI w docker-compose.monitoring.yml, a nie tym plikiem.
 copy_if_missing "$DEFAULTS_DIR/loki/local-config.yaml" "$BPP_CONFIGS_DIR/loki/local-config.yaml"
 
 while IFS= read -r -d '' f; do

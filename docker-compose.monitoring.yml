@@ -30,7 +30,28 @@ services:
     image: grafana/loki:3.7.1
     restart: always
     logging: *default-logging
-    command: -config.file=/etc/loki/local-config.yaml -log.level=warn
+    # -validation.discover-log-levels=false WYLACZA wbudowana detekcje poziomu
+    # logu w Loki. Bez tego dzialaja DWA niezalezne detektory piszace pod ta sama
+    # nazwe: Loki dokleja `detected_level` jako structured metadata (slownik
+    # trace/debug/info/warn/error/fatal/critical), a Alloy wstawia stream label
+    # o tej samej nazwie. Efekt: dropdown "Log Level" w Grafanie pokazywal sume
+    # obu slownikow (9 wartosci, m.in. rownolegle `warn` i `warning`), a w
+    # szczegolach linii pojawial sie `detected_level_extracted` — Loki dokleja
+    # sufiks `_extracted`, gdy stream label i structured metadata maja ta sama
+    # nazwe. Zrodlem poziomu jest teraz WYLACZNIE Alloy (defaults/alloy/config.alloy),
+    # bo tylko on umie odczytac trafienia WAF-a.
+    #
+    # FLAGA, a nie klucz w local-config.yaml, CELOWO: ten plik jest kopiowany
+    # przez copy_if_missing (operator stroi w nim retencje), wiec zmiana w nim
+    # nigdy nie dotarlaby na istniejaca instalacje. Compose jest wersjonowany
+    # w repo, wiec `git pull && make up` wystarcza. W Loki plik YAML nadpisuje
+    # flagi tylko dla kluczy w NIM obecnych — stare local-config.yaml nie zna
+    # `discover_log_levels`, wiec wartosc z flagi zostaje (sprawdzone na 3.7.1
+    # przez endpoint /config).
+    command: >
+      -config.file=/etc/loki/local-config.yaml
+      -log.level=warn
+      -validation.discover-log-levels=false
     volumes:
       - loki_data:/loki
       # Bind-mount tylko samego pliku config (nie calego /etc/loki) - w obrazie
