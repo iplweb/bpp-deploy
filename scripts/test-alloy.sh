@@ -33,6 +33,7 @@ BLEDY=0
 # chwili od startu; 20 s daje zapas takze na wolnym hoscie / pod emulacja.
 CZEKAJ="${ALLOY_TEST_WAIT:-20}"
 
+# shellcheck disable=SC2317  # wolane przez `trap`, shellcheck tego nie widzi
 czysc() {
     # ALLOY_TEST_KEEP=1 zostawia kontener i wygenerowany config — bez tego nie
     # da sie po nieudanym przebiegu zajrzec do logu Alloy ani odtworzyc, co

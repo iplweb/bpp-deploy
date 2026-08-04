@@ -219,10 +219,14 @@ test_init_configs_no_overwrite() {
     # Zapamiętaj oryginalne zawartości
     local original_pass
     original_pass=$(grep 'DJANGO_BPP_DB_PASSWORD=' "$CONFIG_DIR/.env" | cut -d= -f2)
-    # Zmodyfikuj szablonowe pliki, żeby sprawdzić czy nie zostaną nadpisane.
-    # UWAGA: netdata.conf jest FORCE-SYNCOWANY (renderowany z netdata.conf.tpl -
-    # announce URL), wiec NIE testujemy go tu. Do sprawdzenia zachowania
-    # user-configa uzywamy health_alarm_notify.conf, ktory pozostaje copy_if_missing.
+    # Zmodyfikuj szablonowe pliki, żeby sprawdzić zachowanie przy re-inicie.
+    # UWAGA na dwie klasy plikow:
+    #   - FORCE-SYNCOWANE (copy_always): netdata.conf, alloy/config.alloy,
+    #     grafana/provisioning/dashboards/*, datasources.yaml.tpl — nadpisywane
+    #     ZAWSZE. netdata.conf jest dodatkowo renderowany z .tpl (announce URL),
+    #     wiec go tu nie ruszamy.
+    #   - copy_if_missing: cala reszta, m.in. health_alarm_notify.conf.
+    # Sprawdzamy PO JEDNYM przedstawicielu kazdej klasy.
     echo "# custom alloy config" > "$CONFIG_DIR/alloy/config.alloy"
     echo "# custom netdata notify config" > "$CONFIG_DIR/netdata/health_alarm_notify.conf"
 
@@ -239,7 +243,14 @@ test_init_configs_no_overwrite() {
     fi
 
     # Sprawdź szablonowe pliki konfiguracyjne
-    assert_file_contains "alloy config preserved" "# custom alloy config" "$CONFIG_DIR/alloy/config.alloy"
+    # config.alloy jest FORCE-SYNCOWANY — recznie wpisana tresc MA zniknac.
+    # Dwie asercje zamiast jednej: sama nieobecnosc podmienionej tresci przeszlaby
+    # takze wtedy, gdyby plik zostal skasowany albo wyzerowany.
+    assert_file_not_contains "alloy config force-synced (podmieniona tresc znika)" \
+        "# custom alloy config" "$CONFIG_DIR/alloy/config.alloy"
+    assert_file_contains "alloy config odtworzony z defaults/" \
+        "loki.process" "$CONFIG_DIR/alloy/config.alloy"
+
     assert_file_contains "netdata config preserved" "# custom netdata notify config" "$CONFIG_DIR/netdata/health_alarm_notify.conf"
 
     cleanup_temp
@@ -989,14 +1000,25 @@ PYEOF
     fi
 
     # Blokada plikow ukrytych MUSI przetrwac wyjatek na .well-known.
+    #
+    # Akceptujemy DWA wyniki, bo `_bpp-locations.conf` ma
+    # `error_page 403 = @odrzuc_bez_odpowiedzi` — kazde 403 (i to z `deny all`,
+    # i to od ModSecurity) jest zamieniane na 444, czyli zamkniecie polaczenia
+    # bez odpowiedzi. curl raportuje wtedy kod `000`. To NIE jest oslabienie
+    # blokady, tylko jej wzmocnienie: skaner nie dostaje ani kodu, ani naglowkow.
+    # Samo `403` zostaje na liscie na wypadek, gdyby ktos wylaczyl `error_page`.
+    #
+    # Istotne, ze test dopuszcza `000` DOPIERO tutaj: asercja wyzej sprawdzila,
+    # ze ten sam nginx odpowiada 200 na legalna sciezke, wiec `000` nie moze
+    # oznaczac "serwer nie wstal".
     for hidden in "/.git/config" "/.env"; do
         code=$(curl -sk -o /dev/null -w '%{http_code}' \
             --resolve "legacy.example.org:$port_443:127.0.0.1" \
             "https://legacy.example.org:$port_443$hidden" || true)
-        if [ "$code" = "403" ]; then
-            pass "HTTPS $hidden -> 403 (blokada plikow ukrytych dziala)"
+        if [ "$code" = "403" ] || [ "$code" = "000" ]; then
+            pass "HTTPS $hidden -> zablokowane (kod '$code')"
         else
-            fail "$hidden: oczekiwane 403, otrzymano '$code' (blokada oslabiona!)"
+            fail "$hidden: oczekiwane 403 lub zerwane polaczenie, otrzymano '$code' (blokada oslabiona!)"
         fi
     done
 
