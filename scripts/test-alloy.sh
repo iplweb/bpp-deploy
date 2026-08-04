@@ -129,11 +129,14 @@ fi
 # sprawdz <opis> <marker-linii> <klucz=wartosc>...
 #   marker  — unikalny fragment linii wejsciowej, po nim znajdujemy wpis
 #   klucz   — `detected_level` (label) albo `modsec_*` (structured metadata)
+#
+# ALLOY_FILTR (opcjonalny, ustawiany przez sprawdz_audit) zawezaja wybor, gdy
+# marker pasuje do wiecej niz jednej linii.
 sprawdz() {
     local opis="$1" marker="$2"; shift 2
     local wpis niezgodne=""
 
-    wpis="$(grep -F -- "$marker" "$TMP/out.txt" | head -1)"
+    wpis="$(grep -F -- "$marker" "$TMP/out.txt" | grep -F -- "${ALLOY_FILTR:-}" | head -1)"
     if [ -z "$wpis" ]; then
         printf '  \033[31mFAIL\033[0m %-46s %s\n' "$opis" "brak wpisu dla markera"
         BLEDY=$((BLEDY + 1))
@@ -160,22 +163,34 @@ sprawdz() {
     fi
 }
 
+# Jak `sprawdz`, ale wybiera WYLACZNIE wpis audit logu.
+#
+# Konieczne, bo jedno zadanie zostawia DWA wpisy — audit JSON i blizniacza linia
+# error.log, ktora CYTUJE oryginalne zadanie (`request: "GET /?..."`). Marker po
+# fragmencie URI trafia wiec w obie, a `head -1` wybieral raz jedna, raz druga:
+# asercja `detected_level=warn` przechodzila zawsze (obie maja warn), ale pola
+# modsec_* juz nie, bo linia error.log ich nie ma. Test byl niedeterministyczny.
+# `is_interrupted` wystepuje wylacznie w audit logu.
+sprawdz_audit() {
+    ALLOY_FILTR='is_interrupted' sprawdz "$@"
+}
+
 echo
 printf 'WYNIK  PRZYPADEK                                      SZCZEGOLY\n'
 printf -- '----------------------------------------------------------------------------------\n'
 
 # --- WAF: audit log JSON -> pelny rozklad na pola ---
-sprawdz "WAF: SQLi zablokowane" 'UNION%20ALL%20SELECT' \
+sprawdz_audit "WAF: SQLi zablokowane" 'UNION%20ALL%20SELECT' \
     detected_level=warn modsec_action=blocked modsec_rule_id=942100 \
     modsec_attack=sqli modsec_direction=inbound modsec_code=403
 
-sprawdz "WAF: path traversal -> kategoria lfi" '/etc/passwd' \
+sprawdz_audit "WAF: path traversal -> kategoria lfi" '/etc/passwd' \
     detected_level=warn modsec_action=blocked modsec_rule_id=930100 modsec_attack=lfi
 
-sprawdz "WAF: DetectionOnly (regula 10002/10003)" 'zapytanie' \
+sprawdz_audit "WAF: DetectionOnly (regula 10002/10003)" 'zapytanie' \
     detected_level=warn modsec_action=detected modsec_code=200
 
-sprawdz "WAF: inspekcja odpowiedzi (outbound)" 'wyciek-php' \
+sprawdz_audit "WAF: inspekcja odpowiedzi (outbound)" 'wyciek-php' \
     detected_level=warn modsec_action=blocked modsec_direction=outbound \
     modsec_rule_id=951230
 
