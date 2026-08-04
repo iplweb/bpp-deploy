@@ -184,6 +184,14 @@ loki.process "log_levels" {
       template = "{{ if eq .modsec_blocked \"true\" }}blocked{{ else if .modsec_blocked }}detected{{ end }}"
     }
 
+    // Rozroznienie blizniakow — patrz komentarz przy bloku error.log nizej.
+    // Panele agregujace MUSZA filtrowac `modsec_src="audit"`, inaczej licza
+    // kazde zadanie dwa razy.
+    stage.template {
+      source   = "modsec_src"
+      template = "audit"
+    }
+
     // Structured metadata, NIE labele. `modsec_uri`, `modsec_client`
     // i `modsec_unique_id` jako stream labele wysadzilyby kardynalnosc indeksu
     // strumieni (kazda para IP x URI = nowy strumien na dysku). Structured
@@ -205,6 +213,7 @@ loki.process "log_levels" {
         modsec_hostname  = "",
         modsec_code      = "",
         modsec_unique_id = "",
+        modsec_src       = "",
       }
     }
 
@@ -216,9 +225,19 @@ loki.process "log_levels" {
 
   // ── ModSecurity: linia error.log ─────────────────────────────────────────
   //
-  // Blizniacza linia tekstowa do wpisu audit powyzej. NIE parsujemy jej na pola
-  // — wszystko, co ma, jest w JSON-ie, spiete przez unique_id. Ustawiamy jej
-  // tylko poziom.
+  // Blizniacza linia tekstowa do wpisu audit powyzej — i to WLASNIE NA NIA
+  // patrzy czlowiek w dashboardzie "Log Monitoring", bo audit log to sciana
+  // JSON-a. Dlatego dostaje wlasny komplet pol, mimo ze sa redundantne wobec
+  // blizniaka: bez nich operator widzi komunikat, ktorego nie da sie odfiltrowac
+  // inaczej niz pelnotekstowo.
+  //
+  // Czego tu NIE MA i miec nie moze: `modsec_attack` i `modsec_rules`. Do
+  // error.log trafiaja wylacznie reguly decyzyjne (949110/959100), a ich tagi to
+  // `anomaly-evaluation`, nie `attack-*`. Rodzaj ataku jest wylacznie w JSON-ie.
+  //
+  // `modsec_src` rozroznia blizniakow: `nginx` tutaj, `audit` wyzej. Panele
+  // agregujace filtruja `modsec_src="audit"`, zeby nie liczyc kazdego zadania
+  // dwa razy.
   //
   // `warn`, a nie `error`, mimo ze nginx loguje ja jako [error]. Ta sama decyzja
   // co przy `limit_req_log_level warn` w _bpp-locations.conf: powodz zdarzen
@@ -228,6 +247,82 @@ loki.process "log_levels" {
   // Trafienia WAF-a maja wlasny dashboard (grafana/dashboards/waf.json).
   stage.match {
     selector = "{job=\"docker\"} |~ \"ModSecurity: (Access denied|Warning|Access allowed)\""
+
+    // Same `stage.regex` — one tworza klucz TYLKO gdy trafia, wiec nie grozi im
+    // literal "<no value>", ktory wchodzi przez `stage.template`.
+    stage.regex {
+      expression = "ModSecurity: (?P<modsec_verdict>Access denied|Warning|Access allowed)"
+    }
+
+    stage.regex {
+      expression = "\\[id \"(?P<modsec_rule_id>[^\"]*)\"\\]"
+    }
+
+    stage.regex {
+      expression = "\\[msg \"(?P<modsec_msg>[^\"]*)\"\\]"
+    }
+
+    stage.regex {
+      expression = "\\[severity \"(?P<modsec_severity>[^\"]*)\"\\]"
+    }
+
+    stage.regex {
+      expression = "\\[uri \"(?P<modsec_uri>[^\"]*)\"\\]"
+    }
+
+    stage.regex {
+      expression = "\\[hostname \"(?P<modsec_hostname>[^\"]*)\"\\]"
+    }
+
+    stage.regex {
+      expression = "\\[unique_id \"(?P<modsec_unique_id>[^\"]*)\"\\]"
+    }
+
+    stage.regex {
+      expression = "\\[client (?P<modsec_client>[^\\]]*)\\]"
+    }
+
+    stage.regex {
+      expression = "Total Score: (?P<modsec_score>\\d+)"
+    }
+
+    stage.regex {
+      expression = "\\[msg \"(?P<modsec_direction>Inbound|Outbound)"
+    }
+
+    stage.template {
+      source   = "modsec_direction"
+      template = "{{ if .modsec_direction }}{{ ToLower .modsec_direction }}{{ end }}"
+    }
+
+    // "Access denied" = polaczenie zerwane; "Warning" = tylko zalogowane
+    // (sciezki w DetectionOnly). Ta sama para wartosci co `is_interrupted`
+    // w blizniaku JSON, zeby dalo sie filtrowac jednym wyrazeniem.
+    stage.template {
+      source   = "modsec_action"
+      template = "{{ if eq .modsec_verdict \"Access denied\" }}blocked{{ else if .modsec_verdict }}detected{{ end }}"
+    }
+
+    stage.template {
+      source   = "modsec_src"
+      template = "nginx"
+    }
+
+    stage.structured_metadata {
+      values = {
+        modsec_action    = "",
+        modsec_rule_id   = "",
+        modsec_msg       = "",
+        modsec_severity  = "",
+        modsec_direction = "",
+        modsec_score     = "",
+        modsec_uri       = "",
+        modsec_client    = "",
+        modsec_hostname  = "",
+        modsec_unique_id = "",
+        modsec_src       = "",
+      }
+    }
 
     stage.template {
       source   = "lvl_modsec"

@@ -268,8 +268,21 @@ scoringiem pojedyncze reguły ataku się tam nie logują. Rodzaj ataku (`942xxx`
 `941xxx` XSS, `930xxx` LFI) jest więc **tylko** w JSON-ie. Widać to gołym okiem na
 jednym przebiegu `make test-waf`: 8 linii error.log wobec 11 wpisów audit.
 
-Dlatego Alloy rozkłada na pola **audit log**, a linii z error.log nadaje tylko
-poziom. Spina je `modsec_unique_id`.
+**Oba wpisy dostają pola `modsec_*`** — bo to na linię z error.log patrzy człowiek
+w „Log Monitoring" (audit log to ściana JSON-a), a bez własnych pól dałoby się ją
+filtrować wyłącznie pełnotekstowo. Rozróżnia je **`modsec_src`**:
+
+| `modsec_src` | Co to | Ma `modsec_attack` / `modsec_rules` |
+|---|---|---|
+| `audit` | wpis audit logu (JSON) | tak — pełny łańcuch reguł i kategoria ataku |
+| `nginx` | czytelna linia error.log | **nie** — są tam tylko reguły decyzyjne |
+
+!!! warning "Agregaty muszą filtrować `modsec_src`"
+    Jedno żądanie = dwa wpisy. Zapytanie liczące trafienia **bez**
+    `| modsec_src = "audit"` policzy każde żądanie dwa razy. Wszystkie panele
+    dashboardu WAF mają ten filtr; panel z logami celowo pokazuje `nginx`.
+
+Oba wpisy spina `modsec_unique_id`.
 
 ### Pola `modsec_*`
 
@@ -293,6 +306,7 @@ indeksu strumieni):
 | `modsec_client` | adres IP widziany przez nginksa |
 | `modsec_hostname` | vhost — istotne przy multi-host |
 | `modsec_unique_id` | spina wpis audit z bliźniaczą linią error.log |
+| `modsec_src` | `audit` (JSON) / `nginx` (error.log) — **filtruj po tym w agregatach** |
 
 !!! warning "Poziom trafień to `warn`, nie `error`"
     Mimo że nginx loguje je jako `[error]`. Ta sama decyzja co przy

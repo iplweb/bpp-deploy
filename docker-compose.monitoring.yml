@@ -48,10 +48,23 @@ services:
     # flagi tylko dla kluczy w NIM obecnych — stare local-config.yaml nie zna
     # `discover_log_levels`, wiec wartosc z flagi zostaje (sprawdzone na 3.7.1
     # przez endpoint /config).
+    # -querier.split-*-by-interval: Loki domyslnie tnie kazde zapytanie metryczne
+    # na kawalki PO GODZINIE i puszcza je rownolegle. Przy dashboardzie liczacym
+    # `count_over_time(...[$__range])` nad zakresem kilku tygodni to tysiace
+    # podzapytan na JEDEN panel. Gdy przegladarka je anuluje (przerysowanie
+    # panelu, zmiana zakresu), Loki loguje KAZDY anulowany shard osobno:
+    #
+    #   level=warn msg="failed mapping AST" err="context canceled" query="..."
+    #
+    # — czyli setki linii szumu za jedno odswiezenie dashboardu. Rownoleglosc
+    # i tak nie ma tu co dac: to Loki w trybie single-binary na jednym hoscie,
+    # nie klaster, wiec 1400 shardow to sam narzut. 24h tnie ich liczbe 24x.
     command: >
       -config.file=/etc/loki/local-config.yaml
       -log.level=warn
       -validation.discover-log-levels=false
+      -querier.split-queries-by-interval=24h
+      -querier.split-instant-metric-queries-by-interval=24h
     volumes:
       - loki_data:/loki
       # Bind-mount tylko samego pliku config (nie calego /etc/loki) - w obrazie
