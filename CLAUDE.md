@@ -70,8 +70,11 @@ These are overwritten from `defaults/` via `copy_always` (only when content diff
 - `grafana/provisioning/dashboards/*`
 - `grafana/provisioning/datasources/datasources.yaml.tpl`
 - `netdata/netdata.conf` (rendered host-side from `defaults/netdata/netdata.conf.tpl`)
+- `alloy/config.alloy`
 
 **Why force-sync:** versioned, read-only-in-UI artifacts must reach existing installs on `git pull && make up`. `netdata.conf` can't interpolate `${VAR}`, so the hostname is substituted into `[registry] registry to announce = https://<host>/netdata` (drives the "View node" button in ntfy alerts). `datasources.yaml.tpl` force-sync is what lets changes like "Grafana connects via read-only `bpp_monitor`" reach old installs. The rendered `datasources.yaml` comes from `scripts/generate-grafana-datasources.sh` (reads `.env` from disk — **not** make's parse-time export, so a freshly-generated `DJANGO_BPP_PG_MONITOR_PASSWORD` isn't rendered empty on first `make up`).
+
+`config.alloy` force-sync exists for the same reason and was added late: under `copy_if_missing` the log pipeline was **frozen at install time forever** — the CRS severity mapping added in `60ea290` reached *no* existing deployment despite docs describing it as live. `loki/local-config.yaml` deliberately stays `copy_if_missing` (it holds per-stream retention, documented as operator-tunable), which is why disabling Loki's built-in level detection had to travel as a **CLI flag** in `docker-compose.monitoring.yml` (`-validation.discover-log-levels=false`), not as a config key.
 
 User-tunable knobs are parametrized via `.env` (`NETDATA_DBENGINE_TIER0_RETENTION_MB`, `NETDATA_DBENGINE_PAGE_CACHE_MB`) so force-overwrite doesn't wipe manual tuning. **Don't tell users to hand-edit force-synced files — point them at `.env` knobs.** Everything else under the config dir stays `copy_if_missing`. Dashboards removed from `defaults/` are left in place; UI-created Grafana dashboards live in its DB and are unaffected.
 
@@ -123,6 +126,16 @@ Images are slim — `uv` is no longer present. Use native `python` / `celery`:
 ### Single `workerserver` — both queues
 
 As of June 2026 there is **one** Celery worker, `workerserver` (was `workerserver-general` + `workerserver-denorm`), consuming **both** queues. We set `CELERY_QUEUE: "celery,denorm"` **explicitly** in compose (not relying on the new image default) so the merge works on the **current published image too** — otherwise the `denorm` queue would have no consumer until the new image ships. **No strict priority** — kombu round-robins the queues (deliberate per the BPP single-worker spec: `denorm`/`flush_single` tasks are short). Concurrency (default **75% cores**) and child recycling are configured in the **BPP image** `app.conf` (via `celery_tasks.py`) through `CELERY_WORKER_*` env (`CELERY_WORKER_CONCURRENCY`, `_CONCURRENCY_PERCENT`, `_MAX_MEMORY_PER_CHILD`, `_MAX_TASKS_PER_CHILD`, `_POOL`, `_PREFETCH_MULTIPLIER`) — read only by the June-2026+ image. Env rename (`WORKER_GENERAL_*`→`WORKER_*`, drop `WORKER_DENORM_*`) has the mandatory two-layer protection: Compose fallback `${WORKER_MEM_LIMIT:-${WORKER_GENERAL_MEM_LIMIT:-…}}` + `init-configs` migration (`configure-resources` also recomputes + cleans). Detail: `docs/konfiguracja/limity-zasobow.md#concurrency-celery`.
+
+### Log level (`detected_level`) — single source, closed vocabulary
+
+`defaults/alloy/config.alloy` is the **only** producer of `detected_level`. Loki 3.x ships `discover_log_levels` **on by default**, which appends its own `detected_level` as structured metadata; running both made Grafana's "Log Level" dropdown show the **union of two vocabularies** (`warn` *and* `warning`, plus `fatal`, plus a leaked `securitywarning`) and produced `detected_level_extracted` in log details (Loki's suffix for a stream-label/structured-metadata name collision). Disabled via `-validation.discover-log-levels=false` in the loki `command:`. The twin `discover_service_name` is **deliberately left on** — `-validation.discover-service-name=` appends an empty entry instead of clearing the list, so it can't be disabled compatibly; `service_name` stays as a cosmetic duplicate of `service`.
+
+Vocabulary is a **closed set of 7**: `critical, error, warn, info, debug, trace, unknown`. Structure that enforces it: every detector writes to its **own** `lvl_*` key, and a single `stage.template` gate picks the first non-empty in trust order and maps it — anything unrecognized becomes `unknown`. **Don't add normalization as another `stage.replace`**; extend the gate. Two traps this replaced: (1) consecutive `stage.regex` stages *overwrite* the same key, so **last wins** — the file used to be ordered most-trusted-first, i.e. backwards; (2) `\berror\b` matched *inside* a URL path, so access-log `GET /raport/error-summary.html` was reported as an application error (fixed by requiring the level word not be preceded by `/`).
+
+`stage.template` **always creates** its `source` key, and referencing a key `stage.json` didn't create renders the literal `<no value>` — every template touching an optional field needs an `{{ if … }}` guard. Verify with `make test-alloy` (runs the real config through real log lines via `loki.echo`).
+
+WAF hits are parsed from the **JSON audit log**, not the error.log line: with CRS anomaly scoring only the decision rules (`949110`/`959100`) reach error.log, so the attack type lives solely in the JSON. 15 `modsec_*` fields go to **structured metadata**, never stream labels (`modsec_uri`/`modsec_client` would explode stream cardinality). Hits are levelled `warn`, not `error`, for the same reason `limit_req_log_level` is `warn`. Detail: `docs/architektura/waf.md`.
 
 ### Logging — add `logging` to new services
 

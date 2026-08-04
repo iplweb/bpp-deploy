@@ -251,26 +251,68 @@ wersja każdego z nich może wnieść własny fałszywy alarm.
 
 ## Logi WAF-a w Grafanie
 
-Audit log ModSecurity to JSON **bez pola `level`**, więc pipeline wykrywania
-poziomu w Alloy kończył się na `detected_level=unknown`. `defaults/alloy/config.alloy`
-ma dedykowany `stage.match`, który dla linii zawierających `ModSecurity-nginx`
-mapuje `severity` reguły CRS (skala sysloga) na poziom logu:
+Jest gotowy dashboard **[WAF (ModSecurity / OWASP CRS)](../monitoring/dashboardy-grafany.md#waf-modsecurity-owasp-crs)**
+— rankingi reguł, adresów IP i ścieżek, kategorie ataków, rozkład anomaly score.
+Poniżej opis danych, na których stoi.
 
-| severity CRS | `detected_level` |
+### Dwa wpisy na jedno żądanie
+
+Każde oflagowane żądanie zostawia w stdout webservera **dwa** wpisy:
+
+1. **linię tekstową** nginksowego error.log (`ModSecurity: Access denied…`),
+2. **wpis audit logu** w JSON.
+
+Cała treść analityczna jest w (2). Do error.log trafiają **wyłącznie reguły
+decyzyjne** — `949110` (inbound) i `959100` (outbound) — bo w CRS z anomaly
+scoringiem pojedyncze reguły ataku się tam nie logują. Rodzaj ataku (`942xxx` SQLi,
+`941xxx` XSS, `930xxx` LFI) jest więc **tylko** w JSON-ie. Widać to gołym okiem na
+jednym przebiegu `make test-waf`: 8 linii error.log wobec 11 wpisów audit.
+
+Dlatego Alloy rozkłada na pola **audit log**, a linii z error.log nadaje tylko
+poziom. Spina je `modsec_unique_id`.
+
+### Pola `modsec_*`
+
+Wyciągane przez `defaults/alloy/config.alloy` do **structured metadata** (nie do
+labeli — `modsec_uri` i `modsec_client` jako stream labele wysadziłyby kardynalność
+indeksu strumieni):
+
+| Pole | Znaczenie |
 |---|---|
-| 0–2 (EMERGENCY/ALERT/CRITICAL) | `critical` |
-| 3 (ERROR) | `error` |
-| 4 (WARNING) | `warning` |
-| 5–6 (NOTICE/INFO) | `info` |
-| 7 (DEBUG) | `debug` |
+| `modsec_action` | `blocked` (połączenie zerwane) / `detected` (przepuszczone, reguły 10002/10003) |
+| `modsec_rule_id` | reguła **wiodąca** — pierwsza dopasowana, ta merytoryczna |
+| `modsec_msg` | jej opis |
+| `modsec_severity` | severity reguły wiodącej (skala sysloga, 0–7) |
+| `modsec_rules` | pełny łańcuch reguł, po przecinku — do wyszukiwania |
+| `modsec_attack` | kategoria z tagu `attack-*` (`sqli`, `xss`, `lfi`, `rce`, `disclosure`…) |
+| `modsec_paranoia` | poziom paranoi reguły |
+| `modsec_direction` | `inbound` / `outbound` |
+| `modsec_score` | anomaly score w momencie decyzji |
+| `modsec_uri` | URI z query stringiem (czyli zwykle z payloadem) |
+| `modsec_method`, `modsec_code` | metoda HTTP, kod odpowiedzi |
+| `modsec_client` | adres IP widziany przez nginksa |
+| `modsec_hostname` | vhost — istotne przy multi-host |
+| `modsec_unique_id` | spina wpis audit z bliźniaczą linią error.log |
 
-Blok musi zostać **poniżej** ogólnych reguł w tym pliku — nadpisuje ich wynik.
+!!! warning "Poziom trafień to `warn`, nie `error`"
+    Mimo że nginx loguje je jako `[error]`. Ta sama decyzja co przy
+    `limit_req_log_level warn` w [rate limitingu](rate-limiting.md): powódź zdarzeń
+    bezpieczeństwa nie ma zalewać dashboardu błędów **aplikacji**. Skan z lipca 2026
+    to 2165 żądań z 1342 adresów IP — każde trafienie to osobna linia, czyli tysiące
+    „błędów" przy w pełni sprawnej aplikacji. Trafienia mają własny dashboard.
 
-Przykładowe zapytanie LogQL do przeglądania trafień:
+Przykładowe zapytania LogQL:
 
 ```logql
-{service="webserver"} |~ "ModSecurity-nginx" | json
-  | line_format "{{.transaction_request_uri}} → {{.transaction_messages_0_details_ruleId}}"
+# Najczęściej zapalające się reguły
+topk(10, sum by (modsec_rule_id, modsec_msg) (
+  count_over_time({service="webserver"} | modsec_action != "" [24h])))
+
+# Co zostało zablokowane temu adresowi
+{service="webserver"} | modsec_action = "blocked" | modsec_client = "203.0.113.7"
+
+# Trafienia SQLi na konkretnym vhoście
+{service="webserver"} | modsec_attack = "sqli" | modsec_hostname = "bpp.example.org"
 ```
 
 ## Sprawdzenie, czy WAF dziala — `make test-waf`

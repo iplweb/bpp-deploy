@@ -165,6 +165,34 @@ oraz **chirurgicznie** wyrenderowany page cache — po wzorcu klucza, nie
 `FLUSHDB`. To celowe: page cache i **sesje** dzielą tę samą bazę Redisa, więc
 flush całej bazy wylogowywałby wszystkich przy każdym deployu.
 
+## Testy
+
+```bash
+make test-waf                # Czy WAF blokuje ataki i przepuszcza legalny ruch BPP
+make test-alloy              # Czy pipeline logów nadaje poprawny poziom i pola modsec_*
+make test-docker-versions    # Logika mapowania digest ↔ CalVer
+make test-upgrade            # Próba generalna migracji na kopii produkcyjnej bazy
+```
+
+`test-waf` i `test-alloy` **nie wymagają `.env`, działającej instalacji ani sieci
+produkcyjnej** — stawiają własne kontenery i sprzątają po sobie. Kod wyjścia = liczba
+niezgodności, więc nadają się do CI.
+
+- **`make test-waf`** stawia atrapę backendu i webserver z *prawdziwą* konfiguracją
+  z `defaults/webserver/`, po czym strzela baterią zapytań o znanym z góry wyniku.
+  Payloady ataku to prawdziwe próby sqlmap z lipca 2026. Szczegóły:
+  [WAF](../architektura/waf.md#sprawdzenie-czy-waf-dziala-make-test-waf).
+- **`make test-alloy`** przepuszcza *prawdziwy* `defaults/alloy/config.alloy` przez
+  zestaw prawdziwych linii logu, podmieniając wyłącznie źródło (plik zamiast Dockera)
+  i ujście (`loki.echo` zamiast zapisu do Loki). Sprawdza `detected_level` oraz pola
+  `modsec_*`. `ALLOY_TEST_KEEP=1` zostawia kontener do obejrzenia.
+
+!!! note "Na maszynie bez repo-owego `.env`"
+    Bez pliku `.env` obok `docker-compose.yml` Makefile wchodzi w tryb pierwszego
+    uruchomienia i wystawia **tylko** cel `setup` — `make test-alloy` zgłosi wtedy
+    „No rule to make target". Skrypty można wołać wprost:
+    `./scripts/test-alloy.sh`, `./scripts/test-waf.sh`.
+
 ## Wydanie i wersja
 
 ```bash
