@@ -21,8 +21,8 @@ README is the front door; CLAUDE.md steers AI agents.
 | Surface | Audience | Owns (source of truth for…) | Must NOT contain |
 |---|---|---|---|
 | **README.md** | New operator on GitHub, first 5 minutes | Install (Linux/macOS/Windows), common first-run config, a short "Dokumentacja" pointer into the site, license. Polish. | Deep operational how-tos, architecture internals, troubleshooting catalog, monitoring internals |
-| **docs/** (MkDocs) | Operator who already runs BPP and needs a specific procedure | Everything operational + reference: konfiguracja, eksploatacja, monitoring, architektura, rozwiązywanie problemów, rozwój. Polish. | AI-agent steering, narrative "how we did it" |
-| **CLAUDE.md** | Claude Code / AI agents editing this repo | Repo conventions, CRITICAL safety rules, the backwards-compat *contract* for code authors, file-path pointers, "use make targets not raw docker compose". | Long operator prose that now lives in docs/ — link instead |
+| **docs/** (MkDocs) | Operator who already runs BPP and needs a specific procedure — **plus, under `rozwoj/`, whoever edits this repo** | Everything operational + reference: konfiguracja, eksploatacja, monitoring, architektura, rozwiązywanie problemów. **And in `rozwoj/`: the evidence behind repo rules** — measurements, reproductions, rejected alternatives, incident forensics. Polish. | Nothing an agent must know *before* it acts — that's a tripwire, it belongs in CLAUDE.md |
+| **CLAUDE.md** | Claude Code / AI agents editing this repo | The **tripwires**: imperative rules, the symptom that identifies each situation, and the anti-fix ("don't solve this by …"). Repo conventions, contracts, file-path pointers. | The *evidence* for those rules — measurements, dates, `Matched Data:` dumps, regression history. Link to `docs/rozwoj/pulapki-*.md` instead |
 
 **Rule of thumb:** if a human running the deployment needs it → `docs/`. If it only
 matters while *editing this repo* → `CLAUDE.md`. If it's the first thing a stranger
@@ -55,6 +55,34 @@ Make a TodoWrite item per applicable row before you start editing.
 | **Scheduled jobs / nightly restarts** (Ofelia labels) | `docs/architektura/zadania-ofelia.md` |
 | **Install prerequisites / OS steps** | `README.md` **and** `docs/instalacja/*` (synced pair) |
 | **Resource limits** model | `docs/konfiguracja/limity-zasobow.md` |
+| A **production incident** whose cause was non-obvious (dashboards, Alloy pipeline, deploy session, auto-update loop) | The matching `docs/rozwoj/pulapki-*.md` gets the evidence; `CLAUDE.md` gets **at most** rule + symptom + anti-fix, and a link |
+
+## Tripwire vs evidence — the CLAUDE.md split
+
+CLAUDE.md is loaded into **every** session, so every byte is paid for repeatedly.
+It grew 3.7× in two months because each fixed incident appended its full
+forensics. The split that keeps it useful without letting it swell again:
+
+**Stays in CLAUDE.md** — what must fire *before* an agent touches anything:
+
+- the imperative (*"never change the mount to `/var/lib/postgresql`"*),
+- the **symptom**, so the agent recognizes the situation it's in
+  (*"every panel shows No data"*, *"`[emerg]` → the whole site fails to start"*),
+- the **anti-fix** — the plausible wrong solution to head off
+  (*"don't 'fix' this by excluding `932110`"*).
+
+**Moves to `docs/`** — what only matters once you're already investigating:
+measurements, dates, `Matched Data:` dumps, rejected alternatives, regression
+history, commit ranges.
+
+**A bare link with no symptom does NOT work** — agents read the rule, assume they
+understand, and never open the page. The symptom is what makes the link get
+clicked. Trimming a rule down to *"details: docs/…"* re-creates the bug the rule
+was written for.
+
+Sections that are already a list of imperatives (edge hardening, downtime
+contracts, auto-update) are **at their floor** — cutting them further deletes
+protection, not prose. Don't cut to hit a size target.
 
 ## Invariants you must preserve when documenting
 

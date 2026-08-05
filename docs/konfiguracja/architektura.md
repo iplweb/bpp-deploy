@@ -104,6 +104,24 @@ Istniejące instalacje nie wymagają żadnego ręcznego kroku: przy pierwszym `m
 wartości zostają odczytane ze starego pliku i przepisane do `.env`, więc ręczne
 strojenie przeżywa aktualizację.
 
+!!! note "Dlaczego migracja czyta stary plik, zamiast wpisać stałe z repo"
+    Wpisanie wartości domyślnych zresetowałoby po cichu retencję dostrojoną przez
+    operatora — przy zwykłym `git pull && make up`, czyli dokładnie to, czego
+    zabrania [kontrakt kompatybilności wstecznej](../rozwoj/backwards-compatibility.md).
+    Stąd odczyt `awk`-iem z istniejącego `local-config.yaml`.
+
+    Render ma dwie osłony, obie dlatego, że **Loki z niepoprawnym `duration`
+    w ogóle nie wstaje** — a operator odczytałby to jako awarię monitoringu, nie
+    jako literówkę w `.env`: przepuszczana jest wyłącznie postać
+    `<liczba><jednostka>`, a podmiana pliku jest odrzucana, jeśli przetrwał
+    w nim którykolwiek placeholder `__RETENTION_*`.
+
+    Świeże instalacje: `init-configs` woła `ensure-config-files` **zanim powstanie
+    `.env`**, więc pierwszy render używa wartości domyślnych z repo, a pierwszy
+    `make up` dopisuje zmienne i renderuje ponownie bajt w bajt (`cmp` nie widzi
+    zmiany). Ta sama sekwencja co przy `ALTCHA_HMAC_KEY` — dlatego `init-configs`
+    nie dostaje drugiej kopii tej logiki.
+
 ### `datasources.yaml.tpl` — dlaczego force-sync
 
 Z `copy_if_missing` zaktualizowana instalacja trzymałaby stary `.tpl`, więc zmiana typu

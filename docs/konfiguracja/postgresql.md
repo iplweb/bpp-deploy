@@ -46,6 +46,29 @@ Wybór wersji następuje przy pierwszym uruchomieniu `make` — `init-configs` z
     Upgrade major wymaga dump/restore — użyj `make upgrade-postgres`, **nie** edytuj
     zmiennej ręcznie.
 
+### Dwa kontrakty kontenera `dbserver` (przy edycji Compose)
+
+Stockowy obraz `postgres` nie wnosi tego, co dawał własny `iplweb/bpp_dbserver` —
+dwie rzeczy musimy dokładać sami i obie łatwo usunąć jako „zbędne".
+
+!!! danger "`dbserver` wymaga **serwisowego** `env_file`"
+    `env_file` na poziomie `include:` służy **wyłącznie interpolacji** `${VAR}`
+    w YAML-u — **nie** jest wstrzykiwany do kontenera. Bez własnego
+    `env_file: ${BPP_CONFIGS_DIR}/.env` w definicji usługi kontener nie zobaczy
+    `POSTGRES_USER`/`POSTGRES_PASSWORD`/`POSTGRES_DB`, czyli nie zainicjuje bazy.
+
+Stockowy postgres **nie ma wbudowanego healthchecku**, a `appserver`
+i `authserver` czekają na `service_healthy`. Dlatego `dbserver` definiuje własny:
+
+```yaml
+healthcheck:
+  test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+```
+
+Podwojone `$$` jest [obowiązkowe](../rozwoj/pulapki-wdrozenia.md) — Compose
+interpolowałby `$POSTGRES_USER` po swojej stronie i do kontenera trafiłby pusty
+łańcuch.
+
 ## Minor upgrade (ten sam major, np. 16.13 → 16.14)
 
 Format PGDATA jest binarnie kompatybilny w obrębie tego samego majora, więc wystarczy

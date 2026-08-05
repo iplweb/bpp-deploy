@@ -120,3 +120,6 @@ nav:
       - Testy: rozwoj/testy.md
       - Pre-commit hooks: rozwoj/pre-commit.md
       - Backwards compatibility: rozwoj/backwards-compatibility.md
+      - Pułapki — dashboardy Grafany: rozwoj/pulapki-grafany.md
+      - Pułapki — pipeline Alloy: rozwoj/pulapki-alloy.md
+      - Pułapki — wdrożenie i auto-update: rozwoj/pulapki-wdrozenia.md
