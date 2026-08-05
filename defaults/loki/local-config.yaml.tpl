@@ -53,10 +53,11 @@ limits_config:
   # w Grafanie pokazywal sume dwoch slownikow, a w szczegolach linii pojawial sie
   # `detected_level_extracted`.
   #
-  # Ten klucz dziala tylko na SWIEZYCH instalacjach (plik jest copy_if_missing).
-  # Dla istniejacych to samo robi flaga -validation.discover-log-levels=false
-  # w docker-compose.monitoring.yml — i to ona jest wlasciwym mechanizmem;
-  # ten wpis jest tu dla jawnosci i musi byc z nia ZGODNY.
+  # To samo robi flaga -validation.discover-log-levels=false w
+  # docker-compose.monitoring.yml. Powstala, gdy ten plik byl jeszcze
+  # copy_if_missing i klucz nie dotarlby na istniejace instalacje; od sierpnia
+  # 2026 plik jest renderowany i force-syncowany, wiec ten wpis dziala wszedzie.
+  # Oba zapisy zostaja i musza byc ZGODNE.
   #
   # UWAGA: blizniaczego `discover_service_name` (dokleja `service_name`
   # duplikujacy nasz label `service`) NIE da sie wylaczyc analogiczna flaga —

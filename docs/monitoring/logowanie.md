@@ -90,10 +90,11 @@ a nie łańcuchem poprawek. Wartość spoza tabeli nie ma jak trafić na label.
     stream labela ze structured metadata).
 
     Wyłącza to flaga `-validation.discover-log-levels=false` w `command:` usługi `loki`
-    w `docker-compose.monitoring.yml`. **Flagą, a nie kluczem w `local-config.yaml`** —
-    ten plik jest `copy_if_missing` (patrz wyżej: operator stroi w nim retencję), więc
-    zmiana w nim nigdy nie dotarłaby na istniejącą instalację. Compose jest wersjonowany,
-    więc `git pull && make up` wystarcza.
+    w `docker-compose.monitoring.yml`. Flaga powstała, **gdy `local-config.yaml` był
+    jeszcze `copy_if_missing`** — klucz w tym pliku nie dotarłby wtedy na żadną
+    istniejącą instalację. Od sierpnia 2026 plik jest renderowany i force-syncowany
+    (patrz wyżej), więc `discover_log_levels: false` w nim **działa już wszędzie**;
+    oba zapisy są zgodne i celowo zostawione razem.
 
 Stare dane zachowują poprzednie wartości aż do wygaśnięcia retencji — dropdown czyści
 się stopniowo, po 30 dniach dla większości usług i po 180 dla `webserver`. To normalne,
