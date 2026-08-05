@@ -66,11 +66,25 @@ fi
 
 # --- 2. Obrazy: porownaj ID przed/po `docker compose pull` -------------------
 # Registry-agnostic, dziala dla :latest (porownujemy digesty, nie tagi).
+#
+# `head -1` i `${id:-none}` zamiast `|| echo none`: `docker image inspect` na
+# NIEISTNIEJACYM tagu wypisuje na stdout PUSTA LINIE i dopiero potem konczy sie
+# bledem. Stare `$(... || echo none)` dawalo wiec "\nnone", czyli wpis ROZBITY
+# NA DWIE LINIE — mylacy przy czytaniu i psujacy parsowanie ponizej.
 compose_image_ids() {
 	"$DOCKER" compose config --images 2>/dev/null | sort -u | while IFS= read -r img; do
 		[ -n "$img" ] || continue
-		printf '%s %s\n' "$img" "$("$DOCKER" image inspect --format '{{.Id}}' "$img" 2>/dev/null || echo none)"
+		id="$("$DOCKER" image inspect --format '{{.Id}}' "$img" 2>/dev/null | head -1)"
+		printf '%s %s\n' "$img" "${id:-none}"
 	done
+}
+
+# 12 znakow po "sha256:" — tyle, ile pokazuje `docker images`.
+krotkie_id() {
+	case "$1" in
+		none) printf 'BRAK' ;;
+		*)    printf '%.12s' "${1#sha256:}" ;;
+	esac
 }
 
 log "Sprawdzam obrazy (docker compose pull)..."
@@ -78,9 +92,48 @@ ids_before="$(compose_image_ids)"
 "$DOCKER" compose pull 2>&1 | sed 's/^/  /' || log "OSTRZEZENIE: 'docker compose pull' zwrocil blad — porownuje mimo to."
 ids_after="$(compose_image_ids)"
 
+# Porownujemy WPIS PO WPISIE, a nie dwa slepe bloki tekstu — z dwoch powodow.
+#
+# 1. Komunikat musi mowic, KTORY obraz sie zmienil. "Wykryto nowszy obraz
+#    Docker." bez nazwy jest niediagnozowalny: przy 18 obrazach nie ma jak
+#    ustalic, czy to prawdziwa aktualizacja, czy artefakt.
+#
+# 2. Przejscia z/na `none` NIE SA nowsza wersja i nie moga wyzwalac deployu.
+#    Zmierzone na produkcji 2026-08-05: `mcuadros/ofelia:0.3.21` znikal
+#    z listy tagow po KAZDYM deployu, a kolejny cykl widzial "none -> ID"
+#    i wdrazal cala produkcje od nowa. Obraz przy tym ani na chwile nie
+#    znikal z dysku — pull trwal 2 sekundy, bo nie mial czego sciagac —
+#    wracal sam TAG. Ten obraz ma dwa tagi (`0.3.21` oraz nienalezacy do
+#    naszego repo `latest`), a `docker system prune -af` z konca `make up`
+#    nie mogl go skasowac (trzyma go dzialajacy kontener ofelii), wiec
+#    zdjal z niego referencje. Efekt: samopodtrzymujaca sie petla
+#    prune -> pull -> "zmiana" -> deploy -> prune, czyli pelny redeploy
+#    produkcji co AUTOUPDATE_INTERVAL, w nieskonczonosc.
+#
+#    Pominiecie tych przejsc niczego nie gubi: prawdziwie nowy obraz zawsze
+#    daje `ID_stare -> ID_nowe`, bo dzialajacy stack ma swoje tagi na miejscu.
+#    Jedyny przypadek "none -> ID" z prawdziwa trescia to NOWA usluga
+#    w compose — a ta przychodzi razem z commitem, wiec deploy i tak sie
+#    odpali sciezka `git_changed`.
 image_changed=0
-if [ "$ids_before" != "$ids_after" ]; then
+while IFS=' ' read -r img id_after; do
+	[ -n "$img" ] || continue
+	id_before="$(printf '%s\n' "$ids_before" | awk -v i="$img" '$1 == i { print $2; exit }')"
+	[ -n "$id_before" ] || id_before=none
+	[ "$id_before" = "$id_after" ] && continue
+
+	if [ "$id_before" = none ] || [ "$id_after" = none ]; then
+		log "  $img: sam TAG $(krotkie_id "$id_before") -> $(krotkie_id "$id_after") — to nie jest nowsza wersja, pomijam."
+		continue
+	fi
+
 	image_changed=1
+	log "  $img: $(krotkie_id "$id_before") -> $(krotkie_id "$id_after")"
+done <<EOF
+$ids_after
+EOF
+
+if [ "$image_changed" -eq 1 ]; then
 	log "Wykryto nowszy obraz Docker."
 fi
 

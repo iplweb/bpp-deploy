@@ -65,13 +65,23 @@ if [ "$1" = "compose" ] && [ "$2" = "config" ]; then
 	echo "iplweb/bpp_appserver:latest"; exit 0
 fi
 if [ "$1" = "compose" ] && [ "$2" = "pull" ]; then
-	[ "${MOCK_IMAGE_CHANGE:-0}" = "1" ] && echo after > "$STATE_FILE"
+	if [ "${MOCK_IMAGE_CHANGE:-0}" = "1" ] || [ "${MOCK_IMAGE_UNTAGGED:-0}" = "1" ]; then
+		echo after > "$STATE_FILE"
+	fi
 	exit 0
 fi
 if [ "$1" = "image" ] && [ "$2" = "inspect" ]; then
 	if [ -f "$STATE_FILE" ] && [ "$(cat "$STATE_FILE")" = "after" ]; then
-		echo "sha256:new"; else echo "sha256:old"; fi
-	exit 0
+		echo "sha256:new"; exit 0
+	fi
+	# MOCK_IMAGE_UNTAGGED=1 odwzorowuje obraz, ktory ZOSTAL ODTAGOWANY: tag nie
+	# istnieje, ale sam obraz siedzi na dysku (trzyma go dzialajacy kontener).
+	# Prawdziwy `docker image inspect` wypisuje wtedy na stdout PUSTA LINIE
+	# i konczy sie kodem != 0 — jedno i drugie ma znaczenie dla parsowania.
+	if [ "${MOCK_IMAGE_UNTAGGED:-0}" = "1" ]; then
+		echo ""; exit 1
+	fi
+	echo "sha256:old"; exit 0
 fi
 exit 0
 EOF
@@ -117,6 +127,7 @@ run_cycle() {
 		MOCK_GIT_ANCESTOR="${MOCK_GIT_ANCESTOR:-1}" \
 		MOCK_GIT_FETCH_FAIL="${MOCK_GIT_FETCH_FAIL:-0}" \
 		MOCK_IMAGE_CHANGE="${MOCK_IMAGE_CHANGE:-0}" \
+		MOCK_IMAGE_UNTAGGED="${MOCK_IMAGE_UNTAGGED:-0}" \
 		MOCK_BACKUP_FAIL="${MOCK_BACKUP_FAIL:-0}" \
 		AUTOUPDATE_DB_BACKUP="${AUTOUPDATE_DB_BACKUP:-0}" \
 		AUTOUPDATE_WARNING_MINUTES="${AUTOUPDATE_WARNING_MINUTES:-0}" \
@@ -177,6 +188,24 @@ AUTOUPDATE_WARNING_MINUTES=5 MOCK_IMAGE_CHANGE=1 run_cycle
 assert_deployed "ostrzezenie wlaczone -> make run"
 if marker_has "make-pull"; then pass "ostrzezenie wlaczone -> sesja z ostrzezeniem (make pull)"; else fail "ostrzezenie wlaczone -> brak make pull"; fi
 assert_exit 0 "ostrzezenie + stary obraz -> exit 0 (petla nie staje)"
+
+# 9. Odtagowany obraz ("none -> ID") NIE jest nowsza wersja.
+#
+# REGRESJA Z PRODUKCJI (2026-08-05). `mcuadros/ofelia:0.3.21` gubil tag po
+# kazdym deployu: `docker system prune -af` z konca `make up` nie mogl skasowac
+# obrazu (trzyma go dzialajacy kontener ofelii), wiec zdjal z niego referencje.
+# Kolejny cykl widzial "none -> ID", uznawal to za nowsza wersje i wdrazal cala
+# produkcje od nowa — i tak w kolko, co AUTOUPDATE_INTERVAL. Obraz przez caly
+# czas byl na dysku; pull trwal 2 sekundy, bo wracal sam TAG.
+MOCK_GIT_REMOTE=AAA MOCK_IMAGE_CHANGE=0 MOCK_IMAGE_UNTAGGED=1 run_cycle
+assert_not_deployed "odtagowany obraz -> brak make run"
+assert_exit 0 "odtagowany obraz -> exit 0"
+
+# 10. Odtagowanie NIE MOZE maskowac prawdziwej zmiany, gdy przyszla razem
+# z commitem — deploy ma sie odpalic sciezka git_changed. To wlasnie dlatego
+# pominiecie "none -> ID" niczego nie gubi przy NOWEJ usludze w compose.
+MOCK_GIT_REMOTE=BBB MOCK_GIT_ANCESTOR=1 MOCK_IMAGE_UNTAGGED=1 run_cycle
+assert_deployed "odtagowany obraz + nowy commit -> make run"
 
 # 8. Lock zajety -> exit 0, brak deployu.
 export MARKER="$TEST_ROOT/marker.lock"

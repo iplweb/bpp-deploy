@@ -149,10 +149,31 @@ cykl**:
 1. `git fetch` — czy `origin/main` wyprzedza lokalny HEAD (i czy fast-forward
    jest możliwy);
 2. `docker compose pull` — czy któryś obraz zmienił **digest** (działa też dla
-   ruchomego `latest`, bo porównujemy digesty, nie tagi);
+   ruchomego `latest`, bo porównujemy digesty, nie tagi). Log wymienia obraz
+   i kierunek zmiany, np. `iplweb/bpp_appserver:latest  a1b2c3d4e5f6 -> 9a8b7c6d5e4f`;
 3. jeśli **jest** nowy commit **lub** nowy obraz → opcjonalny backup bazy →
    `git pull --ff-only` → `make run`. Jeśli **nie** ma zmian → cykl kończy się
    po cichu, nic nie jest restartowane.
+
+!!! note "Samo zniknięcie tagu to nie jest nowsza wersja"
+    W logu może pojawić się linia w rodzaju:
+
+    ```
+    mcuadros/ofelia:0.3.21: sam TAG BRAK -> 254bae8e1785 — to nie jest nowsza wersja, pomijam.
+    ```
+
+    Oznacza, że obraz **stracił lokalny tag**, a `pull` mu go przywrócił — sam
+    obraz cały czas był na dysku (widać po tym, że pull trwa sekundy: nie ma
+    czego ściągać). Robi to `docker system prune -af` z końca `make up`: obrazu
+    używanego przez działający kontener nie potrafi skasować, więc zdejmuje
+    z niego referencję.
+
+    Do sierpnia 2026 autoupdate liczył to jako nową wersję i **wdrażał
+    produkcję od nowa co cykl, w nieskończoność** — objawiało się jako „Wykryto
+    nowszy obraz Docker." przy obrazie, który nowszy nie był. Pomijanie takich
+    przejść niczego nie gubi: prawdziwie nowy obraz zawsze daje
+    `ID_stare -> ID_nowe`, a nowa usługa w `docker-compose.*.yml` przychodzi
+    razem z commitem, więc deploy odpala się ścieżką „nowy commit".
 
 ### Uruchomienie pod `screen` (zalecane)
 
