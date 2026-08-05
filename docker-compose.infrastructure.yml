@@ -94,6 +94,21 @@ services:
       # odpowiedzi). Dwie sciezki sa z tego wylaczone i tylko obserwowane —
       # patrz reguly 10002/10003 w modsecurity-override.conf.template.
       # Awaryjne zejscie do obserwacji: MODSEC_RULE_ENGINE=DetectionOnly w .env.
+      # HTTP/3 MUSI byc na liscie dozwolonych wersji protokolu, inaczej regula
+      # 920430 ("HTTP protocol version is not allowed by policy") zapala sie na
+      # KAZDYM zadaniu h3. Ma severity CRITICAL = 5 pkt, czyli dokladnie prog
+      # blokowania — jedno trafienie wystarcza, zeby zerwac polaczenie.
+      #
+      # Domyslna lista CRS to "HTTP/1.0 HTTP/1.1 HTTP/2 HTTP/2.0" (REQUEST-901,
+      # regula 900230) i po prostu nie zna HTTP/3. My h3 wlaczamy swiadomie
+      # (listen 443 quic + Alt-Svc), wiec deklarujemy to wprost — lepsze niz
+      # wylaczanie reguly, bo polityka wersji zostaje egzekwowana.
+      #
+      # WYKRYTE 2026-08-05: obraz `owasp/modsecurity-crs:nginx` to tag PLYWAJACY;
+      # przebudowa z tego dnia zaczela egzekwowac 920430 i `make test-waf` zlapal
+      # blokade legalnego GET / po h3. Bez tego przy najblizszym `make up`
+      # przegladarki przelaczone na h3 (Alt-Svc trzyma je tam dobe) traca dostep.
+      ALLOWED_HTTP_VERSIONS: "${ALLOWED_HTTP_VERSIONS:-HTTP/1.0 HTTP/1.1 HTTP/2 HTTP/2.0 HTTP/3 HTTP/3.0}"
       MODSEC_RULE_ENGINE: "${MODSEC_RULE_ENGINE:-On}"
       BLOCKING_PARANOIA: "${BLOCKING_PARANOIA:-1}"
       # Limity ciala zadania MUSZA byc spojne z client_max_body_size 120M

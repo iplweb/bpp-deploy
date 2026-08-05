@@ -375,6 +375,7 @@ test_compose_bind_mounts() {
         'chown -R nginx:nginx /var/log/nginx-shared' "$infra"
     assert_file_contains "webserver-init naprawia certy manualne" \
         'chown -R 0:nginx /etc/ssl/private' "$infra"
+    # shellcheck disable=SC2016  # to WZORZEC grep-a: `$d` ma zostac literalne
     assert_file_contains "webserver-init naprawia certy Let's Encrypt" \
         'chgrp -R nginx "\$d"' "$infra"
     assert_file_contains "webserver-init dziala jako root" 'user: "0:0"' "$infra"
@@ -399,6 +400,7 @@ test_compose_bind_mounts() {
         'LE_DEPLOY_HOOK=' "$REPO_DIR/scripts/letsencrypt.sh"
 
     # Klucz snakeoil nie moze zostac z domyslnym 0600 openssl-a.
+    # shellcheck disable=SC2016  # jw. — `$_key` to fragment wzorca, nie zmienna
     assert_file_contains "snakeoil: klucz 0640" \
         'chmod 0640 "\$_key"' "$REPO_DIR/scripts/generate-snakeoil-certs.sh"
 }

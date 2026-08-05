@@ -169,6 +169,7 @@ if ! docker run -d --name "$FRONT" --network "$NET" --network-alias "$HOST_NAME"
     -e DJANGO_BPP_SSL_MODE=manual \
     -e MODSEC_RULE_ENGINE="$ENGINE" \
     -e BLOCKING_PARANOIA=1 \
+    -e ALLOWED_HTTP_VERSIONS="HTTP/1.0 HTTP/1.1 HTTP/2 HTTP/2.0 HTTP/3 HTTP/3.0" \
     -e MODSEC_AUDIT_ENGINE=RelevantOnly \
     -e MODSEC_AUDIT_LOG_FORMAT=JSON \
     -e MODSEC_AUDIT_LOG_PARTS=AHZ \
