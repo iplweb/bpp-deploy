@@ -159,11 +159,27 @@ Poszlaki za: panel „Kategorie ataków" w `waf.json` używa `| modsec_attack !=
 właśnie po to, by odsiać wpisy bez tego pola — czyli produkcyjnie polegamy już
 na tej semantyce.
 
-Weryfikacja mimo to, bo cały projekt na tym stoi: jednorazowy kontener
-**`grafana/loki:3.7.1`** (dokładnie ten tag co produkcja —
-`docker-compose.monitoring.yml:30`), push dwóch linii (jedna ze structured
-metadata, jedna bez), trzy zapytania przez `/loki/api/v1/query_range`,
-sprawdzenie liczby zwróconych linii dla każdego z trzech wariantów.
+**Zweryfikowane empirycznie 2026-08-05** na `grafana/loki:3.7.1` (dokładnie ten
+tag co produkcja — `docker-compose.monitoring.yml:30`). Dwie linie wypchnięte
+przez `/loki/api/v1/push` — jedna ze structured metadata `modsec_src="nginx"`,
+druga bez tego klucza — i trzy zapytania przez `/loki/api/v1/query_range`:
+
+| Filtr | Oczekiwano | Zwrócono |
+|---|---|---|
+| `\| modsec_src=~".*"` | 2 | 2 |
+| `\| modsec_src="nginx"` | 1 | 1 |
+| `\| modsec_src=""` | 1 | 1 |
+
+Nośny jest **trzeci** przypadek: zwrócił linię appservera, która klucza
+`modsec_src` w ogóle nie ma. Brakująca structured metadata jest więc rzutowana
+na pusty string.
+
+Warto było to sprawdzić, bo nie jest oczywiste: w Prometheusie brak etykiety
+i pusta etykieta to jedno i to samo w selektorze serii, ale LogQL stosuje filtry
+potokowe do **każdej linii z osobna**, już po wybraniu strumieni — równie dobrze
+mógłby traktować brak klucza jako „nie ma czego porównać" i odrzucać linię.
+Gdyby tak było, stan „bez WAF" trzeba by wyrazić podwójną negacją
+(`| modsec_src!="nginx" | modsec_src!="audit"`).
 
 ## Data links a stan zmiennej
 
