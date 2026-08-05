@@ -2,6 +2,7 @@
   "annotations": {
     "list": []
   },
+  "description": "Trafienia OWASP CRS w webserverze. Kazdy panel agregujacy filtruje `modsec_src=\"audit\"` (blizniacza linia error.log ma `nginx` — bez tego kazde zadanie liczyloby sie dwa razy) ORAZ `modsec_rule_id != \"\"`, bo audit log ModSecurity zawiera takze wpisy, w ktorych ZADNA regula sie nie zapalila (`\"messages\":[]`): 401 z auth_request na panelach, 429 z limit_req, 5xx gdy appserver lezy. Nie sa to ataki i nie moga wpadac na te wykresy. Panel \"Ostatnie trafienia\" celowo pokazuje `nginx` — to linia, ktora czyta czlowiek.",
   "editable": true,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 0,
@@ -54,7 +55,7 @@
             "uid": "loki"
           },
           "editorMode": "code",
-          "expr": "sum(count_over_time({job=\"docker\", service=\"webserver\"} | modsec_src = \"audit\" | modsec_hostname =~ \"$vhost\" | modsec_action =~ \"$action\" [$__range]))",
+          "expr": "sum(count_over_time({job=\"docker\", service=\"webserver\"} | modsec_src = \"audit\" | modsec_rule_id != \"\" | modsec_hostname =~ \"$vhost\" | modsec_action =~ \"$action\" [$__range]))",
           "queryType": "instant",
           "refId": "A",
           "instant": true,
@@ -108,7 +109,7 @@
             "uid": "loki"
           },
           "editorMode": "code",
-          "expr": "sum(count_over_time({job=\"docker\", service=\"webserver\"} | modsec_src = \"audit\" | modsec_action = \"blocked\" | modsec_hostname =~ \"$vhost\" [$__range]))",
+          "expr": "sum(count_over_time({job=\"docker\", service=\"webserver\"} | modsec_src = \"audit\" | modsec_rule_id != \"\" | modsec_action = \"blocked\" | modsec_hostname =~ \"$vhost\" [$__range]))",
           "queryType": "instant",
           "refId": "A",
           "instant": true,
@@ -162,7 +163,7 @@
             "uid": "loki"
           },
           "editorMode": "code",
-          "expr": "count(sum by (modsec_client) (count_over_time({job=\"docker\", service=\"webserver\"} | modsec_src = \"audit\" | modsec_hostname =~ \"$vhost\" | modsec_action =~ \"$action\" [$__range])))",
+          "expr": "count(sum by (modsec_client) (count_over_time({job=\"docker\", service=\"webserver\"} | modsec_src = \"audit\" | modsec_rule_id != \"\" | modsec_hostname =~ \"$vhost\" | modsec_action =~ \"$action\" [$__range])))",
           "queryType": "instant",
           "refId": "A",
           "instant": true,
@@ -216,7 +217,7 @@
             "uid": "loki"
           },
           "editorMode": "code",
-          "expr": "count(sum by (modsec_rule_id) (count_over_time({job=\"docker\", service=\"webserver\"} | modsec_src = \"audit\" | modsec_hostname =~ \"$vhost\" | modsec_action =~ \"$action\" [$__range])))",
+          "expr": "count(sum by (modsec_rule_id) (count_over_time({job=\"docker\", service=\"webserver\"} | modsec_src = \"audit\" | modsec_rule_id != \"\" | modsec_hostname =~ \"$vhost\" | modsec_action =~ \"$action\" [$__range])))",
           "queryType": "instant",
           "refId": "A",
           "instant": true,
@@ -313,7 +314,7 @@
             "uid": "loki"
           },
           "editorMode": "code",
-          "expr": "sum by (modsec_action) (count_over_time({job=\"docker\", service=\"webserver\"} | modsec_src = \"audit\" | modsec_hostname =~ \"$vhost\" | modsec_action =~ \"$action\" [$__interval]))",
+          "expr": "sum by (modsec_action) (count_over_time({job=\"docker\", service=\"webserver\"} | modsec_src = \"audit\" | modsec_rule_id != \"\" | modsec_hostname =~ \"$vhost\" | modsec_action =~ \"$action\" [$__interval]))",
           "queryType": "range",
           "refId": "A",
           "legendFormat": "{{modsec_action}}"
@@ -372,7 +373,7 @@
             "uid": "loki"
           },
           "editorMode": "code",
-          "expr": "topk(10, sum by (modsec_rule_id, modsec_msg) (count_over_time({job=\"docker\", service=\"webserver\"} | modsec_src = \"audit\" | modsec_hostname =~ \"$vhost\" | modsec_action =~ \"$action\" [$__range])))",
+          "expr": "topk(10, sum by (modsec_rule_id, modsec_msg) (count_over_time({job=\"docker\", service=\"webserver\"} | modsec_src = \"audit\" | modsec_rule_id != \"\" | modsec_hostname =~ \"$vhost\" | modsec_action =~ \"$action\" [$__range])))",
           "queryType": "instant",
           "refId": "A",
           "instant": true,
@@ -447,7 +448,7 @@
             "uid": "loki"
           },
           "editorMode": "code",
-          "expr": "sum by (modsec_attack) (count_over_time({job=\"docker\", service=\"webserver\"} | modsec_src = \"audit\" | modsec_hostname =~ \"$vhost\" | modsec_action =~ \"$action\" | modsec_attack != \"\" [$__range]))",
+          "expr": "sum by (modsec_attack) (count_over_time({job=\"docker\", service=\"webserver\"} | modsec_src = \"audit\" | modsec_rule_id != \"\" | modsec_hostname =~ \"$vhost\" | modsec_action =~ \"$action\" | modsec_attack != \"\" [$__range]))",
           "queryType": "instant",
           "refId": "A",
           "instant": true,
@@ -521,7 +522,7 @@
             "uid": "loki"
           },
           "editorMode": "code",
-          "expr": "topk(15, sum by (modsec_client) (count_over_time({job=\"docker\", service=\"webserver\"} | modsec_src = \"audit\" | modsec_hostname =~ \"$vhost\" | modsec_action =~ \"$action\" [$__range])))",
+          "expr": "topk(15, sum by (modsec_client) (count_over_time({job=\"docker\", service=\"webserver\"} | modsec_src = \"audit\" | modsec_rule_id != \"\" | modsec_hostname =~ \"$vhost\" | modsec_action =~ \"$action\" [$__range])))",
           "queryType": "instant",
           "refId": "A",
           "instant": true,
@@ -595,7 +596,7 @@
             "uid": "loki"
           },
           "editorMode": "code",
-          "expr": "topk(15, sum by (modsec_uri) (count_over_time({job=\"docker\", service=\"webserver\"} | modsec_src = \"audit\" | modsec_hostname =~ \"$vhost\" | modsec_action =~ \"$action\" [$__range])))",
+          "expr": "topk(15, sum by (modsec_uri) (count_over_time({job=\"docker\", service=\"webserver\"} | modsec_src = \"audit\" | modsec_rule_id != \"\" | modsec_hostname =~ \"$vhost\" | modsec_action =~ \"$action\" [$__range])))",
           "queryType": "instant",
           "refId": "A",
           "instant": true,
@@ -669,7 +670,7 @@
             "uid": "loki"
           },
           "editorMode": "code",
-          "expr": "sum by (modsec_score) (count_over_time({job=\"docker\", service=\"webserver\"} | modsec_src = \"audit\" | modsec_hostname =~ \"$vhost\" | modsec_action =~ \"$action\" | modsec_score != \"\" [$__range]))",
+          "expr": "sum by (modsec_score) (count_over_time({job=\"docker\", service=\"webserver\"} | modsec_src = \"audit\" | modsec_rule_id != \"\" | modsec_hostname =~ \"$vhost\" | modsec_action =~ \"$action\" | modsec_score != \"\" [$__range]))",
           "queryType": "instant",
           "refId": "A",
           "instant": true,

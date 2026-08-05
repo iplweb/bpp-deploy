@@ -176,6 +176,37 @@ sprawdz_audit() {
     ALLOY_FILTR='is_interrupted' sprawdz "$@"
 }
 
+# Asercja ODWROTNA: podane klucze NIE MOGA miec niepustej wartosci.
+#
+# Klucz nieobecny i klucz z pusta wartoscia to dla LogQL to samo — filtr
+# `| klucz != ""` odsiewa oba — wiec oba warianty zaliczamy.
+sprawdz_bez() {
+    local opis="$1" marker="$2"; shift 2
+    local wpis niezgodne="" klucz
+
+    wpis="$(grep -F -- "$marker" "$TMP/out.txt" | grep -F -- "${ALLOY_FILTR:-}" | head -1)"
+    if [ -z "$wpis" ]; then
+        printf '  \033[31mFAIL\033[0m %-46s %s\n' "$opis" "brak wpisu dla markera"
+        BLEDY=$((BLEDY + 1))
+        return
+    fi
+
+    for klucz in "$@"; do
+        if ! grep -qF -- "\\\"$klucz\\\":\\\"" <<<"$wpis" \
+        || grep -qF -- "\\\"$klucz\\\":\\\"\\\"" <<<"$wpis"; then
+            continue
+        fi
+        niezgodne="$niezgodne $klucz(ma wartosc)"
+    done
+
+    if [ -z "$niezgodne" ]; then
+        printf '  \033[32mOK\033[0m   %-46s %s\n' "$opis" "bez: $*"
+    else
+        printf '  \033[31mFAIL\033[0m %-46s%s\n' "$opis" "$niezgodne"
+        BLEDY=$((BLEDY + 1))
+    fi
+}
+
 echo
 printf 'WYNIK  PRZYPADEK                                      SZCZEGOLY\n'
 printf -- '----------------------------------------------------------------------------------\n'
@@ -211,6 +242,25 @@ sprawdz "WAF: linia error.log ma wlasne pola modsec_*" 'ModSecurity: Access deni
 # zadanie dwa razy.
 sprawdz_audit "WAF: wpis audit oznaczony jako src=audit" '/etc/passwd' \
     modsec_src=audit
+
+# REGRESJA: wpis audytowy BEZ ANI JEDNEJ REGULY ("messages":[]).
+#
+# `SecAuditEngine RelevantOnly` loguje transakcje z DWOCH niezaleznych powodow:
+# zapalila sie regula ALBO status odpowiedzi pasuje do SecAuditLogRelevantStatus
+# (domyslnie w obrazie CRS: kazde 4xx poza 404 i kazde 5xx). Drugi powod wpuszcza
+# do audit logu rzeczy, ktorych WAF nawet nie dotknal: 401 z `auth_request` na
+# panelach, 429 z `limit_req`, 502 gdy appserver lezy.
+#
+# Na produkcji zrobilo to z panelu "Najczesciej atakowane sciezki" liste
+# assetow Grafany. Panele agregujace odsiewaja te wpisy filtrem
+# `| modsec_rule_id != ""` — i ten test pilnuje jego jedynego zalozenia:
+# ze wpis bez regul NIE dostaje modsec_rule_id ani modsec_msg.
+sprawdz_bez "WAF: wpis bez regul nie ma id/msg reguly" 'grafana/public/plugins/loki/module.js' \
+    modsec_rule_id modsec_msg modsec_attack
+
+# ...ale pozostale pola ma, wiec da sie go znalezc, gdy ktos bedzie go szukal.
+sprawdz_audit "WAF: wpis bez regul zachowuje kontekst" 'grafana/public/plugins/loki/module.js' \
+    modsec_src=audit modsec_code=401 modsec_action=detected
 
 # Linia startowa modulu NIE jest trafieniem — nie moze wpasc w blok WAF-a.
 sprawdz "WAF: linia startowa modulu to info" 'rules loaded inline' \

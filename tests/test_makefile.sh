@@ -406,6 +406,37 @@ test_compose_bind_mounts() {
 }
 
 # ============================================================
+# TEST 11b: dashboard WAF-a liczy wylacznie trafienia regul
+# ============================================================
+
+test_waf_audit_only_rules() {
+    yellow "=== Test 11b: WAF — audit log tylko z trafien regul ==="
+
+    local infra="$REPO_DIR/docker-compose.infrastructure.yml"
+    local waf="$REPO_DIR/defaults/grafana/provisioning/dashboards/waf.json"
+
+    # `SecAuditEngine RelevantOnly` loguje transakcje takze wtedy, gdy zadna
+    # regula sie nie zapalila — wystarczy, ze status pasuje do
+    # SecAuditLogRelevantStatus (domyslnie: kazde 4xx poza 404 i kazde 5xx).
+    # Bez nadpisania do audit logu wpadaja 401 z auth_request na panelach,
+    # 429 z limit_req i 5xx z lezacego appservera. Produkcja 2026-08-05.
+    assert_file_contains "audit log nie loguje po kodzie statusu" \
+        'MODSEC_AUDIT_LOG_RELEVANT_STATUS' "$infra"
+
+    # Druga warstwa: nawet gdyby ktos przywrocil domyslna wartosc (to jawny
+    # knob w .env), panele nie moga liczyc wpisow bez reguly. Kazde zapytanie
+    # po audit logu MUSI miec oba filtry.
+    local audyt filtr
+    audyt="$(grep -c 'modsec_src = \\"audit\\"' "$waf")"
+    filtr="$(grep -c 'modsec_src = \\"audit\\" | modsec_rule_id != \\"\\"' "$waf")"
+    if [ "$audyt" -gt 0 ] && [ "$audyt" -eq "$filtr" ]; then
+        pass "waf.json: wszystkie $audyt zapytan audytowych filtruja modsec_rule_id"
+    else
+        fail "waf.json: $filtr z $audyt zapytan audytowych filtruje modsec_rule_id"
+    fi
+}
+
+# ============================================================
 # TEST 12: .env.sample istnieje
 # ============================================================
 
@@ -1288,6 +1319,7 @@ test_passwords_are_random
 test_normal_path_help
 test_normal_path_targets
 test_compose_bind_mounts
+test_waf_audit_only_rules
 test_env_sample
 test_no_scp_in_configs
 test_init_configs_multihost_skips_hostname

@@ -31,6 +31,12 @@ regułami 10002/10003, zalogowane ale przepuszczone).
 Źródłem danych są pola `modsec_*` wyciągane z audit logu przez Alloy — opis pól i
 przykładowe zapytania: [WAF](../architektura/waf.md#logi-waf-a-w-grafanie).
 
+Każdy panel agregujący liczy **wyłącznie żądania, w których zapaliła się reguła**
+(`| modsec_src = "audit" | modsec_rule_id != ""`). Bez drugiego filtra wpadałyby tam
+401 z logowania do paneli, 429 z rate limitingu i awarie 5xx — dlaczego, opisuje
+[Wpisy audytowe, w których nie zapaliła się żadna reguła](../architektura/waf.md#wpisy-audytowe-w-ktorych-nie-zapalia-sie-zadna-regua).
+Kopiując stamtąd zapytanie do własnego panelu, przenieś **oba** filtry.
+
 ### Slow queries (log) i Top 100 queries (pg_stat_statements)
 
 Monitoring wolnych zapytań — opisany osobno: [Wolne zapytania](slow-queries.md).

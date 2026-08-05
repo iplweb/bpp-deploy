@@ -135,6 +135,37 @@ services:
       # MODSEC_REQ_BODY_ACCESS zostaje `on`, wiec ataki w POST sa nadal
       # wykrywane.
       MODSEC_AUDIT_LOG_PARTS: "${MODSEC_AUDIT_LOG_PARTS:-AHZ}"
+      # Do audit logu trafia WYLACZNIE to, co zapalilo regule.
+      #
+      # `SecAuditEngine RelevantOnly` (domyslne w obrazie) loguje transakcje
+      # z DWOCH NIEZALEZNYCH powodow, polaczonych OR:
+      #   1) zapalila sie regula z akcja `auditlog`,
+      #   2) status odpowiedzi pasuje do SecAuditLogRelevantStatus, a domyslne
+      #      `^(?:5|4(?!04))` to KAZDE 4xx poza 404 i KAZDE 5xx.
+      #
+      # Powod (2) wpuszcza do audit logu ruch, ktorego WAF nawet nie dotknal —
+      # wpis ma wtedy `"messages":[]`, czyli zero informacji o ataku:
+      #   401 z `auth_request` na /grafana/, /dozzle/, /flower/, /netdata/
+      #       (to ZAPROJEKTOWANA sciezka: `error_page 401 = @bpp_login`),
+      #   429 z `limit_req` (rate limiting),
+      #   502/503/504 gdy appserver lezy.
+      # POTWIERDZONY PRZYPADEK (produkcja, 2026-08-05): wygasla sesja przy
+      # otwartej karcie Grafany dala 9 wpisow 401 i panel "Najczesciej atakowane
+      # sciezki" pokazywal fonty oraz moduly pluginow Grafany jako ataki.
+      #
+      # `^$` nie pasuje do zadnego kodu statusu (te sa zawsze niepuste), wiec
+      # zostaje sam powod (1). Zmierzone na owasp/modsecurity-crs:nginx: przy
+      # `^$` zwykle 502 nie zostawia wpisu, a zadanie z SQLi nadal zostawia wpis
+      # z 4 regulami. Nic z dashboardu WAF-a nie ginie.
+      #
+      # Nic tez nie tracimy diagnostycznie: przy MODSEC_AUDIT_LOG_PARTS=AHZ
+      # taki wpis niosl mniej niz linia access logu nginksa (format `bpp_access`,
+      # tez zbierany przez Alloy), a bledy 5xx maja wlasny dashboard
+      # "Error monitoring".
+      #
+      # `$$` to escape Compose'a na literalny `$` — bez niego interpolacja
+      # zjadlaby koniec regexpa.
+      MODSEC_AUDIT_LOG_RELEVANT_STATUS: "${MODSEC_AUDIT_LOG_RELEVANT_STATUS:-^$$}"
       # NIE ustawiamy NGINX_ENVSUBST_FILTER. Obraz CRS renderuje wlasne
       # szablony (75 zmiennych: WORKER_CONNECTIONS, LOGLEVEL, MODSEC_*, …)
       # i filtr "DJANGO_BPP_" zostawilby je dosownie -> nginx nie wstanie.

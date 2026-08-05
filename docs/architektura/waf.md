@@ -50,6 +50,7 @@ instalacja nie wymaga żadnych zmian).
 | `MODSEC_REQ_BODY_LIMIT` | `132120576` (126 MiB) | `13107200` (12,5 MiB) | **musi być ≥ `client_max_body_size 120M`** |
 | `MODSEC_REQ_BODY_NOFILES_LIMIT` | `4194304` (4 MiB) | `131072` (128 KiB) | duże formularze BPP |
 | `MODSEC_AUDIT_LOG_PARTS` | `AHZ` | `ABIJDEFHZ` | **bez ciał i bez nagłówków w logu** |
+| `MODSEC_AUDIT_LOG_RELEVANT_STATUS` | `^$` (nigdy) | `^(?:5\|4(?!04))` | **audit log wyłącznie z trafień reguł** |
 | `ALLOWED_HTTP_VERSIONS` | + `HTTP/3 HTTP/3.0` | `HTTP/1.0 HTTP/1.1 HTTP/2 HTTP/2.0` | **bez tego h3 jest blokowane w całości** |
 
 !!! danger "Nie usuwaj HTTP/3 z `ALLOWED_HTTP_VERSIONS`"
@@ -302,6 +303,54 @@ filtrować wyłącznie pełnotekstowo. Rozróżnia je **`modsec_src`**:
     dashboardu WAF mają ten filtr; panel z logami celowo pokazuje `nginx`.
 
 Oba wpisy spina `modsec_unique_id`.
+
+### Wpisy audytowe, w których nie zapaliła się żadna reguła
+
+`SecAuditEngine RelevantOnly` (domyślne w obrazie) loguje transakcję z **dwóch
+niezależnych powodów**, połączonych `OR`:
+
+1. zapaliła się reguła z akcją `auditlog`,
+2. **kod odpowiedzi** pasuje do `SecAuditLogRelevantStatus` — a domyślne w obrazie
+   `^(?:5|4(?!04))` to **każde 4xx poza 404 i każde 5xx**.
+
+Powód (2) wpuszcza do audit logu ruch, którego WAF w ogóle nie dotknął. Taki wpis
+ma `"messages":[]` — zero informacji o ataku — a mimo to niesie komplet pól
+`modsec_*` (URI, IP, kod), więc dla agregatu wygląda identycznie jak trafienie.
+Łapie się tam:
+
+- **401** z `auth_request` na `/grafana/`, `/dozzle/`, `/flower/`, `/netdata/` —
+  a to jest **ścieżka zaprojektowana**: `error_page 401 = @bpp_login` przekierowuje
+  niezalogowanego na logowanie BPP,
+- **429** z [rate limitingu](rate-limiting.md),
+- **502/503/504**, gdy leży `appserver`.
+
+!!! danger "Objaw: dashboard WAF-a pokazuje własne panele Grafany jako ataki"
+    Produkcja, 2026-08-05: wygasła sesja przy otwartej karcie Grafany dała dziewięć
+    wpisów 401 (strona + fonty + moduły pluginów), a panel „Najczęściej atakowane
+    ścieżki" wyświetlił `Inter-Regular.woff2` i `grafana-lokiexplore-app/module.js`
+    jako najczęstsze cele ataków. Trop prowadził donikąd — reguła 10004 działała
+    poprawnie, CRS nie zgłosił niczego, bo **nie było czego zgłaszać**.
+
+Dlatego ustawiamy `MODSEC_AUDIT_LOG_RELEVANT_STATUS=^$`: kod statusu jest zawsze
+niepusty, więc ten regexp nie pasuje do niczego i zostaje sam powód (1). Zmierzone
+na `owasp/modsecurity-crs:nginx`: przy `^$` zwykłe 502 nie zostawia wpisu, a żądanie
+z SQLi nadal zostawia wpis z czterema regułami.
+
+Nic przy tym nie tracimy: przy `MODSEC_AUDIT_LOG_PARTS=AHZ` taki wpis niósł mniej
+niż linia access logu nginksa (format `bpp_access`, też zbierany przez Alloy),
+a błędy 5xx mają własny dashboard
+[Error monitoring](../monitoring/dashboardy-grafany.md).
+
+!!! warning "Agregaty muszą też filtrować `modsec_rule_id`"
+    To druga warstwa, niezależna od powyższego ustawienia — `MODSEC_AUDIT_LOG_RELEVANT_STATUS`
+    jest jawnym knobem w `.env` i operator może je przywrócić. Każde zapytanie
+    dashboardu WAF ma dlatego **oba** filtry:
+    `| modsec_src = "audit" | modsec_rule_id != ""`. Wpis bez reguł nie dostaje
+    `modsec_rule_id` (JMESPath `messages[0].details.ruleId` na pustej liście nie
+    tworzy klucza), a LogQL traktuje brakującą etykietę jak pustą — więc wypada.
+    Pilnują tego `tests/test_makefile.sh` (asercja: liczba zapytań z filtrem
+    = liczba zapytań po audit logu) i `make test-alloy` (asercja: wpis bez reguł
+    nie dostaje `modsec_rule_id`, ale zachowuje `modsec_code=401`).
 
 ### Pola `modsec_*`
 
