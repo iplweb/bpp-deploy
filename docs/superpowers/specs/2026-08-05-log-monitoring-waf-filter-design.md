@@ -165,19 +165,34 @@ Weryfikacja mimo to, bo cały projekt na tym stoi: jednorazowy kontener
 metadata, jedna bez), trzy zapytania przez `/loki/api/v1/query_range`,
 sprawdzenie liczby zwróconych linii dla każdego z trzech wariantów.
 
-## Drugie założenie: data links a stan zmiennej
+## Data links a stan zmiennej
 
 Panel „Log volume" ma data link `?var-level=${__field.labels.detected_level}`
 (`error-monitoring.json:71`), a tabela „By service" — `?var-service=…` (`:375`).
-Jeśli Grafana 12 przy takim linku **podmienia** query string zamiast go
-scalać, klik w tabelę zresetuje `var-waf` do „wszystko" — operator, który
-wyciszył WAF, dostanie go z powrotem bez ostrzeżenia. (Ten sam mechanizm
-gubiłby dziś `var-service`/`var-container`, więc może się okazać, że Grafana
-jednak scala.)
+Jeśli Grafana 12 przy takim linku **podmienia** query string zamiast go scalać,
+klik w tabelę zresetuje `var-waf` do „wszystko" — operator, który wyciszył WAF,
+dostanie go z powrotem bez ostrzeżenia.
 
-Do sprawdzenia empirycznie przy implementacji. Jeśli podmienia — dopisujemy do
-obu linków `&var-waf=${waf:percentencode}` (percent-encoding jest konieczny:
-wartość zawiera `|`, `"` i spacje).
+**Nie weryfikujemy tego empirycznie, bo nie trzeba.** Dopisanie
+`&var-waf=${waf:percentencode}` do obu linków jest korzystne w **obu**
+przypadkach:
+
+- semantyka „podmienia" → link zachowuje wybrany stan filtra (naprawa),
+- semantyka „scala" → link ustawia zmienną na jej własną, bieżącą wartość
+  (no-op).
+
+Weryfikacja kosztowałaby postawienie Grafany z provisioningiem, a jedyne, co
+by rozstrzygnęła, to *czy* poprawka jest potrzebna — nie *czy* jest bezpieczna.
+
+Percent-encoding jest konieczny, bo wartość zawiera `|`, `"` i spacje. Gdyby
+format `:percentencode` okazał się nieobsługiwany, degradacja jest łagodna:
+`var-waf` dostaje wartość spoza listy opcji, Grafana cofa się do pierwszej
+opcji — czyli do „wszystko", stanu dzisiejszego. Nic się nie psuje.
+
+**Świadomie poza zakresem:** te same linki gubią dziś `var-service`
+i `var-container`, jeśli semantyka to „podmienia". To defekt zastany, nie
+wprowadzany tą zmianą, i dotyczy zmiennych `multi`, których round-trip przez
+URL jest osobnym tematem.
 
 ## Zabezpieczenie przed regresją
 
