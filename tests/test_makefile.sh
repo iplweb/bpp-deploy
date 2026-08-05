@@ -1013,6 +1013,15 @@ test_nginx_config_valid() {
                 -keyout "/le/live/$h/privkey.pem" -out "/le/live/$h/fullchain.pem" \
                 -subj "/CN=$h" >/dev/null 2>&1
         done
+        # openssl leci tu jako ROOT, wiec privkey.pem powstaje z trybem 0600
+        # root:root. Kopia host-side ponizej robiona jest jako zwykly user i na
+        # LINUKSIE dostaje "cp: cannot open ... privkey.pem: Permission denied".
+        # Na macOS (Docker Desktop / OrbStack) bind-mount pokazuje pliki jako
+        # wlasnosc uzytkownika hosta, wiec tam przechodzi — ta sama asymetria
+        # macOS/Linux, ktora CLAUDE.md opisuje przy uprawnieniach kluczy LE.
+        # Certy sa jednorazowe i wyrzucane, wiec rozluznienie trybu jest tu
+        # bezpieczne; identyczny zabieg (chmod -R a+rX) robi scripts/test-waf.sh.
+        chmod -R a+rX /le
     ' || { fail "stub LE cert generation"; rm_rf_root "$ngx_dir"; return; }
 
     # Kopia host-side na NOWA sciezke — zaden kontener jej wczesniej nie
