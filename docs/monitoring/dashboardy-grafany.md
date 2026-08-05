@@ -34,7 +34,7 @@ do error.log i widać je wyłącznie na dashboardzie
 ### WAF (ModSecurity / OWASP CRS)
 
 Trafienia WAF-a w jednym miejscu, żeby ruch skanerów nie mieszał się z awariami
-aplikacji w „Error Monitoring". Panele: rząd statystyk (trafienia, zablokowane,
+aplikacji w „Log Monitoring". Panele: rząd statystyk (trafienia, zablokowane,
 unikalne adresy IP, unikalne reguły), oś czasu z podziałem `blocked` / `detected`,
 ranking reguł wiodących, kategorie ataków, najaktywniejsze adresy IP, najczęściej
 atakowane ścieżki, rozkład anomaly score i surowe wpisy audit logu.

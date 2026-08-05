@@ -40,7 +40,7 @@ limit_req_log_level warn;   # 429 logowane jako warn, nie error — nie pompuje 
 ```
 
 `limit_req_log_level warn` jest istotne: domyślnie każde 429 ląduje w
-`error_log` na poziomie `error`, a [dashboard error-monitoring](../monitoring/dashboardy-grafany.md)
+`error_log` na poziomie `error`, a [dashboard „Log Monitoring"](../monitoring/dashboardy-grafany.md#log-monitoring)
 jest keyowany po `detected_level` — flood 429 sam napompowałby metrykę i alerty
 błędów. `warn` to neutralizuje.
 

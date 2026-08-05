@@ -343,7 +343,7 @@ z SQLi nadal zostawia wpis z czterema regułami.
 Nic przy tym nie tracimy: przy `MODSEC_AUDIT_LOG_PARTS=AHZ` taki wpis niósł mniej
 niż linia access logu nginksa (format `bpp_access`, też zbierany przez Alloy),
 a błędy 5xx mają własny dashboard
-[Error monitoring](../monitoring/dashboardy-grafany.md).
+[„Log Monitoring"](../monitoring/dashboardy-grafany.md#log-monitoring).
 
 !!! warning "Agregaty muszą też filtrować `modsec_rule_id`"
     To druga warstwa, niezależna od powyższego ustawienia — `MODSEC_AUDIT_LOG_RELEVANT_STATUS`

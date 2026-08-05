@@ -161,7 +161,7 @@ services:
       # Nic tez nie tracimy diagnostycznie: przy MODSEC_AUDIT_LOG_PARTS=AHZ
       # taki wpis niosl mniej niz linia access logu nginksa (format `bpp_access`,
       # tez zbierany przez Alloy), a bledy 5xx maja wlasny dashboard
-      # "Error monitoring".
+      # "Log Monitoring".
       #
       # `$$` to escape Compose'a na literalny `$` — bez niego interpolacja
       # zjadlaby koniec regexpa.
