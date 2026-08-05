@@ -46,6 +46,12 @@ case "$1" in
     case "$2" in
       HEAD) echo "${MOCK_GIT_LOCAL:-AAA}"; exit 0 ;;
       origin/main) echo "${MOCK_GIT_REMOTE:-AAA}"; exit 0 ;;
+      HEAD:*)
+        # Odcisk plikow definiujacych petle. Zmienia sie DOPIERO po `git pull`
+        # (marker), czyli dokladnie tak jak w rzeczywistosci.
+        if [ "${MOCK_LOOP_CHANGED:-0}" = "1" ] && grep -q git-pull "$MARKER" 2>/dev/null; then
+          echo "LOOPNEW"; else echo "LOOPOLD"; fi
+        exit 0 ;;
     esac
     echo "X"; exit 0 ;;
   merge-base) [ "${MOCK_GIT_ANCESTOR:-1}" = "1" ] && exit 0; exit 1 ;;
@@ -87,6 +93,32 @@ exit 0
 EOF
 chmod +x "$MOCK_BIN/docker"
 
+# --- Mock crontab -----------------------------------------------------------
+# `crontab -l` zwraca wpis straznika tylko przy MOCK_CRON_WATCHDOG=1.
+cat > "$MOCK_BIN/crontab" <<'EOF'
+#!/bin/sh
+if [ "$1" = "-l" ]; then
+	if [ "${MOCK_CRON_WATCHDOG:-0}" = "1" ]; then
+		echo "*/15 * * * * cd /repo && make screen-with-autoupdate  # BPP-AUTOUPDATE"
+		exit 0
+	fi
+	exit 1
+fi
+exit 0
+EOF
+chmod +x "$MOCK_BIN/crontab"
+
+# --- Mock screen ------------------------------------------------------------
+# Odnotowuje zabicie sesji zamiast je wykonywac.
+cat > "$MOCK_BIN/screen" <<'EOF'
+#!/bin/sh
+for a in "$@"; do
+	[ "$a" = "quit" ] && echo "screen-quit" >> "$MARKER"
+done
+exit 0
+EOF
+chmod +x "$MOCK_BIN/screen"
+
 # --- Mock make --------------------------------------------------------------
 # Zapisuje cel do MARKER. db-backup moze zwrocic blad (MOCK_BACKUP_FAIL=1).
 cat > "$MOCK_BIN/make" <<'EOF'
@@ -115,13 +147,19 @@ fail()  { red   "  FAIL: $1"; FAIL=$((FAIL + 1)); }
 run_cycle() {
 	export MARKER="$TEST_ROOT/marker.$$.$RANDOM"
 	export STATE_FILE="$TEST_ROOT/state.$$.$RANDOM"
+	export LAST_LOCK_DIR="$TEST_ROOT/lock.$$.$RANDOM"
 	: > "$MARKER"
 	rm -f "$STATE_FILE"
 	set +e
 	env -u MAKE -u MAKEFLAGS \
 		PATH="$MOCK_BIN:$PATH" \
 		MARKER="$MARKER" STATE_FILE="$STATE_FILE" \
-		AUTOUPDATE_LOCK_DIR="$TEST_ROOT/lock.$$.$RANDOM" \
+		AUTOUPDATE_LOCK_DIR="$LAST_LOCK_DIR" \
+		AUTOUPDATE_CRON_LOG="$TEST_ROOT/cron.log" \
+		STY="${MOCK_STY:-}" \
+		MOCK_CRON_WATCHDOG="${MOCK_CRON_WATCHDOG:-0}" \
+		MOCK_LOOP_CHANGED="${MOCK_LOOP_CHANGED:-0}" \
+		AUTOUPDATE_SELF_RESTART="${AUTOUPDATE_SELF_RESTART:-1}" \
 		MOCK_GIT_LOCAL="${MOCK_GIT_LOCAL:-AAA}" \
 		MOCK_GIT_REMOTE="${MOCK_GIT_REMOTE:-AAA}" \
 		MOCK_GIT_ANCESTOR="${MOCK_GIT_ANCESTOR:-1}" \
@@ -206,6 +244,60 @@ assert_exit 0 "odtagowany obraz -> exit 0"
 # pominiecie "none -> ID" niczego nie gubi przy NOWEJ usludze w compose.
 MOCK_GIT_REMOTE=BBB MOCK_GIT_ANCESTOR=1 MOCK_IMAGE_UNTAGGED=1 run_cycle
 assert_deployed "odtagowany obraz + nowy commit -> make run"
+
+# 11-15. Samorestart petli po zmianie JEJ WLASNEGO kodu (Makefile/deployment.mk).
+#
+# Petla `make autoupdate` rozwinela swoje cialo i AUTOUPDATE_INTERVAL w chwili
+# startu, wiec `git pull` jej NIE odswieza — w przeciwienstwie do tego skryptu,
+# ktory jest wolany swiezo co iteracje. Jedyne wyjscie to zakonczyc sesje screen
+# i dac sie wskrzesic straznikowi z crona.
+assert_screen_quit() {
+	if marker_has "screen-quit"; then pass "$1"; else fail "$1 (oczekiwano zabicia sesji screen)"; fi
+}
+assert_no_screen_quit() {
+	if marker_has "screen-quit"; then fail "$1 (sesja screen NIE powinna zostac zabita)"; else pass "$1"; fi
+}
+
+# 11. Komplet warunkow -> sesja ginie, straznik ja podniesie.
+MOCK_GIT_REMOTE=BBB MOCK_GIT_ANCESTOR=1 MOCK_LOOP_CHANGED=1 \
+	MOCK_STY="12345.bpp-autoupdate" MOCK_CRON_WATCHDOG=1 run_cycle
+assert_deployed "zmiana kodu petli -> najpierw deploy"
+assert_screen_quit "zmiana kodu petli + screen + straznik -> koniec sesji"
+
+# 12. LOCK MUSI BYC ZWOLNIONY PRZED ZABICIEM SESJI.
+# `screen -X quit` ubija proces bez szansy na `trap EXIT`. Osierocony lock
+# zatrzymalby KAZDY nastepny cykl ("inny cykl trwa") — auto-update bylby martwy,
+# a jedynym sladem jedna linijka w logu. To najgrozniejszy blad tej sciezki.
+if [ -d "$LAST_LOCK_DIR" ]; then
+	fail "zabicie sesji zostawilo osierocony lock ($LAST_LOCK_DIR)"
+else
+	pass "zabicie sesji nie zostawia osieroconego locka"
+fi
+
+# 13. Brak straznika -> NIE zabijamy. Petla stanelaby na zawsze, czyli
+# auto-update umarlby po cichu przy okazji wlasnej aktualizacji.
+MOCK_GIT_REMOTE=BBB MOCK_GIT_ANCESTOR=1 MOCK_LOOP_CHANGED=1 \
+	MOCK_STY="12345.bpp-autoupdate" MOCK_CRON_WATCHDOG=0 run_cycle
+assert_no_screen_quit "zmiana kodu petli bez straznika -> sesja zostaje"
+assert_exit 0 "zmiana kodu petli bez straznika -> exit 0"
+
+# 14. Poza screenem (np. reczne `make autoupdate` na wprost) -> nie ma czego
+# zabijac ani co wskrzeszac.
+MOCK_GIT_REMOTE=BBB MOCK_GIT_ANCESTOR=1 MOCK_LOOP_CHANGED=1 \
+	MOCK_STY="" MOCK_CRON_WATCHDOG=1 run_cycle
+assert_no_screen_quit "zmiana kodu petli poza screenem -> sesja zostaje"
+
+# 15. Furtka awaryjna.
+MOCK_GIT_REMOTE=BBB MOCK_GIT_ANCESTOR=1 MOCK_LOOP_CHANGED=1 \
+	MOCK_STY="12345.bpp-autoupdate" MOCK_CRON_WATCHDOG=1 AUTOUPDATE_SELF_RESTART=0 run_cycle
+assert_no_screen_quit "AUTOUPDATE_SELF_RESTART=0 -> sesja zostaje"
+
+# 16. Deploy bez zmiany kodu petli NIE moze zabijac sesji — inaczej kazda
+# aktualizacja obrazu kosztowalaby przerwe w petli do nastepnego straznika.
+MOCK_GIT_REMOTE=BBB MOCK_GIT_ANCESTOR=1 MOCK_LOOP_CHANGED=0 \
+	MOCK_STY="12345.bpp-autoupdate" MOCK_CRON_WATCHDOG=1 run_cycle
+assert_deployed "zwykly deploy -> make run"
+assert_no_screen_quit "zwykly deploy -> sesja zostaje"
 
 # 8. Lock zajety -> exit 0, brak deployu.
 export MARKER="$TEST_ROOT/marker.lock"

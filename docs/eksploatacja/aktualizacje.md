@@ -189,6 +189,38 @@ screen -r bpp-autoupdate      # podgląd (Ctrl-A D = odłącz)
 uruchamia drugiej. Nazwę sesji można zmienić przez `AUTOUPDATE_SCREEN_NAME`.
 Zatrzymanie: `screen -S bpp-autoupdate -X quit`.
 
+### Co odświeża się samo, a co jest zamrożone {#samorestart-petli}
+
+Po `git pull` **prawie wszystko** działa od razu, bez dotykania sesji:
+
+| Element | Odświeża się sam? |
+|---|---|
+| `scripts/autoupdate.sh` | **Tak** — pętla woła go świeżo w każdej iteracji |
+| pozostałe skrypty, `defaults/*`, pliki compose | **Tak** — używa ich `make run` w trakcie deployu |
+| **treść pętli** (`mk/deployment.mk`) i **`AUTOUPDATE_INTERVAL`** | **Nie** — `make autoupdate` rozwinął je przy starcie i ten proces żyje dalej |
+
+Ostatni wiersz załatwia **samorestart**: gdy `git pull` zmieni `Makefile` albo
+`mk/deployment.mk`, cykl kończy deploy, po czym **zamyka własną sesję screen** —
+a strażnik z crona podnosi ją w nowej wersji (do 15 minut).
+
+!!! warning "Samorestart wymaga strażnika"
+    Mechanizm uruchamia się **tylko** gdy w crontabie stoi wpis
+    `# BPP-AUTOUPDATE` (zakłada go `make setup-autoupdate-cron`) **i** pętla
+    naprawdę działa pod `screen`. Bez tego nie ma kto jej wskrzesić, więc
+    zamiast zabić sesję skrypt wypisuje ostrzeżenie i prosi o ręczne:
+
+    ```bash
+    screen -S bpp-autoupdate -X quit && make screen-with-autoupdate
+    ```
+
+    Cicha śmierć pętli byłaby gorsza niż praca na starym ciele pętli — dlatego
+    ten warunek jest twardy. Sprawdzenie: `crontab -l | grep BPP-AUTOUPDATE`.
+
+Komunikat o zamknięciu sesji trafia **także** do logu strażnika
+(`AUTOUPDATE_CRON_LOG`, domyślnie `.autoupdate-cron.log` w katalogu repo) — bufor
+okna `screen` ginie razem z sesją, więc bez tego nie byłoby śladu, dlaczego pętla
+zniknęła. Wyłącznik: `AUTOUPDATE_SELF_RESTART=0`.
+
 Odpowiednik ręczny (gdy wolisz sam zarządzać sesją):
 
 ```bash
