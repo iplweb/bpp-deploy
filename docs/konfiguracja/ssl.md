@@ -28,6 +28,50 @@ Zmiana trybu: edycja `DJANGO_BPP_SSL_MODE` + `make refresh`.
     z `HOSTNAMES`/`HOSTNAME`). Dalsze fallbacki do ścieżek manualnych — gdy LE jeszcze
     nie wystawił certu, nginx wstaje na snakeoil.
 
+## Uprawnienia kluczy prywatnych
+
+Nginx w obrazie `owasp/modsecurity-crs:nginx` chodzi jako **nieuprzywilejowany
+`nginx` (uid 101)**, nie jako root. Tymczasem klucze prywatne powstają jako
+**własność roota z trybem 0600**:
+
+- `openssl` w `generate-snakeoil-certs.sh` — domyślny tryb klucza,
+- certbot — `BASE_PRIVKEY_MODE = 0o600`, a `live/` i `archive/` tworzy jako `0700`.
+
+Tak zostawiony klucz jest dla nginksa **nieczytelny** i webserver nie wstaje wcale:
+
+```
+[emerg] cannot load certificate key ... Permission denied
+```
+
+Dlatego serwis **`webserver-init`** (Compose, uruchamiany przed webserverem przy
+każdym `make up`) ustawia:
+
+| Ścieżka | Właściciel | Tryb |
+|---|---|---|
+| `ssl/` — katalogi | `root:nginx` | `0750` |
+| `ssl/**/key.pem` | `root:nginx` | `0640` |
+| `letsencrypt/{live,archive}/` | `root:nginx` | `0750` |
+| `letsencrypt/archive/**/privkey*.pem` | `root:nginx` | `0640` |
+
+Klucz czyta **root i nginx — nikt więcej**. Nie jest czytelny dla świata.
+
+!!! note "`accounts/` celowo nietknięte"
+    W `letsencrypt/accounts/` leży **klucz konta ACME**, którym można wystawiać
+    i odwoływać certyfikaty. Nginx nie ma powodu go czytać, więc zostaje
+    `root:root 0600`.
+
+!!! warning "Odnowienia obsługuje deploy-hook, nie restart"
+    `webserver-init` działa przy starcie stosu, ale odnowienie certu następuje
+    **bez restartu** — certbot zapisałby nowy klucz jako `root:root 0600`, reload
+    nginksa odbiłby się o `Permission denied`, a certyfikat wygasłby mimo
+    poprawnego `renew`. Dlatego ten sam `chgrp`/`chmod` siedzi w `--deploy-hook`
+    certbota: w labelu Ofelii (`docker-compose.application.yml`) oraz w
+    `scripts/letsencrypt.sh` (`LE_DEPLOY_HOOK`, używany przy wystawianiu
+    **i** odnawianiu).
+
+Jeśli wgrywasz **własny** certyfikat do `ssl/`, nie musisz nic ustawiać ręcznie —
+najbliższy `make up` poprawi uprawnienia.
+
 ## Wystawienie certyfikatu LE (one-shot)
 
 DNS musi już wskazywać na ten serwer, a port 80 musi być osiągalny z internetu.

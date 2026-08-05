@@ -6,29 +6,48 @@ x-logging: &default-logging
 
 services:
 
-  # Jednorazowy chown wolumenu z access logiem. MUSI poprzedzac webserver.
+  # Jednorazowe przygotowanie rzeczy, ktorych nginx sam sobie nie udostepni.
+  # MUSI poprzedzac webserver.
   #
   # PO CO: obraz `owasp/modsecurity-crs:nginx` jest zbudowany na
   # NIEUPRZYWILEJOWANYM wariancie nginksa — `USER nginx` (uid 101), pid w /tmp.
   # Oficjalny obraz `nginx`, ktorego uzywalismy przed migracja na WAF, startowal
-  # mastera jako root. Tymczasem Docker tworzy swiezy wolumen nazwany jako
-  # `root:root 0755`, wiec uid 101 NIE MOZE w nim zalozyc pliku:
+  # mastera jako root i czytal wszystko. Teraz kazdy plik, ktory nginx ma
+  # otworzyc, musi byc dostepny dla uid 101 — a dwie rzeczy nie sa:
   #
-  #   [emerg] open() "/var/log/nginx-shared/bpp_access.log" failed (13: Permission denied)
+  # 1. WOLUMEN ACCESS LOGU. Docker tworzy swiezy wolumen nazwany jako
+  #    `root:root 0755`, wiec uid 101 nie zalozy w nim pliku:
+  #      [emerg] open() ".../bpp_access.log" failed (13: Permission denied)
+  #    i nginx nie wstaje wcale. Dotyka kazdej swiezej instalacji oraz kazdej,
+  #    ktorej wolumen odtworzono (`make prune-orphan-volumes`, `make refresh`).
   #
-  # i nginx w ogole nie wstaje — czyli caly serwis lezy. Dotyka to kazdej
-  # swiezej instalacji oraz kazdej, ktorej wolumen zostal odtworzony
-  # (`make prune-orphan-volumes`, `make refresh`).
+  # 2. KLUCZE PRYWATNE. `generate-snakeoil-certs.sh` zostawia klucz z domyslnym
+  #    trybem openssl (0600), a certbot ma na sztywno BASE_PRIVKEY_MODE = 0o600
+  #    i tworzy `live/` oraz `archive/` jako 0700 — wszystko wlasnoscia roota.
+  #    Dla uid 101 to zarowno brak wejscia do katalogu, jak i brak odczytu:
+  #      [emerg] cannot load certificate key ... Permission denied
+  #    Sprawdzone na obu sciezkach; w trybie `letsencrypt` przy braku certu
+  #    30-render-bpp-vhosts.sh spada na te same snakeoile, wiec problem dotyczy
+  #    obu trybow SSL.
   #
-  # DLACZEGO NIE `user: root` NA WEBSERVERZE: to skasowalo by hardening, ktory
+  # MODEL UPRAWNIEN: wlascicielem zostaje root, GRUPA to `nginx`, tryb 0640
+  # (katalogi 0750). Klucz czyta root i nginx — i nikt wiecej. NIE robimy go
+  # czytelnym dla swiata; sprawdzone, ze uid spoza grupy dostaje odmowe.
+  #
+  # DLACZEGO NIE `user: root` NA WEBSERVERZE: to skasowaloby hardening, ktory
   # CRS wprowadzil celowo. Ten kontener jest rootem przez chwile i tylko po to,
-  # zeby oddac katalog nginksowi.
+  # zeby oddac pliki nginksowi.
   #
-  # `chown` po NAZWIE, nie po uid: gdyby upstream zmienil uid, nazwa nadal
-  # wskaze wlasciwego uzytkownika, a twarde 101 cicho przestaloby pasowac.
+  # `chown`/`chgrp` po NAZWIE, nie po uid: gdyby upstream zmienil uid, nazwa
+  # nadal wskaze wlasciwego uzytkownika, a twarde 101 cicho przestaloby pasowac.
+  #
+  # Uruchamia sie przy KAZDYM `make up`, wiec naprawia takze instalacje juz
+  # zepsute i certy wygenerowane recznie po wdrozeniu. Odnowienia Let's Encrypt
+  # miedzy restartami domyka deploy-hook certbota (patrz
+  # docker-compose.application.yml i scripts/letsencrypt.sh).
   #
   # Ten sam obraz co webserver — zero dodatkowego pobierania (warstwy wspoldzielone).
-  nginx-log-init:
+  webserver-init:
     image: owasp/modsecurity-crs:nginx
     user: "0:0"
     # Jednorazowy: ma sie wykonac i skonczyc. `restart: always` (jak reszta
@@ -36,9 +55,28 @@ services:
     restart: "no"
     logging: *default-logging
     entrypoint: ["/bin/sh", "-c"]
-    command: ["chown -R nginx:nginx /var/log/nginx-shared"]
+    command:
+      - |
+        set -e
+        chown -R nginx:nginx /var/log/nginx-shared
+        if [ -d /etc/ssl/private ]; then
+          chown -R 0:nginx /etc/ssl/private
+          find /etc/ssl/private -type d -exec chmod 0750 {} +
+          find /etc/ssl/private -type f -exec chmod 0640 {} +
+        fi
+        # TYLKO live/ i archive/. `accounts/` CELOWO pomijamy — siedzi tam
+        # klucz konta ACME, ktorym mozna wystawiac i odwolywac certy. Nginx
+        # nie ma powodu go czytac.
+        for d in /etc/letsencrypt/live /etc/letsencrypt/archive; do
+          [ -d "$d" ] || continue
+          chgrp -R nginx "$d"
+          chmod -R g+rX "$d"
+        done
     volumes:
       - nginx_access_log:/var/log/nginx-shared
+      # RW (w webserverze jest :ro) — tutaj wlasnie poprawiamy uprawnienia.
+      - ${BPP_CONFIGS_DIR}/ssl:/etc/ssl/private
+      - ${BPP_CONFIGS_DIR}/letsencrypt:/etc/letsencrypt
 
   webserver:
     # WAF na brzegu: obraz OWASP CRS = ten sam oficjalny nginx + modul
@@ -87,10 +125,11 @@ services:
       # i filtr "DJANGO_BPP_" zostawilby je dosownie -> nginx nie wstanie.
       # Konfiguracja BPP nie potrzebuje zadnych podstawien (patrz mount
       # default.conf.template nizej), wiec filtr stracil racje bytu.
-    # Bez tego nginx (uid 101) nie ma prawa zapisu do wolumenu access logu
-    # i konczy sie [emerg] Permission denied — patrz komentarz przy nginx-log-init.
+    # Bez tego nginx (uid 101) nie ma prawa zapisu do wolumenu access logu ani
+    # odczytu kluczy prywatnych i konczy sie [emerg] Permission denied —
+    # patrz komentarz przy webserver-init.
     depends_on:
-      nginx-log-init:
+      webserver-init:
         condition: service_completed_successfully
     ports:
       - 80:80

@@ -140,7 +140,7 @@ chmod -R a+rX "$TMP"
 # i nie wstaje wcale. Test na bind moucie byl STRUKTURALNIE niezdolny to zlapac —
 # sprawdzal konfiguracje nginksa na innym typie storage'u niz produkcyjny.
 #
-# `chown` ponizej ODWZOROWUJE serwis `nginx-log-init` z
+# `chown` ponizej ODWZOROWUJE serwis `webserver-init` z
 # docker-compose.infrastructure.yml. Ze sam serwis jest w compose zadeklarowany
 # i wpiety w `depends_on` webservera pilnuje osobna asercja w tests/test_makefile.sh
 # — tutaj sprawdzamy, ze ten mechanizm faktycznie wystarcza nginksowi do startu.
@@ -408,7 +408,7 @@ if [ -n "$linie_logu" ] && [ "$linie_logu" -gt 0 ] 2>/dev/null; then
 else
     printf "  \033[31mFAIL\033[0m %-46s %s\n" \
         "nginx (uid 101) zapisuje bpp_access.log" \
-        "brak zapisu — sprawdz uprawnienia wolumenu (serwis nginx-log-init)"
+        "brak zapisu — sprawdz uprawnienia wolumenu (serwis webserver-init)"
     BLEDY=$((BLEDY + 1))
 fi
 

@@ -157,7 +157,14 @@ services:
       ofelia.job-run.letsencrypt_renew.schedule: "0 0 4 * * *"
       ofelia.job-run.letsencrypt_renew.image: "certbot/certbot:v3.3.0"
       ofelia.job-run.letsencrypt_renew.volume: "${COMPOSE_PROJECT_NAME}_acme-challenge:/var/www/certbot,${BPP_CONFIGS_DIR}/letsencrypt:/etc/letsencrypt"
-      ofelia.job-run.letsencrypt_renew.command: "renew --webroot -w /var/www/certbot --quiet --deploy-hook \"touch /etc/letsencrypt/.reload-needed\""
+      # deploy-hook robi DWIE rzeczy. Sentinel .reload-needed odbiera job-exec
+      # letsencrypt_reload 5 minut pozniej. Wczesniej jest chgrp/chmod, bo
+      # certbot zapisuje nowy klucz jako root:root 0600 (BASE_PRIVKEY_MODE),
+      # a nginx chodzi jako uid 101 — bez tego reload po odnowieniu odbilby
+      # sie o [emerg] cannot load certificate key ... Permission denied,
+      # czyli cert wygaslby mimo poprawnego renew. Grupa 101 = `nginx`
+      # w obrazie CRS; numerem, bo obraz certbota nie zna tej nazwy.
+      ofelia.job-run.letsencrypt_renew.command: "renew --webroot -w /var/www/certbot --quiet --deploy-hook \"chgrp -R 101 /etc/letsencrypt/live /etc/letsencrypt/archive 2>/dev/null; chmod -R g+rX /etc/letsencrypt/live /etc/letsencrypt/archive 2>/dev/null; touch /etc/letsencrypt/.reload-needed\""
 
   # === html2docx ===
   # OPCJONALNY sidecar konwersji HTML->DOCX (fallback gdy pandoc padnie, np.

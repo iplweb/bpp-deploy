@@ -77,6 +77,19 @@ parse_hosts() {
     echo "$1" | tr ',' '\n' | tr -d ' \t\r' | awk 'NF > 0'
 }
 
+# Hook odpalany przez certbota po KAZDYM udanym wystawieniu i odnowieniu.
+#
+# Certbot zapisuje klucz jako root:root 0600 (BASE_PRIVKEY_MODE = 0o600) i tworzy
+# live/ oraz archive/ jako 0700. Nginx w obrazie CRS chodzi jako uid 101, wiec bez
+# tej poprawki nie wejdzie do katalogu ani nie odczyta klucza:
+#   [emerg] cannot load certificate key ... Permission denied
+#
+# Grupa 101 = `nginx` w obrazie CRS. NUMEREM, bo hook wykonuje sie w kontenerze
+# certbota, ktory takiej nazwy nie zna. `g+rX` daje odczyt plikow i wejscie do
+# katalogow tylko grupie — klucz NIE staje sie czytelny dla swiata.
+# `accounts/` celowo nietkniete: to klucz konta ACME, nginx nie ma po co go czytac.
+LE_DEPLOY_HOOK='chgrp -R 101 /etc/letsencrypt/live /etc/letsencrypt/archive 2>/dev/null; chmod -R g+rX /etc/letsencrypt/live /etc/letsencrypt/archive 2>/dev/null; touch /etc/letsencrypt/.reload-needed'
+
 # Uruchamia certbot przez docker compose run.
 run_certbot() {
     docker compose --profile letsencrypt run --rm certbot "$@"
@@ -225,6 +238,7 @@ cmd_issue() {
     # na sam --staging: ekspansja pustej tablicy pod `set -u` to fatalny
     # "unbound variable" w bash < 4.4 (macOS ma systemowego basha 3.2).
     local certbot_args=(certonly
+        --deploy-hook "$LE_DEPLOY_HOOK"
         --webroot -w /var/www/certbot
         "${d_args[@]}"
         --cert-name "$CANONICAL_HOST"
@@ -341,7 +355,7 @@ cmd_renew() {
     echo ">>> certbot renew..."
     if ! run_certbot renew \
             --webroot -w /var/www/certbot \
-            --deploy-hook "touch /etc/letsencrypt/.reload-needed"; then
+            --deploy-hook "$LE_DEPLOY_HOOK"; then
         echo "" >&2
         echo "BLAD: certbot renew nie powiodl sie." >&2
         exit 1

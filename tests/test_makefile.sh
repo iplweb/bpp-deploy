@@ -358,23 +358,49 @@ test_compose_bind_mounts() {
         fi
     done
 
-    # nginx-log-init MUSI istniec i MUSI poprzedzac webserver.
+    # webserver-init MUSI istniec i MUSI poprzedzac webserver.
     #
-    # Obraz owasp/modsecurity-crs:nginx startuje nginksa jako uid 101, a swiezy
-    # wolumen nazwany Docker tworzy jako root:root — bez tego chownu nginx
-    # dostaje [emerg] Permission denied i CALY SERWIS LEZY. Zdarzylo sie na
-    # produkcji 2026-08-04.
+    # Obraz owasp/modsecurity-crs:nginx startuje nginksa jako uid 101. Swiezy
+    # wolumen nazwany Docker tworzy jako root:root, a klucze prywatne powstaja
+    # jako root 0600 (openssl i certbot) — bez poprawki uprawnien nginx dostaje
+    # [emerg] Permission denied i CALY SERWIS LEZY. Zdarzylo sie na produkcji
+    # 2026-08-04 (access log).
     #
     # `scripts/test-waf.sh` sprawdza, ze sam mechanizm wystarcza nginksowi do
     # startu, ale robi to wlasnym `docker run` — nie zauwazylby, gdyby serwis
-    # zniknal z compose. Stad ta asercja.
+    # zniknal z compose. Stad te asercje.
     local infra="$REPO_DIR/docker-compose.infrastructure.yml"
-    assert_file_contains "nginx-log-init zadeklarowany" '^  nginx-log-init:' "$infra"
-    assert_file_contains "nginx-log-init chownuje wolumen access logu" \
+    assert_file_contains "webserver-init zadeklarowany" '^  webserver-init:' "$infra"
+    assert_file_contains "webserver-init chownuje wolumen access logu" \
         'chown -R nginx:nginx /var/log/nginx-shared' "$infra"
-    assert_file_contains "nginx-log-init dziala jako root" 'user: "0:0"' "$infra"
-    assert_file_contains "webserver czeka na nginx-log-init" \
+    assert_file_contains "webserver-init naprawia certy manualne" \
+        'chown -R 0:nginx /etc/ssl/private' "$infra"
+    assert_file_contains "webserver-init naprawia certy Let's Encrypt" \
+        'chgrp -R nginx "\$d"' "$infra"
+    assert_file_contains "webserver-init dziala jako root" 'user: "0:0"' "$infra"
+    assert_file_contains "webserver czeka na webserver-init" \
         'condition: service_completed_successfully' "$infra"
+
+    # Klucz konta ACME NIE moze byc udostepniany nginksowi — mozna nim wystawiac
+    # i odwolywac certy. Poprawka obejmuje wylacznie live/ i archive/.
+    if grep -q 'chgrp -R nginx /etc/letsencrypt/accounts' "$infra"; then
+        fail "webserver-init udostepnia klucz konta ACME (accounts/)"
+    else
+        pass "webserver-init nie rusza klucza konta ACME"
+    fi
+
+    # Bez tego odnowienie certu miedzy restartami zostawiloby klucz nieczytelny
+    # dla nginksa i reload odbilby sie o Permission denied — cert wygaslby mimo
+    # poprawnego renew.
+    assert_file_contains "renew certbota poprawia uprawnienia klucza" \
+        'chgrp -R 101 /etc/letsencrypt/live' \
+        "$REPO_DIR/docker-compose.application.yml"
+    assert_file_contains "letsencrypt.sh ma hook uprawnien" \
+        'LE_DEPLOY_HOOK=' "$REPO_DIR/scripts/letsencrypt.sh"
+
+    # Klucz snakeoil nie moze zostac z domyslnym 0600 openssl-a.
+    assert_file_contains "snakeoil: klucz 0640" \
+        'chmod 0640 "\$_key"' "$REPO_DIR/scripts/generate-snakeoil-certs.sh"
 }
 
 # ============================================================
