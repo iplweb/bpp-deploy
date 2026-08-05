@@ -29,6 +29,56 @@ map $http_upgrade $connection_upgrade {
 }
 
 # ============================================================================
+# UTWARDZENIE BRZEGU — fingerprint i timeouty (kontekst http)
+# ============================================================================
+# server_tokens off: nginx domyslnie dokleja numer wersji do naglowka `Server:`
+# i do stron bledu (`nginx/1.27.4`). To dokladnie ta informacja, ktora reszta
+# konfiguracji ukrywa — blokade oddajemy jako 444, czyli BEZ sygnalu zwrotnego,
+# po czym w kazdej POPRAWNEJ odpowiedzi podajemy wersje serwera. Skaner
+# dopasowuje ja do listy CVE nie wysylajac nic podejrzanego, wiec zadna regula
+# CRS tego nie zobaczy.
+#
+# TO NIE JEST NOWA POLITYKA, TYLKO NAPRAWA REGRESJI PO NADPISANIU SZABLONU.
+# Obraz CRS ma `SERVER_TOKENS=off` w domyslnym srodowisku, ale dyrektywa,
+# ktora tej zmiennej uzywa (`server_tokens ${SERVER_TOKENS};`), siedzi w JEGO
+# `templates/conf.d/default.conf.template` — a wlasnie ten plik nadpisujemy
+# tym szablonem (patrz komentarz przy mouncie w docker-compose.infrastructure.yml).
+# Razem z generycznym reverse-proxy obrazu wypadl wiec takze `server_tokens`,
+# przez co nginx wracal do wbudowanego `on`. Deklarujemy to wprost, bo
+# ustawianie zmiennej SERVER_TOKENS w Compose NIC BY NIE DALO — nie ma juz
+# szablonu, ktory by ja czytal.
+#
+# Sam naglowek `Server: nginx` zostaje (bez numeru wersji). Usuniecie go
+# calkiem wymaga `more_clear_headers` z modulu headers-more — obraz CRS ten
+# modul laduje, ale to osobna decyzja: pusty/nietypowy `Server` sam w sobie
+# bywa sygnatura, a zysk jest zerowy.
+server_tokens off;
+
+# Timeouty fazy CZYTANIA ZADANIA I ODSYLANIA ODPOWIEDZI. Domyslne nginksowe
+# 60 s oznacza, ze klient moze trzymac polaczenie przez minute, wysylajac
+# naglowki po bajcie (slowloris); kazde takie polaczenie zajmuje slot workera
+# (WORKER_CONNECTIONS=1024 w obrazie). 15 s jest wielokrotnie ponad to, czego
+# potrzebuje najwolniejsze realne lacze do wyslania samych naglowkow.
+#
+# CZEGO TU CELOWO NIE MA: `client_body_timeout`. Obraz CRS ustawia je w
+# kontekscie http (nginx.conf.template) z domyslna wartoscia **10s**, czyli
+# ostrzejsza niz cokolwiek, co warto tu wpisac. Powtorzenie dyrektywy w tym
+# samym kontekscie to twardy blad startu ("directive is duplicate" -> [emerg],
+# caly serwis nie wstaje). Gdyby kiedys trzeba bylo ja zmienic, wlasciwym
+# miejscem jest zmienna CLIENT_BODY_TIMEOUT w environment webservera, nie ten
+# plik. To samo dotyczy KEEPALIVE_TIMEOUT (60s) i WORKER_CONNECTIONS.
+#
+# NIE MYLIC z proxy_*_timeout w _bpp-locations.conf (60/300/300 s): tamte
+# dotycza rozmowy nginx <-> Django i MUSZA zostac dlugie, bo raporty BPP licza
+# sie minutami. Te tutaj dotycza wylacznie rozmowy klient <-> nginx.
+#
+# send_timeout to przerwa w ODBIORZE przez klienta, a nie czas na cala
+# odpowiedz — wolne-ale-postepujace pobieranie duzego PDF-a z /media/ nie jest
+# zrywane.
+client_header_timeout 15s;
+send_timeout          30s;
+
+# ============================================================================
 # RATE LIMITING — strefy (kontekst http)
 # ============================================================================
 # Strefy limitow requestow uzywane przez locationy w _bpp-locations.conf

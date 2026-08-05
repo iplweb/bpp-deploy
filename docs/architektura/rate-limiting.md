@@ -10,6 +10,10 @@ Limity są **wbudowane w wersjonowany config** (dostarczany przez `git pull`),
 nie w `$BPP_CONFIGS_DIR/.env` — wchodzą w życie przy najbliższym `make up` lub
 reloadzie nginx, bez żadnej migracji `.env`.
 
+Rate limiting ogranicza **tempo** żądań, ale ich nie ocenia. Żądania, które nigdy
+nie powinny dojść do Django (sondy o `*.php`, prefiksy obcych CMS-ów), odcina
+[Utwardzenie brzegu](utwardzenie-brzegu.md); rozpoznane ataki — [WAF](waf.md).
+
 ## Trzy tiery
 
 Klucz limitu to `$binary_remote_addr` — realny IP klienta (nginx sam terminuje
