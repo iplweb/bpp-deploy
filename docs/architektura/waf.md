@@ -290,7 +290,11 @@ jednym przebiegu `make test-waf`: 8 linii error.log wobec 11 wpisów audit.
 
 **Oba wpisy dostają pola `modsec_*`** — bo to na linię z error.log patrzy człowiek
 w „Log Monitoring" (audit log to ściana JSON-a), a bez własnych pól dałoby się ją
-filtrować wyłącznie pełnotekstowo. Rozróżnia je **`modsec_src`**:
+filtrować wyłącznie pełnotekstowo. Te pola są dziś fundamentem dropdownu
+**`ModSecurity`** na tamtym dashboardzie (`wszystko` / `tylko WAF` / `bez WAF` —
+patrz [Dashboardy Grafany](../monitoring/dashboardy-grafany.md#log-monitoring)):
+`tylko WAF` to `modsec_src="nginx"`, a `bez WAF` to `modsec_src=""`, które łapie
+linie nieposiadające tego klucza w ogóle. Rozróżnia je **`modsec_src`**:
 
 | `modsec_src` | Co to | Ma `modsec_attack` / `modsec_rules` |
 |---|---|---|
