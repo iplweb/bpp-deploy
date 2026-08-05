@@ -272,6 +272,7 @@ truncate -s 0 "$BPP_CONFIGS_DIR/logs/autoupdate-cron.log"
 | `AUTOUPDATE_INTERVAL` | `7200` | Odstęp między cyklami w sekundach. |
 | `AUTOUPDATE_DB_BACKUP` | `0` (wył.) | `1` = `make db-backup` **przed** każdym auto-deployem. Gdy backup się nie uda, deploy jest przerywany (fail-safe). |
 | `AUTOUPDATE_SCREEN_NAME` | `bpp-autoupdate` | Nazwa sesji `screen` używana przez `make screen-with-autoupdate`. |
+| `AUTOUPDATE_WARNING_MINUTES` | — (wył.) | Gdy > 0, auto-deploy najpierw wywiesza baner na tyle minut, potem blokuje serwis, wdraża i odblokowuje. Szczegóły: [Przerwa techniczna z ostrzeżeniem](przerwa-techniczna.md). |
 | `AUTOUPDATE_CRON_SCHEDULE` | `*/15 * * * *` | Harmonogram wpisu-strażnika instalowanego przez `make setup-autoupdate-cron`. Akceptuje pięć pól cronowych albo makro (`@reboot`, `@hourly`, `@daily`, `@midnight`, `@weekly`, `@monthly`, `@yearly`, `@annually`). |
 | `AUTOUPDATE_CRON_LOG` | `$BPP_CONFIGS_DIR/logs/autoupdate-cron.log` | Plik, do którego strażnik dopisuje swoje wyjście; w tym samym katalogu ląduje kopia zapasowa crontaba. |
 

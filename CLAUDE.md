@@ -34,6 +34,7 @@ Operator topics and their canonical pages:
 - Resource limits: `docs/konfiguracja/limity-zasobow.md`
 - PostgreSQL versions/upgrade: `docs/konfiguracja/postgresql.md`
 - Make commands: `docs/eksploatacja/komendy.md`
+- Planned-downtime deploys (`run-with-warning`): `docs/eksploatacja/przerwa-techniczna.md`
 - Backups / server migration: `docs/eksploatacja/backup-i-rclone.md`, `docs/eksploatacja/przenosiny-serwera.md`
 - Monitoring / logging / slow queries: `docs/monitoring/*`
 - Services / healthchecks / Ofelia jobs: `docs/architektura/*`
@@ -217,6 +218,22 @@ Compose interpolates `$VAR` **before** the string reaches the container and cann
 ### Scheduled jobs / nightly restarts (Ofelia)
 
 Daily maintenance, SSL renew, log rotation, and staggered 05:00–05:25 nightly restarts (`kill 1` via read-only `docker.sock`) are Ofelia labels in the compose files. Full schedule: `docs/architektura/zadania-ofelia.md`.
+
+### Planned downtime — `make run-with-warning`
+
+Deploy session that warns users first: `make pull` → banner for N min → cutoff → `make run` → unblock (`scripts/deploy-with-warning.sh`, primitives in `scripts/site-down-warning.sh`, targets in `mk/deployment.mk`). **This repo holds ZERO countdown logic** — the banner/503 page and every state change belong to `django-countdown` (>= 0.3.0) in the BPP image; we only shell out to `manage.py`. Don't reintroduce a `manage.py shell` path writing to `SiteCountdown`. Operator doc: `docs/eksploatacja/przerwa-techniczna.md`.
+
+Contracts that are easy to break while "cleaning up":
+
+- **Default targets differ per upstream command**: `stop_countdown`/`show_countdown` hit **all** sites, `start_countdown`/`extend_countdown`/`shorten_countdown` only the **current** one — and `start_countdown` has **no `--all`**. Multi-host (`DJANGO_BPP_HOSTNAMES` → many `Site` rows, resolved per request by BPP's `SiteResolutionMiddleware`) therefore needs the `SITE_IDS` loop, or you block one domain and leave the rest open.
+- **Never `|| true` the heartbeat.** An empty target is *deliberately* a success for `extend_countdown --at-least`, so a non-zero exit really does mean "the dead-man's floor lapsed". Session logs it loudly and continues (a failed `exec` mid-recreate is expected); it must not silence it.
+- **The support probe must not pipe into `grep -q`.** Under `set -o pipefail`, `grep -q` closes the pipe on first match, the producer dies of SIGPIPE (141), and a *successful* match returns failure → random silent degradation to a deploy with no warning. Read the whole output first, then match in bash. Guarded by `test_site_down_warning_contract` in `tests/test_makefile.sh`.
+- **`BPP_SKIP_HEALTH_GATE=1` on `make run`** (same reason as `autoupdate.sh`), then invoke `post-deploy-check.sh` explicitly with `</dev/null` so its `[s]/[d]` prompt can't hang the session while the site is blocked.
+- **Trap is phase-dependent**: interrupted during the banner → `stop_countdown` (nothing happened); interrupted/failed after cutoff → **keep the block** (stack in unknown state) and let the heartbeat floor expire it.
+- `maintenance_until` serves two masters — the ETA users see and the dead-man's switch — reconciled as `max(operator ETA, now + FLOOR)`, which is exactly what `--at-least` computes DB-side.
+- Depends on `proxy_intercept_errors` staying **off** (see rate-limiting notes) — otherwise nginx swallows Django's 503 and shows `maintenance.html` instead of the countdown page.
+
+New vars (`SITE_DOWN_*`, `AUTOUPDATE_WARNING_MINUTES`) are all optional with in-script defaults — no `.env` migration needed. Tests: `make test-deploy-with-warning` (mocks docker/make) runs as **its own CI step**, next to `scripts/test-autoupdate.sh` which was added to CI at the same time — both exercise the `make run` path, so a regression in one tends to surface in the other. `tests/test_makefile.sh` keeps only the static contract assertions (`test_site_down_warning_contract`).
 
 ## Resource Limits
 

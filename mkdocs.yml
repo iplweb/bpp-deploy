@@ -96,6 +96,7 @@ nav:
   - Eksploatacja:
       - Najważniejsze komendy: eksploatacja/komendy.md
       - Aktualizacje i wersje obrazów: eksploatacja/aktualizacje.md
+      - Przerwa techniczna z ostrzeżeniem: eksploatacja/przerwa-techniczna.md
       - Baza danych: eksploatacja/baza-danych.md
       - Migracja bazy na stockowy postgres: eksploatacja/migracja-collation-stock-pg.md
       - Backup i rclone: eksploatacja/backup-i-rclone.md

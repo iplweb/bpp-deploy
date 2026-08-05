@@ -18,6 +18,21 @@ make stop               # Zatrzymaj usługi
 make restart-appserver  # Restart serwera aplikacji
 ```
 
+### Wdrożenie z uprzedzeniem użytkowników
+
+```bash
+make run-with-warning                      # pull → baner 5 min → run → odblokowanie
+make run-with-warning MINUTES=10 SERVICE=20 MESSAGE="Aktualizacja raportów"
+
+make enable-site-down-warning              # sam baner, bez wdrożenia
+make extend-site-down-warning MINUTES=+10  # przesuń deklarowany powrót
+make status-site-down-warning              # stan przerwy (JSON=1 = dane maszynowe)
+make disable-site-down-warning             # awaryjne odblokowanie strony
+```
+
+Pełny opis (fazy, zachowanie przy błędzie, multi-host, zabezpieczenie na wypadek
+padniętej sesji): [Przerwa techniczna z ostrzeżeniem](przerwa-techniczna.md).
+
 !!! note "Sprzątanie Dockera po `make up` / `make run`"
     Po **udanym** starcie (`--wait` — wszystkie usługi zdrowe) `make up` (a więc i
     `make run`) uruchamia `docker system prune -af` i wypisuje tylko ile miejsca
@@ -172,6 +187,7 @@ make test-waf                # Czy WAF blokuje ataki i przepuszcza legalny ruch 
 make test-alloy              # Czy pipeline logów nadaje poprawny poziom i pola modsec_*
 make test-docker-versions    # Logika mapowania digest ↔ CalVer
 make test-upgrade            # Próba generalna migracji na kopii produkcyjnej bazy
+make test-deploy-with-warning # Sesja wdrożenia z ostrzeżeniem (mocki, bez Dockera)
 ```
 
 `test-waf` i `test-alloy` **nie wymagają `.env`, działającej instalacji ani sieci
