@@ -1,5 +1,5 @@
 # Wspolny blok logging - Docker "local" driver (binarny, skompresowany zstd).
-# Retencja czasowa zyje w Loki (defaults/loki/local-config.yaml); te wartosci
+# Retencja czasowa zyje w Loki (LOKI_RETENTION_* w .env); te wartosci
 # to tylko "nie zapelniaj dysku hosta zanim Alloy nie zdazy wyslac logow".
 # LOG_MAX_SIZE/LOG_MAX_FILE mozna zmienic w $BPP_CONFIGS_DIR/.env.
 # Anchory nie przechodza przez granice include - kazdy compose file ma wlasny.

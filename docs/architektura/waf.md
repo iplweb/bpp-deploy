@@ -401,6 +401,52 @@ topk(10, sum by (modsec_rule_id, modsec_msg) (
 {service="webserver"} | modsec_attack = "sqli" | modsec_hostname = "bpp.example.org"
 ```
 
+### Pułapka filtrów ad-hoc {#pulapka-filtrow-ad-hoc}
+
+Grafana pokazuje przy komórkach tabeli i przy polach w szczegółach linii logu lupki
+**„Filter for value" / „Filter out value"**. Na polach `modsec_*` **nie wolno ich
+używać**: kliknięcie wygasza **wszystkie panele dashboardu** naraz — każdy pokaże
+„No data". Objaw wygląda jak awaria zbierania logów i nie ma nic wspólnego
+z rzeczywistym stanem WAF-a.
+
+Mechanizm. Filtr ad-hoc trafia do **selektora strumienia**:
+
+```logql
+{job="docker", service="webserver", modsec_msg="SQL Injection Attack Detected…"}
+                                    ^^^^^^^^^^ to jest structured metadata
+```
+
+Selektor strumienia jest rozwiązywany po indeksie strumieni, a `modsec_*` **nigdy**
+nie były labelami strumienia — celowo, bo `modsec_uri` × `modsec_client` wysadziłoby
+kardynalność indeksu (patrz [tabela pól](#pola-modsec_) wyżej). Żaden strumień nie
+pasuje, więc wynik jest pusty na każdym panelu. Poprawne miejsce to filtr **za**
+selektorem (`| modsec_msg = "…"`) i dokładnie tak robi to panel „Logs" — bo tam
+Grafana zna typ pola z odpowiedzi Loki.
+
+Do filtrów ad-hoc ten typ nie jest przekazywany (Grafana 12.4.2,
+`datasource.ts` → `addAdHocFilters()` woła `addLabelToQuery()` bez argumentu
+`labelType`), a `modifyQuery.ts` bez niego zgaduje po obecności parsera w zapytaniu.
+Nasze zapytania parsera nie mają, więc filtr zawsze ląduje w selektorze.
+
+**Przycisku nie da się ukryć** z poziomu JSON-a dashboardu:
+`setDashboardPanelContext.ts` ustawia `onAddAdHocFilter` bezwarunkowo dla każdego
+panelu na źródle wspierającym filtry ad-hoc, a `filterable: false` (ustawione na
+wszystkich naszych tabelach) dotyczy filtra kolumny, nie tego menu. Dlatego obroną
+są **własne, działające filtry**: zmienne u góry dashboardu i data linki na wierszach
+tabel — [opis](../monitoring/dashboardy-grafany.md#waf-modsecurity-owasp-crs).
+
+Jeśli już w to wejdziesz: usuń chip `Filters` nad dashboardem (×) albo przeładuj
+adres bez `&var-Filters=…`.
+
+!!! note "Jedno ograniczenie klikania po ścieżce"
+    Data link po `modsec_uri` cytuje wartość literalnie (`\Q…\E`), żeby metaznaki
+    regexa w ścieżkach skanerów (`?`, `+`, `.`) nie zmieniały znaczenia filtra.
+    Ścieżka zawierająca **literalny backslash** (np. sonda ThinkPHP
+    `…/\think\app/…`, jeśli trafi do logu w postaci niezakodowanej) wymagałaby
+    podwojenia także jego — czego data link Grafany nie potrafi — i taki klik wróci
+    pusty. Postać `%5C`, czyli ta realnie logowana przez ModSecurity, działa
+    normalnie.
+
 ## Sprawdzenie, czy WAF dziala — `make test-waf`
 
 ```bash

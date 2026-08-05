@@ -28,18 +28,37 @@ przez gzip na segmentach) — to bufor zanim Alloy wyśle logi do Loki, nie rete
 
 ## Loki — retencja czasowa per service
 
-Konfigurowana w `defaults/loki/local-config.yaml` przez `limits_config.retention_stream`
-po labelu `service` (ustawianym przez Alloy z `com.docker.compose.service`):
+Konfigurowana przez `limits_config.retention_stream` po labelu `service` (ustawianym
+przez Alloy z `com.docker.compose.service`):
 
-| Service | Retencja | Po co |
-|---|---|---|
-| `appserver` | 90 d | logi Django do debugowania incydentów |
-| `dbserver` | 90 d | slow queries, locki |
-| `webserver` | 180 d | access log nginx, compliance/ruch |
-| (default) | 30 d | workery, infrastruktura, monitoring |
+| Service | Zmienna w `.env` | Domyślnie | Po co |
+|---|---|---|---|
+| `appserver` | `LOKI_RETENTION_APPSERVER` | `2160h` (90 d) | logi Django do debugowania incydentów |
+| `dbserver` | `LOKI_RETENTION_DBSERVER` | `2160h` (90 d) | slow queries, locki |
+| `webserver` | `LOKI_RETENTION_WEBSERVER` | `4320h` (180 d) | access log nginx, compliance/ruch |
+| (default) | `LOKI_RETENTION_DEFAULT` | `720h` (30 d) | workery, infrastruktura, monitoring |
 
-Strojenie: edytuj `$BPP_CONFIGS_DIR/loki/local-config.yaml` + `docker compose restart loki`.
-Selektory: `{service="<nazwa-serwisu-compose>"}`.
+**Strój przez `.env`, nie przez plik.** `$BPP_CONFIGS_DIR/loki/local-config.yaml` jest
+**renderowany i nadpisywany przy każdym `make up`** — ręczna zmiana w nim przepadnie
+przy najbliższym `git pull`. Poprawnie:
+
+```bash
+# w $BPP_CONFIGS_DIR/.env
+LOKI_RETENTION_WEBSERVER=8760h   # rok
+
+make up     # renderuje config i przeładowuje Loki
+```
+
+Format wartości to `<liczba><jednostka>` (`h`, `d`, `m`, `s`) — dokładnie to, co
+przyjmuje Loki. Wartość w innym formacie jest **ignorowana** i podmieniana na
+domyślną z repo: Loki z niepoprawnym `duration` w ogóle nie wstaje, a wyglądałoby to
+jak awaria monitoringu, nie jak literówka w `.env`.
+
+!!! info "Migracja starszych instalacji jest automatyczna"
+    Do sierpnia 2026 retencja siedziała wprost w `local-config.yaml` i ta strona
+    kazała edytować ten plik. Przy pierwszym `make up` po aktualizacji wartości
+    zostają **odczytane z Twojego pliku** i przepisane do `.env` — Twoje strojenie
+    jest zachowane, nie trzeba nic robić ręcznie.
 
 ## Poziom logu (`detected_level`)
 

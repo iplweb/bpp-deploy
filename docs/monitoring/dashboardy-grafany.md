@@ -17,6 +17,12 @@ panele; klik w serię na wykresie ustawia `var-level`, klik w wiersz tabeli —
 `var-service` (data linki); drag-select po wykresie zawęża czas. Panel „Logs"
 z `enableInfiniteScrolling`.
 
+Tu obowiązuje to samo ostrzeżenie co na dashboardzie WAF-a: **nie używaj lupek
+„Filter for value"** przy polach `modsec_*` w szczegółach linii logu — wygaszą
+wszystkie trzy panele naraz
+([dlaczego](../architektura/waf.md#pulapka-filtrow-ad-hoc)). Filtrowanie po
+`service`, `container` i `detected_level` (labele strumienia) działa normalnie.
+
 Czwarty dropdown, **`ModSecurity`**, izoluje albo wycisza trafienia WAF-a:
 
 | Stan | Co pokazuje |
@@ -39,9 +45,26 @@ unikalne adresy IP, unikalne reguły), oś czasu z podziałem `blocked` / `detec
 ranking reguł wiodących, kategorie ataków, najaktywniejsze adresy IP, najczęściej
 atakowane ścieżki, rozkład anomaly score i surowe wpisy audit logu.
 
-Filtry u góry: **Vhost** (regex po nazwie hosta — istotne przy multi-host) i **Akcja**
+Filtry u góry: **Vhost** (regex po nazwie hosta — istotne przy multi-host), **Akcja**
 (`blocked` = połączenie zerwane; `detected` = trafienie na ścieżce wyjętej z blokowania
-regułami 10002/10003, zalogowane ale przepuszczone).
+regułami 10002/10003, zalogowane ale przepuszczone) oraz **Reguła**, **Atak**,
+**Adres IP**, **Ścieżka**, **Anomaly score** — wszystkie regexowe, domyślnie `.*`.
+
+Pięć ostatnich ustawia się **klikiem w wiersz tabeli**: klik w regułę w rankingu
+zawęża cały dashboard do tej reguły, klik w adres IP — do tego adresu, i tak dalej.
+Klik zachowuje pozostałe filtry, więc dają się składać („co ten adres IP robił na
+tej ścieżce"). Wyczyścisz je wpisując `.*` z powrotem w pole u góry.
+
+!!! warning "Nie używaj „Filter for value" z menu komórki"
+    Grafana pokazuje przy komórkach tabeli i przy polach w szczegółach linii logu
+    lupki **„Filter for value" / „Filter out value"**. Na polach `modsec_*` one
+    **wywalają cały dashboard** — wszystkie panele pokażą „No data". Zamiast tego
+    klikaj w sam wiersz (data link) albo edytuj filtry u góry.
+
+    Powód i dlaczego tego przycisku nie da się ukryć:
+    [Pułapka filtrów ad-hoc](../architektura/waf.md#pulapka-filtrow-ad-hoc).
+    Jeśli już w to wejdziesz — usuń chip `Filters` nad dashboardem (×) albo
+    przeładuj adres bez `&var-Filters=…`.
 
 Źródłem danych są pola `modsec_*` wyciągane z audit logu przez Alloy — opis pól i
 przykładowe zapytania: [WAF](../architektura/waf.md#logi-waf-a-w-grafanie).

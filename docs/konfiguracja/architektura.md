@@ -43,6 +43,7 @@ configi (`loki/`, `netdata/health.d/`, `netdata/go.d/`) przeżywają aktualizacj
     - `grafana/provisioning/datasources/datasources.yaml.tpl`
     - `netdata/netdata.conf`
     - `alloy/config.alloy`
+    - `loki/local-config.yaml`
 
 To dlatego, że są to wersjonowane, „read-only-w-UI" artefakty: zaktualizowany dashboard
 albo datasource w repo ma trafić na żywe wdrożenie automatycznie z `git pull && make up`,
@@ -65,8 +66,7 @@ strój przez `.env`.**
 
 Pipeline logów w Alloy (wykrywanie poziomu, rozkładanie trafień WAF-a na pola) to
 **kod wersjonowany, nie konfiguracja użytkownika** — nie ma w nim ani jednego
-pokrętła opisanego jako do edycji; wszystko, co operator stroi, siedzi w `.env`
-albo w `loki/local-config.yaml`.
+pokrętła opisanego jako do edycji; wszystko, co operator stroi, siedzi w `.env`.
 
 Przy `copy_if_missing` ten plik był **zamrożony w stanie z dnia instalacji na
 zawsze**. Dotknęło to konkretnej zmiany: mapowanie severity OWASP CRS na poziom
@@ -83,11 +83,26 @@ Analogicznie **`webserver-init`** (jednorazowy serwis w
 wolumenu access logu oraz kluczy prywatnych — nginx w obrazie CRS chodzi jako
 uid 101 i bez tego nie wstaje. Szczegóły: [SSL](ssl.md#uprawnienia-kluczy-prywatnych).
 
-Uwaga na kolejność zależności: wyłączenie wbudowanego wykrywania poziomu w Loki
-**nie** mogło pojechać tą samą drogą, bo `loki/local-config.yaml` zostaje przy
-`copy_if_missing` (trzyma retencję, którą operator stroi). Dlatego jedzie flagą
-CLI w `docker-compose.monitoring.yml` — patrz
-[Logowanie](../monitoring/logowanie.md#poziom-logu-detected_level).
+### `loki/local-config.yaml` — renderowany host-side
+
+Ostatni config monitoringu, który został przeniesiony na force-sync (sierpień 2026).
+Przedtem był `copy_if_missing`, czyli — tak jak `config.alloy` przed `60ea290` —
+**zamrożony w stanie z dnia instalacji na zawsze**: żadna zmiana schematu, limitów
+czy compactora nie docierała na działające wdrożenia. Widać to po obejściu, które
+z tego wynikło: wyłączenie wbudowanego wykrywania poziomu logu w Loki musiało
+pojechać **flagą CLI** w `docker-compose.monitoring.yml`, bo kluczem w tym pliku
+nie miało jak — patrz [Logowanie](../monitoring/logowanie.md#poziom-logu-detected_level).
+
+Blokadą była jedna rzecz: retencja per-stream, którą operator ma prawo dopasować do
+swojego dysku. Siedzi teraz w `.env` (`LOKI_RETENTION_DEFAULT`, `_APPSERVER`,
+`_DBSERVER`, `_WEBSERVER`), a plik jest renderowany z
+`defaults/loki/local-config.yaml.tpl` — dokładnie tym samym mechanizmem co
+`netdata.conf`. **Nie edytuj `local-config.yaml` ręcznie — strój przez `.env`**
+([tabela wartości](../monitoring/logowanie.md#loki-retencja-czasowa-per-service)).
+
+Istniejące instalacje nie wymagają żadnego ręcznego kroku: przy pierwszym `make up`
+wartości zostają odczytane ze starego pliku i przepisane do `.env`, więc ręczne
+strojenie przeżywa aktualizację.
 
 ### `datasources.yaml.tpl` — dlaczego force-sync
 
