@@ -939,9 +939,25 @@ test_nginx_config_valid() {
     # i sprawdzamy czy 30-render-bpp-vhosts.sh wybiera wlasciwa sciezke
     # (per-host > canonical/SAN > manual fallback).
 
-    mkdir -p "$ngx_dir/letsencrypt/live"
+    # KAZDY scenariusz dostaje WLASNE drzewo katalogow, montowane pod ta sama
+    # sciezka w kontenerze. NIE WOLNO tego uproscic do jednego katalogu
+    # modyfikowanego miedzy przebiegami (`rm` + kolejny `docker run`) —
+    # na macOS (Docker Desktop / OrbStack) cache atrybutow bind-mounta jest
+    # WSPOLDZIELONY MIEDZY KONTENERAMI i po usunieciu pliku na hoscie kolejny
+    # kontener dostaje NIESWIEZY, pozytywny `stat`:
+    #     ls  (readdir) -> katalog pusty      (swieze)
+    #     [ -f ] (stat) -> prawda             (z cache)
+    #     fopen         -> ENOENT             (prawda o dysku)
+    # 30-render-bpp-vhosts.sh wybiera sciezke certu wlasnie przez `[ -f ]`,
+    # wiec renderowal LE-owy vhost dla nieistniejacego certu, a `nginx -t`
+    # wywracal sie na [emerg] cannot load certificate. Test 14e byl przez to
+    # czerwony na macOS i zielony w CI (Linux — bind-mount bez cache'u).
+    # Sprawdzone eksperymentalnie 2026-08-05; `sleep` NIE pomaga (cache
+    # unieważnia sie przy dostepie, nie po czasie).
+    mkdir -p "$ngx_dir/le-per-host/live" "$ngx_dir/le-canonical/live" \
+             "$ngx_dir/le-none/live"
 
-    docker run --rm -v "$ngx_dir/letsencrypt:/le" --entrypoint sh nginx:1.30.2 -c '
+    docker run --rm -v "$ngx_dir/le-per-host:/le" --entrypoint sh nginx:1.30.2 -c '
         apt-get update >/dev/null 2>&1 && apt-get install -y openssl >/dev/null 2>&1
         for h in bpp.federacja.pl bpp.wizja.pl bpp.ufam.pl; do
             mkdir -p "/le/live/$h"
@@ -951,13 +967,18 @@ test_nginx_config_valid() {
         done
     ' || { fail "stub LE cert generation"; rm_rf_root "$ngx_dir"; return; }
 
+    # Kopia host-side na NOWA sciezke — zaden kontener jej wczesniej nie
+    # stat-owal, wiec nie ma czego serwowac z cache'u. `le-none` zostaje puste.
+    cp -R "$ngx_dir/le-per-host/live/bpp.federacja.pl" \
+          "$ngx_dir/le-canonical/live/bpp.federacja.pl"
+
     # --- Test 14c: per-host LE certy obecne dla wszystkich hostow ---
     rm -f "$ngx_dir/out"/vhost-*.conf "$ngx_dir/out/rendered-default.conf"
     local out_c
     out_c=$(_run_nginx_t "$ngx_dir" \
         -e DJANGO_BPP_HOSTNAMES="bpp.federacja.pl,bpp.wizja.pl,bpp.ufam.pl" \
         -e DJANGO_BPP_SSL_MODE=letsencrypt \
-        -v "$ngx_dir/letsencrypt:/etc/letsencrypt:ro" \
+        -v "$ngx_dir/le-per-host:/etc/letsencrypt:ro" \
         -v "$ngx_dir/out:/out" 2>&1 || true)
     if echo "$out_c" | grep -q "syntax is ok" && echo "$out_c" | grep -q "test is successful"; then
         pass "nginx -t (LE per-host)"
@@ -977,15 +998,15 @@ test_nginx_config_valid() {
     fi
 
     # --- Test 14d: SAN — tylko canonical (pierwszy host) ma LE cert ---
-    # Usun per-host certy dla 2-go i 3-go hosta. Zostaje tylko canonical.
+    # Drzewo `le-canonical` ma WYLACZNIE canonical (przygotowane wyzej, nie
+    # przez kasowanie w locie — patrz komentarz o cache'u bind-mounta).
     # Wszystkie 3 vhosty powinny wskazywac na canonical fullchain.
-    rm_rf_root "$ngx_dir/letsencrypt/live/bpp.wizja.pl" "$ngx_dir/letsencrypt/live/bpp.ufam.pl"
     rm -f "$ngx_dir/out"/vhost-*.conf "$ngx_dir/out/rendered-default.conf"
     local out_d
     out_d=$(_run_nginx_t "$ngx_dir" \
         -e DJANGO_BPP_HOSTNAMES="bpp.federacja.pl,bpp.wizja.pl,bpp.ufam.pl" \
         -e DJANGO_BPP_SSL_MODE=letsencrypt \
-        -v "$ngx_dir/letsencrypt:/etc/letsencrypt:ro" \
+        -v "$ngx_dir/le-canonical:/etc/letsencrypt:ro" \
         -v "$ngx_dir/out:/out" 2>&1 || true)
     if echo "$out_d" | grep -q "syntax is ok" && echo "$out_d" | grep -q "test is successful"; then
         pass "nginx -t (LE SAN — canonical only)"
@@ -1007,13 +1028,14 @@ test_nginx_config_valid() {
     # --- Test 14e: SSL_MODE=letsencrypt ale BRAK LE certow -> fallback manual ---
     # Soft-fallback to manual paths zeby nginx wstal na snakeoil zanim user
     # wystawi LE cert (typowy first-deploy scenariusz).
-    rm_rf_root "$ngx_dir/letsencrypt/live/bpp.federacja.pl"
+    # Drzewo `le-none` jest puste OD POCZATKU — celowo, zamiast kasowac certy
+    # z drzewa uzytego przez poprzedni kontener (patrz komentarz o cache'u).
     rm -f "$ngx_dir/out"/vhost-*.conf "$ngx_dir/out/rendered-default.conf"
     local out_e
     out_e=$(_run_nginx_t "$ngx_dir" \
         -e DJANGO_BPP_HOSTNAMES="bpp.federacja.pl,bpp.wizja.pl,bpp.ufam.pl" \
         -e DJANGO_BPP_SSL_MODE=letsencrypt \
-        -v "$ngx_dir/letsencrypt:/etc/letsencrypt:ro" \
+        -v "$ngx_dir/le-none:/etc/letsencrypt:ro" \
         -v "$ngx_dir/out:/out" 2>&1 || true)
     if echo "$out_e" | grep -q "syntax is ok" && echo "$out_e" | grep -q "test is successful"; then
         pass "nginx -t (LE mode, brak certow -> fallback manual)"
