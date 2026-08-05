@@ -238,12 +238,38 @@ PRZYPADKI=(
   "BLOK|path traversal /etc/passwd|?plik=../../../../etc/passwd"
   "BLOK|proba pobrania .env|.env"
   "BLOK|proba pobrania .git/config|.git/config"
-  # phpMyAdmin i inne sondy o *.php NIE sa blokowane na brzegu — lapie je
-  # dopiero MaliciousRequestBlockingMiddleware w Django (lista BLOCKED_EXTENSIONS
-  # w bpp/src/bpp/middleware.py) i odpowiada 444. Tu backend jest atrapa, wiec
-  # widzimy "pass" — i to jest POPRAWNY wynik dla tej warstwy.
-  "PASS|sonda o phpMyAdmin (blokuje ja Django, nie nginx)|phpmyadmin/index.php"
+  # --- rozszerzenia wykonywalne: 444 juz na brzegu ---
+  # Do 08.2026 te sondy przechodzily przez nginksa i lapal je dopiero
+  # MaliciousRequestBlockingMiddleware w Django (BLOCKED_EXTENSIONS w
+  # bpp/src/bpp/middleware.py). Ochrona byla, ale kosztowala runde do
+  # appservera; teraz konczy sie na brzegu. Warianty wersjonowane pochodza
+  # z realnych logow produkcji (72 h, 05.08.2026) — to one obnazyly, ze
+  # wyliczenie `php|php3|php5|php7` przepuszcza 3 z 5 trafien.
+  "BLOK|sonda o phpMyAdmin (*.php)|phpmyadmin/index.php"
+  "BLOK|wersjonowane rozszerzenie .php73|zup.php73"
+  "BLOK|wersjonowane rozszerzenie .php56|qaez.php56"
+  "BLOK|.PhP7 — wariant wielkosci liter|randkeyword.PhP7"
+  "BLOK|sonda o .aspx|default.aspx"
+  # --- prefiksy obcych aplikacji ---
+  "BLOK|prefiks WordPressa /wp-admin/|wp-admin/"
+  "BLOK|prefiks /wp-json/|wp-json/"
+  "BLOK|Tomcat /manager/html|manager/html"
+  "BLOK|Spring /actuator/|actuator/health"
+  # --- niepodstawione literaly szablonow ---
+  # Wariant z `+` to REGRESJA, ktora ten test ma pilnowac: stary wzorzec
+  # `\{\{\s*clickURL\s*\}\}` go NIE lapal, bo nginx nie dekoduje `+` w sciezce
+  # na spacje. Produkcja dostawala 11 takich zadan na 72 h i wszystkie szly
+  # do Django.
+  "BLOK|literal {{ clickURL }} ze spacja|bpp/rekord/x/%7B%7B%20clickURL%20%7D%7D"
+  "BLOK|literal {{+clickURL+}} z plusem (regresja)|bpp/rekord/x/%7B%7B+clickURL+%7D%7D"
+  "BLOK|literal \${todayFeature.link} (template JS)|bpp/uczelnia/UP/%24%7BtodayFeature.link%7D"
   # --- legalny ruch BPP: MUSI przejsc ---
+  # Kontrole granic nowych regul. `/admin/` nie moze sie zlapac na
+  # `administrator` (stad `(/|$)` we wzorcu), a `.js` w /static/ nie moze
+  # wpasc pod blokade rozszerzen — regex bije prefiks, wiec pomylka w tej
+  # liscie zabralaby serwisowi cala statyke.
+  "PASS|/admin/ NIE lapie sie na 'administrator'|admin/"
+  "PASS|statyk .js nie jest blokowany|static/js/app.js"
   "PASS|eksport raportu HTML|nowe_raporty/autor/123/2000/2020/?_export=html&_tzju=False"
   "PASS|eksport z sortowaniem|nowe_raporty/autor/1/1990/2020/?_export=xlsx&_tzju=True&sort=-Pkt.%20MNiSW"
   "PASS|wyszukiwanie: angielskie 'select ... from'|bpp/szukaj/?q=Select%20topics%20from%20organic%20chemistry"
@@ -411,6 +437,33 @@ else
         "nginx (uid 101) zapisuje bpp_access.log" \
         "brak zapisu — sprawdz uprawnienia wolumenu (serwis webserver-init)"
     BLEDY=$((BLEDY + 1))
+fi
+
+# Naglowek `Server` nie moze niesc numeru wersji (server_tokens off).
+#
+# Ta asercja istnieje, bo wlasnosc jest KRUCHA W NIEOCZYWISTY SPOSOB: obraz CRS
+# ma `SERVER_TOKENS=off`, ale dyrektywa czytajaca te zmienna siedzi w JEGO
+# szablonie conf.d/default.conf.template — ktory my nadpisujemy wlasnym. Wersja
+# wyciekala wiec mimo poprawnego ustawienia w obrazie, a jedynym objawem byl
+# naglowek, ktorego nikt nie ogladal. Bez tego testu identyczna regresja wroci
+# przy kazdym wiekszym przepisaniu default.conf.template.
+echo
+printf "%-6s %-46s %s\n" "WYNIK" "FINGERPRINT SERWERA" "SZCZEGOLY"
+printf -- '----------------------------------------------------------------------------------\n'
+LACZNIE=$((LACZNIE + 1))
+naglowek_server=$(curl -skI --http1.1 --max-time 8 --resolve "$HOST_NAME:$PORT:127.0.0.1" \
+    "https://$HOST_NAME:$PORT/healthz" 2>/dev/null | grep -i '^server:' | tr -d '\r')
+if [ -z "$naglowek_server" ]; then
+    printf "  \033[31mFAIL\033[0m %-46s %s\n" \
+        "brak naglowka Server w odpowiedzi" "nie udalo sie odczytac naglowkow"
+    BLEDY=$((BLEDY + 1))
+elif printf '%s' "$naglowek_server" | grep -q '[0-9]'; then
+    printf "  \033[31mFAIL\033[0m %-46s %s\n" \
+        "wersja nginksa wycieka w naglowku Server" "$naglowek_server"
+    BLEDY=$((BLEDY + 1))
+else
+    printf "  \033[32mOK\033[0m   %-46s %s\n" \
+        "Server bez numeru wersji (server_tokens off)" "$naglowek_server"
 fi
 
 echo
