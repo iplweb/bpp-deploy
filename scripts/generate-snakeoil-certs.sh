@@ -59,6 +59,18 @@ gen_cert() {
         -out "$_cert" \
         -subj "/CN=$_host" \
         -addext "subjectAltName=DNS:$_host" 2>/dev/null
+
+    # openssl zostawia klucz z trybem 0600 i wlasnoscia tego, kto uruchomil
+    # skrypt (na serwerze: root). Nginx w obrazie CRS chodzi jako uid 101, wiec
+    # tak zostawiony klucz jest dla niego NIECZYTELNY i webserver nie wstaje:
+    #   [emerg] cannot load certificate key ... Permission denied
+    #
+    # Tutaj ustawiamy sam TRYB (0640 = odczyt dla wlasciciela i grupy, nic dla
+    # swiata). GRUPE nadaje `webserver-init` z docker-compose.infrastructure.yml
+    # — musi to zrobic kontener, bo dopiero tam `nginx` to znana nazwa; na hoscie
+    # gid 101 moze nalezec do zupelnie innej grupy systemowej.
+    chmod 0640 "$_key"
+    chmod 0644 "$_cert"
     echo "  + $_cert (CN=$_host, 365 dni)"
 }
 

@@ -50,6 +50,25 @@ instalacja nie wymaga żadnych zmian).
 | `MODSEC_REQ_BODY_LIMIT` | `132120576` (126 MiB) | `13107200` (12,5 MiB) | **musi być ≥ `client_max_body_size 120M`** |
 | `MODSEC_REQ_BODY_NOFILES_LIMIT` | `4194304` (4 MiB) | `131072` (128 KiB) | duże formularze BPP |
 | `MODSEC_AUDIT_LOG_PARTS` | `AHZ` | `ABIJDEFHZ` | **bez ciał i bez nagłówków w logu** |
+| `ALLOWED_HTTP_VERSIONS` | + `HTTP/3 HTTP/3.0` | `HTTP/1.0 HTTP/1.1 HTTP/2 HTTP/2.0` | **bez tego h3 jest blokowane w całości** |
+
+!!! danger "Nie usuwaj HTTP/3 z `ALLOWED_HTTP_VERSIONS`"
+    Reguła **920430** („HTTP protocol version is not allowed by policy") ma
+    severity CRITICAL = **5 punktów**, czyli dokładnie próg blokowania — jedno
+    trafienie wystarczy, żeby zerwać połączenie. Domyślna lista CRS nie zna
+    HTTP/3, a my h3 włączamy świadomie (`listen 443 quic` + `Alt-Svc`), więc
+    **każde** żądanie h3 dostawałoby 444.
+
+    Objaw jest wyjątkowo paskudny: przeglądarka raz przełączona na h3 trzyma się
+    go przez dobę (`Alt-Svc: ma=86400`), więc to pełna niedostępność serwisu bez
+    żadnego komunikatu. Deklarujemy wersję zamiast wyłączać regułę — polityka
+    wersji protokołu zostaje egzekwowana.
+
+!!! warning "Obraz CRS to tag pływający"
+    `owasp/modsecurity-crs:nginx` nie jest przypięty do wersji. Przebudowa
+    z 2026-08-05 zaczęła egzekwować 920430 i **zablokowała h3** — złapał to
+    dopiero `make test-waf` w CI, dzień po tym, jak ten sam test przechodził.
+    Po każdej aktualizacji obrazu warto puścić `make test-waf`.
 
 !!! danger "Nie przywracaj domyślnych `MODSEC_AUDIT_LOG_PARTS`"
     Domyślne `ABIJDEFHZ` zawiera `I` (ciało żądania) i `E` (ciało odpowiedzi,

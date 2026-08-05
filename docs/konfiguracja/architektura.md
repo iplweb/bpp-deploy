@@ -78,6 +78,11 @@ dotarło na żadne istniejące wdrożenie. Ta sama pułapka co przy
     Zmiany przepadną przy najbliższym `make up`. Jeśli potrzebujesz innego
     zachowania pipeline'u logów — to zmiana w repo, nie w katalogu konfiguracyjnym.
 
+Analogicznie **`webserver-init`** (jednorazowy serwis w
+`docker-compose.infrastructure.yml`) naprawia przy każdym `make up` uprawnienia
+wolumenu access logu oraz kluczy prywatnych — nginx w obrazie CRS chodzi jako
+uid 101 i bez tego nie wstaje. Szczegóły: [SSL](ssl.md#uprawnienia-kluczy-prywatnych).
+
 Uwaga na kolejność zależności: wyłączenie wbudowanego wykrywania poziomu w Loki
 **nie** mogło pojechać tą samą drogą, bo `loki/local-config.yaml` zostaje przy
 `copy_if_missing` (trzyma retencję, którą operator stroi). Dlatego jedzie flagą
