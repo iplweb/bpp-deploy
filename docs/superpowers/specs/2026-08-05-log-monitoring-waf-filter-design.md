@@ -37,12 +37,18 @@ migracji i bez kroku ręcznego.
   "type": "custom",
   "name": "waf",
   "label": "ModSecurity",
+  "description": "„tylko WAF\" = linie error.log, czyli żądania, na których CRS przekroczył próg anomalii (poziom warn — przy Level=error wynik będzie pusty). Trafienia podprogowe widać wyłącznie na dashboardzie WAF.",
   "query": "wszystko : | modsec_src=~\".*\", tylko WAF : | modsec_src=\"nginx\", bez WAF : | modsec_src=\"\"",
+  "options": [ /* zmaterializowane, z flagami `selected` — jak w waf.json */ ],
   "multi": false,
   "includeAll": false,
   "current": { "text": "wszystko", "value": "| modsec_src=~\".*\"" }
 }
 ```
+
+`options` materializujemy jawnie (nie licząc na wyprowadzenie ich z `query`), bo
+tak wygląda wzorcowa zmienna `custom` w `waf.json` — provisioning jest wtedy
+przewidywalny niezależnie od tego, jak dana wersja Grafany parsuje `query`.
 
 | Opcja | Wartość | Efekt |
 |---|---|---|
@@ -109,6 +115,33 @@ Asymetria (`="nginx"` vs `=""`) jest zamierzona i wynika z kontraktu bliźniakó
 - filtr **negatywny** musi wyciąć **oba** — linia `audit` też ma `modsec_src`
   ≠ `""`, więc `modsec_src=""` usuwa jedno i drugie.
 
+### Co „tylko WAF" pokazuje, a czego nie — i dlaczego to OK
+
+`modsec_src="nginx"` to linie error.log, a tam trafiają **wyłącznie reguły
+decyzyjne** (`949110`, `959100`). Konsekwencja: trafienie **podprogowe** —
+reguła się zapaliła, ale anomaly score nie przekroczył progu — zostawia wpis
+audit **bez bliźniaka nginx** i w stanie „tylko WAF" **jest niewidoczne**.
+
+To jest akceptowalne i zamierzone: „Log Monitoring" ma odpowiadać na pytanie
+„czy coś mi tu blokuje ruch", a nie „jaka jest pełna aktywność WAF-a" — od tego
+drugiego jest dashboard `waf.json`. Alternatywa (`modsec_src!=""`) wpuściłaby
+ścianę JSON-a, czyli dokładnie ten szum, który usuwamy. Ograniczenie musi być
+jednak napisane w `description` zmiennej, żeby operator nie wziął pustego wyniku
+za „nic się nie dzieje".
+
+Symetrycznie: „bez WAF" (`modsec_src=""`) wycina **wszystkie** wpisy audit,
+także te podprogowe.
+
+!!! note "Zależność od równolegle wdrażanego `MODSEC_AUDIT_LOG_RELEVANT_STATUS`"
+    W drzewie roboczym jest niezacommitowana zmiana ustawiająca
+    `MODSEC_AUDIT_LOG_RELEVANT_STATUS: ^$`, dzięki której do audit logu przestają
+    wpadać transakcje logowane *po kodzie statusu* (401 z `auth_request`, 429
+    z `limit_req`, 5xx z leżącego appservera — wpisy z `"messages":[]`).
+    Bez tej zmiany „bez WAF" wycinałoby także te wpisy, czyli ruch, którego WAF
+    w ogóle nie dotknął. Po niej zbiór „linie z `modsec_src`" == „linie,
+    na których zapaliła się reguła". Ten spec **zakłada, że tamta zmiana wchodzi**;
+    gdyby wypadła, trzeba dopisać zdanie ostrzegawcze do `description` zmiennej.
+
 ### Dlaczego domyślnie „wszystko"
 
 Zmiana domyślnej opcji na „bez WAF" ukryłaby ataki przed operatorem, który nie
@@ -126,18 +159,56 @@ Poszlaki za: panel „Kategorie ataków" w `waf.json` używa `| modsec_attack !=
 właśnie po to, by odsiać wpisy bez tego pola — czyli produkcyjnie polegamy już
 na tej semantyce.
 
-Weryfikacja mimo to, bo cały projekt na tym stoi: jednorazowy kontener Loki,
-push dwóch linii (jedna ze structured metadata, jedna bez), trzy zapytania przez
-`/loki/api/v1/query_range`, sprawdzenie liczby zwróconych linii dla każdego
-z trzech wariantów.
+Weryfikacja mimo to, bo cały projekt na tym stoi: jednorazowy kontener
+**`grafana/loki:3.7.1`** (dokładnie ten tag co produkcja —
+`docker-compose.monitoring.yml:30`), push dwóch linii (jedna ze structured
+metadata, jedna bez), trzy zapytania przez `/loki/api/v1/query_range`,
+sprawdzenie liczby zwróconych linii dla każdego z trzech wariantów.
+
+## Drugie założenie: data links a stan zmiennej
+
+Panel „Log volume" ma data link `?var-level=${__field.labels.detected_level}`
+(`error-monitoring.json:71`), a tabela „By service" — `?var-service=…` (`:375`).
+Jeśli Grafana 12 przy takim linku **podmienia** query string zamiast go
+scalać, klik w tabelę zresetuje `var-waf` do „wszystko" — operator, który
+wyciszył WAF, dostanie go z powrotem bez ostrzeżenia. (Ten sam mechanizm
+gubiłby dziś `var-service`/`var-container`, więc może się okazać, że Grafana
+jednak scala.)
+
+Do sprawdzenia empirycznie przy implementacji. Jeśli podmienia — dopisujemy do
+obu linków `&var-waf=${waf:percentencode}` (percent-encoding jest konieczny:
+wartość zawiera `|`, `"` i spacje).
 
 ## Zabezpieczenie przed regresją
 
-Statyczna asercja w `tests/`: fragment `${waf:raw}` musi występować we
-**wszystkich trzech** panelach `error-monitoring.json`, a zmienna `waf` musi mieć
-trzy opcje. Powód: eksport dashboardu z UI Grafany po ręcznej edycji potrafi
-zgubić fragment z jednego panelu — wtedy filtr działa „prawie", co jest gorsze
-niż gdyby nie działał wcale.
+Statyczna asercja w **`tests/test_makefile.sh`**, wzorowana na
+`test_waf_audit_only_rules` (`tests/test_makefile.sh:409`) — ta sama technika
+grep-po-JSON-ie z liczeniem wystąpień:
+
+- fragment `${waf:raw}` występuje w **dokładnie trzech** zapytaniach
+  `error-monitoring.json` (tyle, ile paneli),
+- zmienna `waf` ma trzy opcje.
+
+Powód: eksport dashboardu z UI Grafany po ręcznej edycji potrafi zgubić fragment
+z jednego panelu — wtedy filtr działa „prawie", co jest gorsze niż gdyby nie
+działał wcale.
+
+## Wydajność
+
+No-op `| modsec_src=~".*"` dodaje etap potoku do każdego zapytania przy
+`refresh: 30s`. Koszt jest marginalny — `count_over_time` i tak dekompresuje
+każdą linię, a filtr po structured metadata nie wymaga parsera (`| json`,
+`| logfmt`). Nie ma tu nic do optymalizowania.
+
+## Dokumentacja
+
+`docs/monitoring/dashboardy-grafany.md` opisuje dropdowny tego dashboardu
+(sekcja nadal nazywa się **„Error Monitoring"**, choć dashboard od dawna nosi
+tytuł **„Log Monitoring"** — przy okazji synchronizujemy nazwę i listę zmiennych).
+
+`docs/architektura/waf.md:293` mówi dziś, że bliźniaków „nie da się filtrować
+inaczej niż pełnotekstowo" — po tej zmianie zdanie jest nieprawdziwe i wymaga
+korekty ze wskazaniem na nową zmienną.
 
 ## Poza zakresem
 
