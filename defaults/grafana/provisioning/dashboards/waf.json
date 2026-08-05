@@ -55,7 +55,7 @@
             "uid": "loki"
           },
           "editorMode": "code",
-          "expr": "sum(count_over_time({job=\"docker\", service=\"webserver\"} | modsec_src = \"audit\" | modsec_rule_id != \"\" | modsec_rule_id =~ \"$rule\" | modsec_client =~ \"$client\" | modsec_uri =~ \"$uri\" | modsec_score =~ \"$score\" | modsec_attack =~ \"$attack\" | modsec_hostname =~ \"$vhost\" | modsec_action =~ \"$action\" [$__range]))",
+          "expr": "sum(count_over_time({job=\"docker\", service=\"webserver\"} | modsec_src = \"audit\" | modsec_rule_id != \"\" | modsec_rule_id =~ \"$rule\" | modsec_client =~ \"$client\" | modsec_uri =~ \"$uri\" | modsec_score =~ \"$score\" | modsec_attack =~ \"$attack\" | modsec_hostname =~ \"$vhost\" | modsec_action =~ \"$action\" | logfmt bpp_noop=\"__bpp_noop__\" | drop bpp_noop [$__range]))",
           "queryType": "instant",
           "refId": "A",
           "instant": true,
@@ -109,7 +109,7 @@
             "uid": "loki"
           },
           "editorMode": "code",
-          "expr": "sum(count_over_time({job=\"docker\", service=\"webserver\"} | modsec_src = \"audit\" | modsec_rule_id != \"\" | modsec_rule_id =~ \"$rule\" | modsec_client =~ \"$client\" | modsec_uri =~ \"$uri\" | modsec_score =~ \"$score\" | modsec_attack =~ \"$attack\" | modsec_action = \"blocked\" | modsec_hostname =~ \"$vhost\" [$__range]))",
+          "expr": "sum(count_over_time({job=\"docker\", service=\"webserver\"} | modsec_src = \"audit\" | modsec_rule_id != \"\" | modsec_rule_id =~ \"$rule\" | modsec_client =~ \"$client\" | modsec_uri =~ \"$uri\" | modsec_score =~ \"$score\" | modsec_attack =~ \"$attack\" | modsec_action = \"blocked\" | modsec_hostname =~ \"$vhost\" | logfmt bpp_noop=\"__bpp_noop__\" | drop bpp_noop [$__range]))",
           "queryType": "instant",
           "refId": "A",
           "instant": true,
@@ -163,7 +163,7 @@
             "uid": "loki"
           },
           "editorMode": "code",
-          "expr": "count(sum by (modsec_client) (count_over_time({job=\"docker\", service=\"webserver\"} | modsec_src = \"audit\" | modsec_rule_id != \"\" | modsec_rule_id =~ \"$rule\" | modsec_client =~ \"$client\" | modsec_uri =~ \"$uri\" | modsec_score =~ \"$score\" | modsec_attack =~ \"$attack\" | modsec_hostname =~ \"$vhost\" | modsec_action =~ \"$action\" [$__range])))",
+          "expr": "count(sum by (modsec_client) (count_over_time({job=\"docker\", service=\"webserver\"} | modsec_src = \"audit\" | modsec_rule_id != \"\" | modsec_rule_id =~ \"$rule\" | modsec_client =~ \"$client\" | modsec_uri =~ \"$uri\" | modsec_score =~ \"$score\" | modsec_attack =~ \"$attack\" | modsec_hostname =~ \"$vhost\" | modsec_action =~ \"$action\" | logfmt bpp_noop=\"__bpp_noop__\" | drop bpp_noop [$__range])))",
           "queryType": "instant",
           "refId": "A",
           "instant": true,
@@ -217,7 +217,7 @@
             "uid": "loki"
           },
           "editorMode": "code",
-          "expr": "count(sum by (modsec_rule_id) (count_over_time({job=\"docker\", service=\"webserver\"} | modsec_src = \"audit\" | modsec_rule_id != \"\" | modsec_rule_id =~ \"$rule\" | modsec_client =~ \"$client\" | modsec_uri =~ \"$uri\" | modsec_score =~ \"$score\" | modsec_attack =~ \"$attack\" | modsec_hostname =~ \"$vhost\" | modsec_action =~ \"$action\" [$__range])))",
+          "expr": "count(sum by (modsec_rule_id) (count_over_time({job=\"docker\", service=\"webserver\"} | modsec_src = \"audit\" | modsec_rule_id != \"\" | modsec_rule_id =~ \"$rule\" | modsec_client =~ \"$client\" | modsec_uri =~ \"$uri\" | modsec_score =~ \"$score\" | modsec_attack =~ \"$attack\" | modsec_hostname =~ \"$vhost\" | modsec_action =~ \"$action\" | logfmt bpp_noop=\"__bpp_noop__\" | drop bpp_noop [$__range])))",
           "queryType": "instant",
           "refId": "A",
           "instant": true,
@@ -314,7 +314,7 @@
             "uid": "loki"
           },
           "editorMode": "code",
-          "expr": "sum by (modsec_action) (count_over_time({job=\"docker\", service=\"webserver\"} | modsec_src = \"audit\" | modsec_rule_id != \"\" | modsec_rule_id =~ \"$rule\" | modsec_client =~ \"$client\" | modsec_uri =~ \"$uri\" | modsec_score =~ \"$score\" | modsec_attack =~ \"$attack\" | modsec_hostname =~ \"$vhost\" | modsec_action =~ \"$action\" [$__interval]))",
+          "expr": "sum by (modsec_action) (count_over_time({job=\"docker\", service=\"webserver\"} | modsec_src = \"audit\" | modsec_rule_id != \"\" | modsec_rule_id =~ \"$rule\" | modsec_client =~ \"$client\" | modsec_uri =~ \"$uri\" | modsec_score =~ \"$score\" | modsec_attack =~ \"$attack\" | modsec_hostname =~ \"$vhost\" | modsec_action =~ \"$action\" | logfmt bpp_noop=\"__bpp_noop__\" | drop bpp_noop [$__interval]))",
           "queryType": "range",
           "refId": "A",
           "legendFormat": "{{modsec_action}}"
@@ -379,7 +379,7 @@
             "uid": "loki"
           },
           "editorMode": "code",
-          "expr": "topk(10, sum by (modsec_rule_id, modsec_msg) (count_over_time({job=\"docker\", service=\"webserver\"} | modsec_src = \"audit\" | modsec_rule_id != \"\" | modsec_rule_id =~ \"$rule\" | modsec_client =~ \"$client\" | modsec_uri =~ \"$uri\" | modsec_score =~ \"$score\" | modsec_attack =~ \"$attack\" | modsec_hostname =~ \"$vhost\" | modsec_action =~ \"$action\" [$__range])))",
+          "expr": "topk(10, sum by (modsec_rule_id, modsec_msg) (count_over_time({job=\"docker\", service=\"webserver\"} | modsec_src = \"audit\" | modsec_rule_id != \"\" | modsec_rule_id =~ \"$rule\" | modsec_client =~ \"$client\" | modsec_uri =~ \"$uri\" | modsec_score =~ \"$score\" | modsec_attack =~ \"$attack\" | modsec_hostname =~ \"$vhost\" | modsec_action =~ \"$action\" | logfmt bpp_noop=\"__bpp_noop__\" | drop bpp_noop [$__range])))",
           "queryType": "instant",
           "refId": "A",
           "instant": true,
@@ -460,7 +460,7 @@
             "uid": "loki"
           },
           "editorMode": "code",
-          "expr": "sum by (modsec_attack) (count_over_time({job=\"docker\", service=\"webserver\"} | modsec_src = \"audit\" | modsec_rule_id != \"\" | modsec_rule_id =~ \"$rule\" | modsec_client =~ \"$client\" | modsec_uri =~ \"$uri\" | modsec_score =~ \"$score\" | modsec_attack =~ \"$attack\" | modsec_hostname =~ \"$vhost\" | modsec_action =~ \"$action\" | modsec_attack != \"\" [$__range]))",
+          "expr": "sum by (modsec_attack) (count_over_time({job=\"docker\", service=\"webserver\"} | modsec_src = \"audit\" | modsec_rule_id != \"\" | modsec_rule_id =~ \"$rule\" | modsec_client =~ \"$client\" | modsec_uri =~ \"$uri\" | modsec_score =~ \"$score\" | modsec_attack =~ \"$attack\" | modsec_hostname =~ \"$vhost\" | modsec_action =~ \"$action\" | modsec_attack != \"\" | logfmt bpp_noop=\"__bpp_noop__\" | drop bpp_noop [$__range]))",
           "queryType": "instant",
           "refId": "A",
           "instant": true,
@@ -540,7 +540,7 @@
             "uid": "loki"
           },
           "editorMode": "code",
-          "expr": "topk(15, sum by (modsec_client) (count_over_time({job=\"docker\", service=\"webserver\"} | modsec_src = \"audit\" | modsec_rule_id != \"\" | modsec_rule_id =~ \"$rule\" | modsec_client =~ \"$client\" | modsec_uri =~ \"$uri\" | modsec_score =~ \"$score\" | modsec_attack =~ \"$attack\" | modsec_hostname =~ \"$vhost\" | modsec_action =~ \"$action\" [$__range])))",
+          "expr": "topk(15, sum by (modsec_client) (count_over_time({job=\"docker\", service=\"webserver\"} | modsec_src = \"audit\" | modsec_rule_id != \"\" | modsec_rule_id =~ \"$rule\" | modsec_client =~ \"$client\" | modsec_uri =~ \"$uri\" | modsec_score =~ \"$score\" | modsec_attack =~ \"$attack\" | modsec_hostname =~ \"$vhost\" | modsec_action =~ \"$action\" | logfmt bpp_noop=\"__bpp_noop__\" | drop bpp_noop [$__range])))",
           "queryType": "instant",
           "refId": "A",
           "instant": true,
@@ -620,7 +620,7 @@
             "uid": "loki"
           },
           "editorMode": "code",
-          "expr": "topk(15, sum by (modsec_uri) (count_over_time({job=\"docker\", service=\"webserver\"} | modsec_src = \"audit\" | modsec_rule_id != \"\" | modsec_rule_id =~ \"$rule\" | modsec_client =~ \"$client\" | modsec_uri =~ \"$uri\" | modsec_score =~ \"$score\" | modsec_attack =~ \"$attack\" | modsec_hostname =~ \"$vhost\" | modsec_action =~ \"$action\" [$__range])))",
+          "expr": "topk(15, sum by (modsec_uri) (count_over_time({job=\"docker\", service=\"webserver\"} | modsec_src = \"audit\" | modsec_rule_id != \"\" | modsec_rule_id =~ \"$rule\" | modsec_client =~ \"$client\" | modsec_uri =~ \"$uri\" | modsec_score =~ \"$score\" | modsec_attack =~ \"$attack\" | modsec_hostname =~ \"$vhost\" | modsec_action =~ \"$action\" | logfmt bpp_noop=\"__bpp_noop__\" | drop bpp_noop [$__range])))",
           "queryType": "instant",
           "refId": "A",
           "instant": true,
@@ -700,7 +700,7 @@
             "uid": "loki"
           },
           "editorMode": "code",
-          "expr": "sum by (modsec_score) (count_over_time({job=\"docker\", service=\"webserver\"} | modsec_src = \"audit\" | modsec_rule_id != \"\" | modsec_rule_id =~ \"$rule\" | modsec_client =~ \"$client\" | modsec_uri =~ \"$uri\" | modsec_score =~ \"$score\" | modsec_attack =~ \"$attack\" | modsec_hostname =~ \"$vhost\" | modsec_action =~ \"$action\" | modsec_score != \"\" [$__range]))",
+          "expr": "sum by (modsec_score) (count_over_time({job=\"docker\", service=\"webserver\"} | modsec_src = \"audit\" | modsec_rule_id != \"\" | modsec_rule_id =~ \"$rule\" | modsec_client =~ \"$client\" | modsec_uri =~ \"$uri\" | modsec_score =~ \"$score\" | modsec_attack =~ \"$attack\" | modsec_hostname =~ \"$vhost\" | modsec_action =~ \"$action\" | modsec_score != \"\" | logfmt bpp_noop=\"__bpp_noop__\" | drop bpp_noop [$__range]))",
           "queryType": "instant",
           "refId": "A",
           "instant": true,
@@ -753,7 +753,7 @@
             "uid": "loki"
           },
           "editorMode": "code",
-          "expr": "{job=\"docker\", service=\"webserver\"} | modsec_src = \"nginx\" | modsec_rule_id =~ \"$rule\" | modsec_client =~ \"$client\" | modsec_uri =~ \"$uri\" | modsec_score =~ \"$score\" | modsec_hostname =~ \"$vhost\" | modsec_action =~ \"$action\"",
+          "expr": "{job=\"docker\", service=\"webserver\"} | modsec_src = \"nginx\" | modsec_rule_id =~ \"$rule\" | modsec_client =~ \"$client\" | modsec_uri =~ \"$uri\" | modsec_score =~ \"$score\" | modsec_hostname =~ \"$vhost\" | modsec_action =~ \"$action\" | logfmt bpp_noop=\"__bpp_noop__\" | drop bpp_noop",
           "queryType": "range",
           "refId": "A"
         }

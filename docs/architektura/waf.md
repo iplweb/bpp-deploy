@@ -478,15 +478,21 @@ topk(10, sum by (modsec_rule_id, modsec_msg) (
 {service="webserver"} | modsec_attack = "sqli" | modsec_hostname = "bpp.example.org"
 ```
 
-### Pułapka filtrów ad-hoc {#pulapka-filtrow-ad-hoc}
+### Filtry ad-hoc („Filter for value") {#pulapka-filtrow-ad-hoc}
 
 Grafana pokazuje przy komórkach tabeli i przy polach w szczegółach linii logu lupki
-**„Filter for value" / „Filter out value"**. Na polach `modsec_*` **nie wolno ich
-używać**: kliknięcie wygasza **wszystkie panele dashboardu** naraz — każdy pokaże
-„No data". Objaw wygląda jak awaria zbierania logów i nie ma nic wspólnego
-z rzeczywistym stanem WAF-a.
+**„Filter for value" / „Filter out value"**. Na dashboardzie WAF-a **działają** —
+kliknięcie zawęża wszystkie panele, a wybrany filtr ląduje w chipie `Filters` nad
+dashboardem (usuwasz go ×).
 
-Mechanizm. Filtr ad-hoc trafia do **selektora strumienia**:
+!!! warning "Do 08.2026 kliknięcie w tę lupkę wygaszało cały dashboard"
+    Każdy panel pokazywał „No data", co wyglądało jak awaria zbierania logów i nie
+    miało nic wspólnego ze stanem WAF-a. Naprawione **parserem-zaślepką** na końcu
+    każdego zapytania — mechanizm opisany niżej. Jeśli widzisz ten objaw po
+    `git pull`, sprawdź, czy zapytania paneli kończą się na
+    `| logfmt bpp_noop="__bpp_noop__" | drop bpp_noop`.
+
+Mechanizm awarii i naprawy. Filtr ad-hoc trafiał do **selektora strumienia**:
 
 ```logql
 {job="docker", service="webserver", modsec_msg="SQL Injection Attack Detected…"}
@@ -502,18 +508,58 @@ Grafana zna typ pola z odpowiedzi Loki.
 
 Do filtrów ad-hoc ten typ nie jest przekazywany (Grafana 12.4.2,
 `datasource.ts` → `addAdHocFilters()` woła `addLabelToQuery()` bez argumentu
-`labelType`), a `modifyQuery.ts` bez niego zgaduje po obecności parsera w zapytaniu.
-Nasze zapytania parsera nie mają, więc filtr zawsze ląduje w selektorze.
+`labelType`). `modifyQuery.ts` bez niego **zgaduje po obecności parsera**:
 
-**Przycisku nie da się ukryć** z poziomu JSON-a dashboardu:
-`setDashboardPanelContext.ts` ustawia `onAddAdHocFilter` bezwarunkowo dla każdego
-panelu na źródle wspierającym filtry ad-hoc, a `filterable: false` (ustawione na
-wszystkich naszych tabelach) dotyczy filtra kolumny, nie tego menu. Dlatego obroną
-są **własne, działające filtry**: zmienne u góry dashboardu i data linki na wierszach
-tabel — [opis](../monitoring/dashboardy-grafany.md#waf-modsecurity-owasp-crs).
+```ts
+if (parserPositions.length === 0) return addFilterToStreamSelector(...)
+else                              return addFilterAsLabelFilter(...)
+```
 
-Jeśli już w to wejdziesz: usuń chip `Filters` nad dashboardem (×) albo przeładuj
-adres bez `&var-Filters=…`.
+I to jest cała dźwignia. **Przycisku nie da się ukryć** z poziomu JSON-a
+(`setDashboardPanelContext.ts` ustawia `onAddAdHocFilter` bezwarunkowo, a
+`filterable: false` na tabelach dotyczy filtra kolumny), ale da się sprawić, żeby
+gałąź `else` była tą wybieraną — wystarczy, że w zapytaniu **jest jakikolwiek
+parser**. Dlatego każde zapytanie dashboardu kończy się na:
+
+```logql
+| logfmt bpp_noop="__bpp_noop__" | drop bpp_noop
+```
+
+Po kliknięciu Grafana wstawia filtr **za** parserem i wszystko działa:
+
+```logql
+… | logfmt bpp_noop="__bpp_noop__" | modsec_client=`185.199.108.1` | drop bpp_noop
+```
+
+Zmierzone na stanowisku (loki 3.7.1 + grafana 12.4.2, 60 wpisów audytowych):
+**bez** parsera `60 → „No data"` i 11 pustych paneli, **z** parserem `60 → 20`.
+
+#### Dlaczego akurat taki parser
+
+| Kandydat | Wynik na prawdziwych liniach z `tests/fixtures/alloy-loglines.txt` |
+|---|---|
+| `\| pattern "<_>"` | Loki **odrzuca**: `at least one capture is required` |
+| `\| json` | `__error__` na liniach `error.log` — to nie jest JSON |
+| `\| logfmt` (gołe) | przechodzi, ale **wyciąga śmieci**: `level`, `msg`, `ts`, `duration`, `___export`, `___plik` |
+| `\| logfmt bpp_noop="__bpp_noop__"` | wyciąga **tylko** pustą etykietę `bpp_noop` |
+| `… \| drop bpp_noop` | sprząta i ją |
+
+Najgroźniejszy jest wariant trzeci: `level` konkurowałby z `detected_level`, którego
+jedynym źródłem ma być `config.alloy` (zamknięty słownik 7 wartości — patrz
+[Logowanie](../monitoring/logowanie.md)). Jawna etykieta z klucza, który w żadnej
+linii nie wystąpi, nie wyciąga niczego; `drop` usuwa pustą etykietę, żeby nie
+zaśmiecała szczegółów linii w panelu logów.
+
+!!! danger "Parser musi zostać OSTATNIM ogniwem potoku"
+    Wtedy miele wyłącznie linie, które przeszły już przez `modsec_src` i filtry
+    zmiennych — a nie cały strumień webservera. Przesunięcie go wcześniej jest
+    poprawne składniowo i niewidoczne w wyniku, za to kosztuje. Pilnuje tego osobna
+    asercja w `tests/test_makefile.sh` (`test_waf_crossfilter`), niezależna od tej,
+    która sprawdza samą obecność.
+
+Własne filtry — zmienne u góry dashboardu i data linki na wierszach tabel
+([opis](../monitoring/dashboardy-grafany.md#waf-modsecurity-owasp-crs)) — zostają.
+Są wygodniejsze do wpisania wartości z ręki i przeżywają udostępnienie linku.
 
 !!! note "Jedno ograniczenie klikania po ścieżce"
     Data link po `modsec_uri` cytuje wartość literalnie (`\Q…\E`), żeby metaznaki

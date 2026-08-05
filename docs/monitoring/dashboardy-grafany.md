@@ -17,11 +17,17 @@ panele; klik w serię na wykresie ustawia `var-level`, klik w wiersz tabeli —
 `var-service` (data linki); drag-select po wykresie zawęża czas. Panel „Logs"
 z `enableInfiniteScrolling`.
 
-Tu obowiązuje to samo ostrzeżenie co na dashboardzie WAF-a: **nie używaj lupek
-„Filter for value"** przy polach `modsec_*` w szczegółach linii logu — wygaszą
-wszystkie trzy panele naraz
+**Uwaga — inaczej niż na dashboardzie WAF-a**: tutaj lupki „Filter for value" przy
+polach `modsec_*` (w szczegółach linii logu) nadal wygaszą wszystkie trzy panele
 ([dlaczego](../architektura/waf.md#pulapka-filtrow-ad-hoc)). Filtrowanie po
-`service`, `container` i `detected_level` (labele strumienia) działa normalnie.
+`service`, `container` i `detected_level` działa normalnie — to labele strumienia,
+więc trafiają dokładnie tam, gdzie Grafana je wstawia.
+
+Ten dashboard **celowo** nie dostał parsera-zaślepki, który naprawia lupki na WAF-ie.
+Cena byłaby tu realna: przeniesienie filtra po `service`/`container` z selektora
+strumienia do potoku zamienia wyszukanie po indeksie w skan wszystkich strumieni —
+a to jedyny dashboard pytający o logi **wszystkich** kontenerów, nie samego
+webservera. Na trzy pola, które i tak działają, nie warto.
 
 Czwarty dropdown, **`ModSecurity`**, izoluje albo wycisza trafienia WAF-a:
 
@@ -55,16 +61,16 @@ zawęża cały dashboard do tej reguły, klik w adres IP — do tego adresu, i t
 Klik zachowuje pozostałe filtry, więc dają się składać („co ten adres IP robił na
 tej ścieżce"). Wyczyścisz je wpisując `.*` z powrotem w pole u góry.
 
-!!! warning "Nie używaj „Filter for value" z menu komórki"
+!!! tip "Lupka „Filter for value" działa"
     Grafana pokazuje przy komórkach tabeli i przy polach w szczegółach linii logu
-    lupki **„Filter for value" / „Filter out value"**. Na polach `modsec_*` one
-    **wywalają cały dashboard** — wszystkie panele pokażą „No data". Zamiast tego
-    klikaj w sam wiersz (data link) albo edytuj filtry u góry.
+    lupki **„Filter for value" / „Filter out value"**. Na tym dashboardzie zawężają
+    wszystkie panele, a wybrany filtr pojawia się jako chip `Filters` nad
+    dashboardem (zdejmujesz go ×). Masz więc trzy równorzędne drogi: lupka,
+    kliknięcie w wiersz (data link) i okienka u góry.
 
-    Powód i dlaczego tego przycisku nie da się ukryć:
-    [Pułapka filtrów ad-hoc](../architektura/waf.md#pulapka-filtrow-ad-hoc).
-    Jeśli już w to wejdziesz — usuń chip `Filters` nad dashboardem (×) albo
-    przeładuj adres bez `&var-Filters=…`.
+    Do 08.2026 ta lupka **wygaszała cały dashboard** — wszystkie panele pokazywały
+    „No data". Co to było i czym naprawione:
+    [Filtry ad-hoc](../architektura/waf.md#pulapka-filtrow-ad-hoc).
 
 Źródłem danych są pola `modsec_*` wyciągane z audit logu przez Alloy — opis pól i
 przykładowe zapytania: [WAF](../architektura/waf.md#logi-waf-a-w-grafanie).

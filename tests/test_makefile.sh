@@ -631,6 +631,55 @@ test_waf_crossfilter() {
         pass "waf.json: \$attack trzymany z dala od panelu logow"
     fi
 
+    # PARSER-ZASLEPKA NA KONCU KAZDEGO POTOKU — bez niego wbudowane Grafany
+    # "Filter for value" WYWALA CALY DASHBOARD.
+    #
+    # Grafana 12.4.2, modifyQuery.ts: addLabelToQuery() dostaje od
+    # datasource.ts wywolanie BEZ argumentu `labelType`, wiec zgaduje miejsce
+    # wstawienia filtra:
+    #
+    #     if (parserPositions.length === 0) return addFilterToStreamSelector(...)
+    #
+    # Bez parsera filtr laduje w SELEKTORZE STRUMIENIA:
+    # {job="docker", service="webserver", modsec_client="1.2.3.4"} — a modsec_*
+    # to structured metadata (swiadomie: modsec_uri x modsec_client jako labele
+    # wysadzilyby kardynalnosc indeksu), wiec zaden strumien nie pasuje i KAZDY
+    # panel pokazuje "No data". Z parserem trafia do potoku jako label filter
+    # i po prostu DZIALA. Zmierzone na stendzie (loki 3.7.1 + grafana 12.4.2,
+    # 60 wpisow audytowych): bez parsera 60 -> "No data" i 11 pustych paneli,
+    # z parserem 60 -> 20, jeden panel pusty zgodnie z prawda.
+    #
+    # DLACZEGO AKURAT `logfmt` Z JAWNA ETYKIETA:
+    #   - `| pattern "<_>"` Loki ODRZUCA ("at least one capture is required"),
+    #   - `| json` wywala __error__ na liniach error.log (nie sa JSON-em),
+    #   - gole `| logfmt` przechodzi bez bledu, ale WYCIAGA smieci: na
+    #     prawdziwych liniach z tests/fixtures/alloy-loglines.txt byly to
+    #     `level`, `msg`, `ts`, `duration`, `___export`, `___plik`. `level`
+    #     jest szczegolnie szkodliwy — konkurowalby z `detected_level`, ktorego
+    #     jedynym zrodlem ma byc config.alloy (zamkniety slownik 7 wartosci).
+    # Jawna etykieta z nieistniejacego klucza nie wyciaga NICZEGO, a `drop`
+    # sprzata pusta etykiete, zeby nie zasmiecala panelu logow.
+    #
+    # POZYCJA JEST ISTOTNA: parser musi byc OSTATNIM ogniwem potoku. Wtedy
+    # miele wylacznie linie, ktore przeszly juz przez `modsec_src` i filtry
+    # zmiennych — a nie caly strumien webservera.
+    local nparser
+    nparser="$(grep -cF 'logfmt bpp_noop=\"__bpp_noop__\" | drop bpp_noop' "$waf" || true)"
+    if [ "$zapytan" -gt 0 ] && [ "$nparser" -eq "$zapytan" ]; then
+        pass "waf.json: parser-zaslepka w $nparser z $zapytan zapytan"
+    else
+        fail "waf.json: parser-zaslepka w $nparser z $zapytan zapytan (bez niego 'Filter for value' zabija dashboard)"
+    fi
+
+    local zle_miejsce
+    zle_miejsce="$(grep '"expr":' "$waf" \
+        | grep -cvE 'drop bpp_noop( \[\$__(range|interval)\])?[")]' || true)"
+    if [ "$zle_miejsce" -eq 0 ]; then
+        pass "waf.json: parser-zaslepka jest ostatnim ogniwem kazdego potoku"
+    else
+        fail "waf.json: w $zle_miejsce zapytaniach parser-zaslepka nie jest na koncu potoku"
+    fi
+
     local linkow p
     linkow="$(grep -c '"url": "/d/' "$waf" || true)"
     if [ "$linkow" -eq 0 ]; then
