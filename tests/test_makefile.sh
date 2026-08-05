@@ -375,9 +375,13 @@ test_compose_bind_mounts() {
         'chown -R nginx:nginx /var/log/nginx-shared' "$infra"
     assert_file_contains "webserver-init naprawia certy manualne" \
         'chown -R 0:nginx /etc/ssl/private' "$infra"
-    # shellcheck disable=SC2016  # to WZORZEC grep-a: `$d` ma zostac literalne
+    # `$$d`, nie `$d` — patrz test_compose_shell_vars_escaped. Ta asercja
+    # sprawdza tylko, ze krok w ogole istnieje; czy DZIALA (tzn. czy zmienna
+    # przezyla interpolacje Compose) weryfikuje dopiero tamten test, bo grep
+    # po zrodle YAML-a interpolacji nie widzi.
+    # shellcheck disable=SC2016  # to WZORZEC grep-a: `$$d` ma zostac literalne
     assert_file_contains "webserver-init naprawia certy Let's Encrypt" \
-        'chgrp -R nginx "\$d"' "$infra"
+        'chgrp -R nginx "\$\$d"' "$infra"
     assert_file_contains "webserver-init dziala jako root" 'user: "0:0"' "$infra"
     assert_file_contains "webserver czeka na webserver-init" \
         'condition: service_completed_successfully' "$infra"
@@ -403,6 +407,76 @@ test_compose_bind_mounts() {
     # shellcheck disable=SC2016  # jw. — `$_key` to fragment wzorca, nie zmienna
     assert_file_contains "snakeoil: klucz 0640" \
         'chmod 0640 "\$_key"' "$REPO_DIR/scripts/generate-snakeoil-certs.sh"
+}
+
+# ============================================================
+# TEST 11a: Compose nie zjada zmiennych shellowych z `command:`
+# ============================================================
+
+# Compose interpoluje `$VAR` ZANIM odda string do kontenera i nie odroznia
+# zmiennej shella od swojej. `$d` z petli `for d in ...` znika, zostaje pusty
+# string — `[ -d "" ]` jest zawsze falszywe, wiec petla za kazdym razem robi
+# `continue` i naprawa uprawnien Let's Encrypt CICHO NIE WYKONUJE SIE WCALE.
+# `set -e` nic nie zglosi, bo formalnie nic nie zawiodlo.
+#
+# Objaw widoczny dla operatora: `make up` wypisuje
+#   WARN The "d" variable is not set. Defaulting to a blank string.
+#
+# Ten test celowo patrzy na WYRENDEROWANY `docker compose config`, a nie na
+# tekst YAML-a. Asercja po zrodle nie widzi interpolacji — dokladnie dlatego
+# poprzednia wersja tego pliku sprawdzala literalne `chgrp -R nginx "$d"`
+# i przez caly czas byla zielona przy niedzialajacej funkcji.
+test_compose_shell_vars_escaped() {
+    yellow "=== Test 11a: interpolacja Compose nie zjada zmiennych shella ==="
+
+    if ! command -v docker >/dev/null 2>&1; then
+        skip_or_fail "docker niedostepny — pomijam render compose config"
+        return
+    fi
+
+    local cfg_dir out err
+    cfg_dir=$(mktemp -d)
+    out="$cfg_dir/rendered.yml"
+    err="$cfg_dir/stderr.txt"
+
+    # Minimalny .env: bez BACKUP_DIR compose wywala sie twardo na spec wolumenu
+    # (`invalid spec: :/backup:`) i nie dochodzi do renderowania w ogole.
+    printf 'DJANGO_BPP_HOST_BACKUP_DIR=%s\n' "$cfg_dir" > "$cfg_dir/.env"
+
+    if ! (cd "$REPO_DIR" && BPP_CONFIGS_DIR="$cfg_dir" docker compose config \
+            > "$out" 2> "$err"); then
+        fail "docker compose config nie wyrenderowal sie ($(tail -1 "$err"))"
+        rm_rf_root "$cfg_dir"
+        return
+    fi
+
+    # `docker compose config` re-serializuje wynik jako plik compose, wiec
+    # zescapowane `$$` zostaje `$$` (round-trip). Renderowane `$$d` jest wiec
+    # dowodem POPRAWNOSCI: gdyby w zrodle bylo `$d`, tu bylby pusty string.
+    # shellcheck disable=SC2016  # `$$d` to wzorzec grep-a, ma zostac literalne
+    if grep -q '\[ -d "\$\$d" \]' "$out"; then
+        pass "webserver-init: zmienna petli \$d przetrwala interpolacje"
+    else
+        fail "webserver-init: \$d zjedzone przez Compose (brak '[ -d \"\$\$d\" ]')"
+    fi
+
+    if grep -q '\[ -d "" \]' "$out"; then
+        fail "webserver-init: pusty test katalogu — petla zawsze robi continue"
+    else
+        pass "webserver-init: brak pustego '[ -d \"\" ]' w komendzie"
+    fi
+
+    # Objaw, ktory widzi operator w logu `make up`. Compose bez TTY loguje
+    # w logfmt i escape'uje cudzyslowy (`The \"d\" variable`), z TTY nie —
+    # wzorzec musi lapac oba warianty, inaczej test przechodzi na zielono
+    # przy realnym warningu.
+    if grep -Eq 'The \\?"d\\?" variable is not set' "$err"; then
+        fail "compose config ostrzega o zmiennej 'd' (niezescapowane \$d)"
+    else
+        pass "compose config nie ostrzega o zmiennej 'd'"
+    fi
+
+    rm_rf_root "$cfg_dir"
 }
 
 # ============================================================
@@ -1366,6 +1440,7 @@ test_passwords_are_random
 test_normal_path_help
 test_normal_path_targets
 test_compose_bind_mounts
+test_compose_shell_vars_escaped
 test_waf_audit_only_rules
 test_log_monitoring_waf_filter
 test_env_sample

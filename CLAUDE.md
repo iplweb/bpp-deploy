@@ -185,6 +185,14 @@ The one-shot `webserver-init` service (`docker-compose.infrastructure.yml`, `use
 
 Docker does NOT restart on failed healthcheck (`restart: always` only reacts to process exit). Sidecar `autoheal` restarts containers labeled `autoheal=true` on `Health.Status=unhealthy` (watched: `workerserver`, `celerybeat`). `celerybeat`'s healthcheck is a lightweight **heartbeat-file freshness** probe (`HeartbeatScheduler` in the bpp image touches `/tmp/celerybeat-heartbeat` every tick; the Compose `test:` is a dispatcher that falls back to the old `healthcheck_broker.py` cold-import probe on pre-June-2026 images — the heavy probe under a low CPU cap was what delayed celerybeat to ~218s on startup). **`denorm-queue` is intentionally NOT autoheal-watched** — its Compose healthcheck is commented out, so it has no health status to react to; it relies on the nightly staggered `kill 1` restart (Ofelia, 05:25) instead. Double-dollar escaping (`$$DJANGO_BPP_DB_USER`) in healthcheck commands prevents premature Compose expansion. Detail: `docs/architektura/healthchecks-autoheal.md`.
 
+### CRITICAL: `$$` in *every* inline shell — `command:`, `entrypoint:`, `healthcheck:`, Ofelia labels
+
+Compose interpolates `$VAR` **before** the string reaches the container and cannot tell a shell variable from its own. **Every `$` meant for the shell must be `$$`** — including loop variables, not just env vars. Failure is silent: Compose substitutes an empty string (with a `WARN The "d" variable is not set` that scrolls past in `make up`), the code still parses, and `set -e` reports nothing. `webserver-init`'s Let's Encrypt fixup shipped as `for d in …; do [ -d "$d" ]` and rendered `[ -d "" ]` → always false → **the whole loop was a no-op from day one**.
+
+**Comments inside a `- |` block scalar are NOT YAML comments** — they are part of the string, so Compose interpolates them too. A comment *explaining* the `$$` rule, written inside the block with a bare `$d`, generates the very warning it documents. Put such notes above the `command:` key as real YAML comments.
+
+**Don't assert this by grepping the YAML source** — a source grep cannot see interpolation, which is exactly how the buggy loop stayed green under an assertion matching `chgrp -R nginx "$d"`. The check must run `docker compose config` and inspect the rendered output (`test_compose_shell_vars_escaped` in `tests/test_makefile.sh`). Note `config` round-trips `$$` as `$$` (its output is itself a compose file), so **`$$d` in the render is the passing state**; a bare `""` is the bug.
+
 ### Service dependencies
 
 `appserver` (migrations) before the worker; `workerserver` depends on `appserver` healthy; `denorm-queue` requires `workerserver` healthy; `celerybeat` uses `service_started` for `appserver` (faster start). Service table + data flow: `docs/architektura/uslugi.md`.

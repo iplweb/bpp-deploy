@@ -55,6 +55,19 @@ services:
     restart: "no"
     logging: *default-logging
     entrypoint: ["/bin/sh", "-c"]
+    # UWAGA na zmienne shellowe ponizej: Compose interpoluje wlasne zmienne
+    # ZANIM odda string kontenerowi i nie odroznia zmiennej shella od swojej.
+    # Zmienna petli MUSI byc pisana `$$d` (Compose zamienia `$$` na `$`),
+    # inaczej podstawi pusty string, test katalogu bedzie zawsze falszywy,
+    # petla za kazdym razem zrobi `continue` — i naprawa uprawnien CICHO nie
+    # wykona sie wcale, a `set -e` nic nie zglosi. Objaw w logu `make up`:
+    # WARN The "d" variable is not set. Defaulting to a blank string.
+    #
+    # Ten komentarz jest KOMENTARZEM YAML-A (poza blokiem `|`) celowo — tekst
+    # wewnatrz `- |` jest czescia stringa, wiec Compose interpoluje takze
+    # tamtejsze `#`-komentarze. Bylo dokladnie tak: pierwsza wersja tego
+    # opisu siedziala w srodku bloku i sama generowala dwa nowe warningi.
+    # Test: `test_compose_shell_vars_escaped` w tests/test_makefile.sh.
     command:
       - |
         set -e
@@ -68,9 +81,9 @@ services:
         # klucz konta ACME, ktorym mozna wystawiac i odwolywac certy. Nginx
         # nie ma powodu go czytac.
         for d in /etc/letsencrypt/live /etc/letsencrypt/archive; do
-          [ -d "$d" ] || continue
-          chgrp -R nginx "$d"
-          chmod -R g+rX "$d"
+          [ -d "$$d" ] || continue
+          chgrp -R nginx "$$d"
+          chmod -R g+rX "$$d"
         done
     volumes:
       - nginx_access_log:/var/log/nginx-shared
