@@ -106,7 +106,12 @@ stop_heartbeat() {
 
 # --- Sprzatanie -------------------------------------------------------------
 
-# shellcheck disable=SC2329  # wolane posrednio przez `trap cleanup EXIT`
+# Dwa kody, bo shellcheck zmienil nazewnictwo miedzy wersjami i CI pinuje starsza
+# (pre-commit: shellcheck-py v0.10.0.1) niz ta z brew: SC2317 "command appears to be
+# unreachable" w 0.10, SC2329 "function never invoked" w 0.11. Oba to ten sam falszywy
+# alarm — handler wywoluje `trap cleanup EXIT`, czego shellcheck nie sledzi. Trzymamy
+# oba: usuniecie SC2317 wywala CI, usuniecie SC2329 wywala lokalne uruchomienie.
+# shellcheck disable=SC2317,SC2329
 cleanup() {
 	local rc=$?
 	stop_heartbeat
