@@ -38,6 +38,7 @@ Operator topics and their canonical pages:
 - Monitoring / logging / slow queries: `docs/monitoring/*`
 - Services / healthchecks / Ofelia jobs: `docs/architektura/*`
 - Rate limiting (nginx, per-tier `limit_req`): `docs/architektura/rate-limiting.md`
+- Edge hardening (nginx, `server_tokens`, blokady `*.php`/CMS/`{{…}}`, timeouty): `docs/architektura/utwardzenie-brzegu.md`
 - WAF (ModSecurity + OWASP CRS, wykluczenia reguł): `docs/architektura/waf.md`
 - Backwards-compat contract: `docs/rozwoj/backwards-compatibility.md` (summarized below — read both)
 
@@ -144,6 +145,22 @@ All services use the `local` log driver via a per-file `x-logging` YAML anchor. 
 ### Rate limiting (nginx)
 
 Per-IP `limit_req` on `/admin/` (50r/s), `/api/` (60r/s) and the rest (`location /`, 100r/s), all `nodelay`, `burst = rate`. **Two-file split: zones (`limit_req_zone` + `rate`) live in `defaults/webserver/default.conf.template` (http context); the `limit_req` directives (+ `burst`) live in `defaults/webserver/_bpp-locations.conf` (server context).** Hardcoded, **not** `.env` — nginx `envsubst` can't do `${VAR:-default}` and `_bpp-locations.conf` isn't envsubst'd at all. Versioned bind-mounted files (not `$BPP_CONFIGS_DIR`), so `git pull && make up` activates changes with no migration. CRITICAL: (1) `limit_req_status 429;` MUST stay — default 503 would hit `error_page 502 503 504 /maintenance.html` (throttled users get the maintenance page) and trip netdata's 5xx alert; `limit_req_log_level warn;` keeps 429 floods out of the `error`-level error-monitoring dashboard. (2) **No global/aggregate cap by design** — per-IP only; whole-host capacity is governed downstream by appserver workers + Docker CPU/RAM limits (`make configure-resources`), not a static front-door req/s (nginx is blind to per-request cost). (3) `/static/`, `/media/`, `/healthz` and auth-gated panels are deliberately unlimited. Measure real per-IP peaks with `make request-stats` before tuning. Detail: `docs/architektura/rate-limiting.md`.
+
+### Edge hardening (nginx) — blocks that are *not* the WAF
+
+Requests that are not attacks but are **not ours** (CRS passes them, correctly). All in versioned bind-mounts → `git pull && make up`, no `.env` migration. Four rules + `server_tokens`, all covered by `make test-waf` (35 cases). Detail: `docs/architektura/utwardzenie-brzegu.md`.
+
+**`server_tokens off;` is a regression fix, not a new policy.** The CRS image ships `SERVER_TOKENS=off`, but the directive reading it lives in *its* `templates/conf.d/default.conf.template` — the file our `default.conf.template` deliberately overwrites. The directive vanished with it and nginx fell back to built-in `on` (measured: `Server: nginx/1.30.4`). **Setting `SERVER_TOKENS` in Compose does nothing** — no template reads it any more. Asserted by a `make test-waf` check that fails if `Server` contains a digit.
+
+**CRITICAL — never add `client_body_timeout` to `default.conf.template`.** The CRS image sets it in the `http` context (`nginx.conf.template`, default **10s** — tighter than anything worth writing) and a repeat in the same context is `[emerg] directive is duplicate` → the whole site fails to start. Tune it via the `CLIENT_BODY_TIMEOUT` env var instead; same for `KEEPALIVE_TIMEOUT` and `WORKER_CONNECTIONS`. `client_header_timeout`/`send_timeout` are *not* set by the image, so they live in our file.
+
+**Executable extensions** `\.(php[0-9]*|phtml|asp|aspx|jsp|jspx|cgi|cfm|exe|dll|jar)$` → `444`. `php[0-9]*` is a **class, not an enumeration**, by measurement: 72 h of production logs showed `.php73`, `.php56`, `.PhP7` — an enumeration `php|php3|php5|php7` would have passed 3 of 5 real probes. This is a **second** layer: BPP's `MaliciousRequestBlockingMiddleware` (`BLOCKED_EXTENSIONS`) already blocks these; moving to the edge changes the *cost*, not the protection.
+
+**~30 foreign-app prefixes** (`wp-*`, `phpmyadmin`, `actuator`, `manager/html`, …) → `444`. The trailing **`(/|$)` is mandatory** — without it `administrator` also catches `/admin/` (the Django panel). Generic English words (`console`, `debug`) are deliberately **excluded** — they could become real BPP paths. **Do not extend this list speculatively**: measured volume is ~0.3 req/h, scanner wordlists have tens of thousands of entries (completeness is unreachable), and every entry risks colliding with a future BPP URL. Re-derive from your own log, don't copy from the internet.
+
+**Template literals** `(\{\{[^}]*\}\}|\$\{[^}]*\})` → `444`. Was `\{\{\s*clickURL\s*\}\}` and **silently missed the real traffic**: production sends `%7B%7B+clickURL+%7D%7D` and nginx does **not** decode `+` to space in the *path* (that's a query-string convention), so `\s*` had nothing to match and 11 requests/72 h reached Django. Proven experimentally; the `+` form is now a regression case in `test-waf`.
+
+**Trap for any change here: regex `location` beats plain prefix.** That is *why* these rules also cover `/static/` and `/media/` — and why no extension we actually serve may enter the list (`\.js$` would kill the site's static assets, even though the identical entry inside the `/media/` block is correct). Same class of bug that forced `^~` on `/.well-known/`.
 
 ### WAF (ModSecurity + OWASP CRS)
 

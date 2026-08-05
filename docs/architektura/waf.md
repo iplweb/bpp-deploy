@@ -539,5 +539,10 @@ martwych URL-ach. Te adresy wyglądają całkowicie normalnie i nginx nie wie z
 góry, że zapytanie skończy się 404 — to zadanie dla przekierowań 301 po stronie
 aplikacji, nie dla WAF-a.
 
+Czego też nie rozwiązuje: żądań, które **nie są atakiem, tylko nie są nasze** —
+sond o `*.php`, prefiksów obcych CMS-ów, niepodstawionych literałów szablonów.
+Dla CRS to zwykłe URL-e i przepuszcza je poprawnie; odcina je osobna, tańsza
+warstwa — [Utwardzenie brzegu](utwardzenie-brzegu.md).
+
 Pełne uzasadnienie decyzji i odrzucone warianty:
 `docs/superpowers/specs/2026-08-03-waf-owasp-crs-design.md`.
