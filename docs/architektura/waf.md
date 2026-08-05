@@ -148,7 +148,7 @@ we własnej regule, bo wykonuje się w trakcie transakcji.
 Zakres ID `1-99999` jest zarezerwowany dla reguł lokalnych (CRS używa
 `900000-999999`).
 
-Obecnie jest ich pięć:
+Obecnie jest ich sześć:
 
 - **`id:10001` — healthcheck poza audytem.** Healthcheck Dockera
   (`curl http://127.0.0.1:80/healthz` co 10 s) zapalał regułę `920350`
@@ -188,6 +188,11 @@ Obecnie jest ich pięć:
   serwisu bez żadnego komunikatu. Nic przy tym nie tracimy: nginx sam odrzuca
   błędem 400 żądanie h2/h3 bez `:authority` (i 1.1 bez `Host:`), zanim dojdzie
   do aplikacji.
+
+- **`id:10006` — `/grafana/` całkowicie poza inspekcją WAF-a**
+  (`ctl:ruleEngine=Off`). Jedyne miejsce w BPP, w którym WAF nie ma czego
+  chronić, za to ma gwarantowane fałszywe alarmy. Szczegóły:
+  [Dlaczego Grafana jest wyjęta w całości](#grafana-poza-waf).
 
 Reguły 10002 i 10003 schodzą dla swoich ścieżek do `ctl:ruleEngine=DetectionOnly`:
 trafienia nadal trafiają do audit logu (i posłużą do napisania precyzyjnych
@@ -268,6 +273,78 @@ wersja każdego z nich może wnieść własny fałszywy alarm.
     10004 dotyczy **wyłącznie** czterech ścieżek paneli. Odpowiedzi Django lecą
     przez reguły wychodzące jak dotąd — i tam mają sens, bo to nasz kod może
     wypluć komunikat błędu bazy danych.
+
+## Dlaczego Grafana jest wyjęta w całości (reguła 10006) {#grafana-poza-waf}
+
+Reguła 10004 zdejmowała dla Grafany tylko reguły **wychodzące**. To okazało się
+za mało — ruch **przychodzący** do Grafany jest fałszywym alarmem z definicji,
+a nie przez przypadek.
+
+### Objaw
+
+Wszystkie panele wszystkich dashboardów pokazują **„No data"**. Sama Grafana
+działa normalnie: strona się ładuje, dashboardy się otwierają, listy zmiennych
+się wypełniają. Puste są wyłącznie dane.
+
+Powód: Grafana pobiera dane **POST-em** na `/grafana/api/ds/query`, a to
+właśnie te żądania dostawały `403`. Zwykłe `GET`-y (HTML, JS, listy etykiet)
+przechodziły, więc nic nie wyglądało na zepsute.
+
+### Przyczyna
+
+Ciało tego POST-a to **zapytanie LogQL**. Przy `Log Level = All` zmienna
+`$level` rozwija się do wyliczenia wszystkich poziomów:
+
+```logql
+detected_level=~"critical|debug|error|info|unknown|warn"
+```
+
+W środku siedzi ciąg **`|debug`**. Reguła `932110` („Remote Command Execution:
+Windows Command Injection") szuka wzorca „metaznak powłoki, potem nazwa
+polecenia" — a `debug` to polecenie DOS-a z jej słownika. Zmierzone na
+produkcji 2026-08-05, wprost z audit logu:
+
+```
+Matched Data: |debug found within ARGS:json.queries.array_0.expr
+```
+
+Severity CRITICAL = **5 punktów** przy progu `ANOMALY_INBOUND` = 5, więc
+**jedno** trafienie od razu blokowało. Żadne inne reguły nie były potrzebne.
+
+### Dlaczego nie punktowe wykluczenie `932110`
+
+Bo problem jest strukturalny. Zapytania LogQL to z natury tekst pełen
+metaznaków powłoki, nawiasów i regexpów — a w przypadku
+[dashboardu WAF-a](../monitoring/dashboardy-grafany.md#waf-modsecurity-owasp-crs)
+**dosłownie payloady ataków**, po których operator filtruje (cross-filtr po
+`modsec_uri` wstawia w zapytanie ścieżkę skanera). Skanowanie tego regułami CRS
+oznacza podawanie WAF-owi jego własnych znalezisk na wejście. Każde kolejne
+pole dashboardu dokłada nowy zestaw reguł do wyłączenia — to gra nie do
+wygrania.
+
+### Dlaczego wolno to wyłączyć
+
+Cały `location /grafana/` stoi za `auth_request /_bpp_superuser_auth`
+(`defaults/webserver/_bpp-locations.conf`). Żądanie anonimowe dostaje `401`
+i przekierowanie na logowanie BPP, **zanim** dojdzie do Grafany. Wyłączamy więc
+inspekcję ruchu, który i tak może wygenerować wyłącznie zalogowany
+**superuser** — czyli ktoś, kto ma w BPP uprawnienia nieporównanie poważniejsze
+niż cokolwiek, co CRS mógłby tu powstrzymać.
+
+!!! note "Reguła 10004 zostaje"
+    Po wejściu 10006 wykluczenie reguł wychodzących jest dla Grafany
+    nadmiarowe. Zostawiamy je celowo: gdyby ktoś kiedyś zawęził 10006 (np.
+    tylko do `/grafana/api/`), bez 10004 wróciłaby urwana strona z `953100` na
+    `sqlConnectionLimits`. Dla `/dozzle/`, `/flower/` i `/netdata/` 10004 jest
+    zresztą nadal jedynym wykluczeniem.
+
+!!! warning "Nie rozszerzać na pozostałe panele bez pomiaru"
+    Dozzle jest kandydatem z tego samego powodu (przeglądarka logów przesyła
+    szukany tekst), ale **nikt tego nie zmierzył**. Spekulatywne poszerzanie
+    wykluczeń to dokładnie ten nawyk, który ta konfiguracja stara się trzymać
+    w ryzach — patrz
+    [Utwardzenie brzegu](utwardzenie-brzegu.md) i lista prefiksów obcych
+    aplikacji.
 
 ## Logi WAF-a w Grafanie
 
@@ -479,7 +556,21 @@ po wyniku HTTP — bo [blokowanie wychodzące jest wyścigiem](#reguly-wychodzac
 i wynik HTTP migotał (1 na 5 przebiegów kończył się inaczej). Wykrycie jest
 deterministyczne, egzekucja nie.
 
-Trzecie osobne sprawdzenie to **legalne `GET /` po HTTP/3** — przypadek, dla
+Trzecie to **zapytanie LogQL z Grafany** — para POST-ów z prawdziwym ciałem
+`/grafana/api/ds/query`, pilnująca reguły [`10006`](#grafana-poza-waf).
+Sprawdzenia są **dwa i oba są potrzebne**:
+
+1. ten sam payload wystrzelony **poza** `/grafana/` musi zostać zablokowany,
+2. na `/grafana/api/ds/query` musi przejść.
+
+Bez pierwszego test przechodziłby tak samo po skasowaniu reguły 10006, a nawet
+po wyłączeniu całego CRS — wykluczenie, które niczego nie wyłącza, jest gorsze
+niż żadne. Sprawdzenie musi też iść **POST-em z ciałem**: cały problem siedzi
+w `ARGS:json.queries.array_0.expr`, więc tabelka `GET`-ów jest na niego ślepa.
+Rozstrzygnięcie sprawdza **wprost kod 403** — gdyby liczyło „dowolny kod HTTP =
+przeszło", jak tabelka wyżej, blokada ModSecurity zaliczyłaby się jako sukces.
+
+Czwarte osobne sprawdzenie to **legalne `GET /` po HTTP/3** — przypadek, dla
 którego powstała reguła `10005`. Klient QUIC chodzi z **wnętrza** sieci
 dockerowej, bo systemowy curl (także ten z obrazów `alpine` i
 `curlimages/curl`) jest budowany bez QUIC; stąd `--network-alias` z nazwą
@@ -505,12 +596,19 @@ prób. Bez tego rozróżnienia retry maskowałby regresję.
     do tabelki, pamiętaj, że pokrywa on wyłącznie HTTP/1.1.
 
     **Nie weryfikuje samego wykluczenia `10004`.** Lokalnie `auth_request`
-    tłumi inspekcję odpowiedzi na lokacjach paneli — więc `/grafana/` przechodzi
-    tam niezależnie od tego, czy reguła istnieje. Na produkcji tego tłumienia
-    **nie ma** (audit log z 2026-08-03 pokazuje `953100` na `/grafana/`), ale
-    przyczyna tej rozbieżności pozostaje niewyjaśniona. Przypadek testowy na
-    `/grafana/` byłby więc lokalnie zawsze zielony — czyli dawałby fałszywy
-    spokój — i celowo go nie ma.
+    tłumi inspekcję **odpowiedzi** na lokacjach paneli — więc `/grafana/`
+    przechodzi tam niezależnie od tego, czy reguła istnieje. Na produkcji tego
+    tłumienia **nie ma** (audit log z 2026-08-03 pokazuje `953100` na
+    `/grafana/`), ale przyczyna tej rozbieżności pozostaje niewyjaśniona.
+    Przypadek testowy na regułach wychodzących byłby więc lokalnie zawsze
+    zielony — czyli dawałby fałszywy spokój — i celowo go nie ma.
+
+    **To zastrzeżenie nie dotyczy reguły `10006`**, mimo że też siedzi na
+    `/grafana/`. Tamto tłumienie obejmuje wyłącznie reguły **wychodzące**;
+    reguły przychodzące działają lokalnie normalnie i sprawdzenie opisane wyżej
+    jest realne — zweryfikowane przez podmianę wzorca URI w regule na
+    niepasujący: test wtedy czerwieni się dokładnie produkcyjnym objawem
+    (`HTTP 403 od ModSecurity`). Nie usuwaj go, sugerując się akapitem powyżej.
 
 ## Dlaczego 444, a nie 403
 

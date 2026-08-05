@@ -174,3 +174,62 @@ SecRule REQUEST_PROTOCOL "@rx ^(HTTP/)?[23]\." \
     pass,\
     nolog,\
     ctl:ruleRemoveById=920280"
+
+# ---------------------------------------------------------------------------
+# 10006: /grafana/ CALKOWICIE poza inspekcja WAF-a
+# ---------------------------------------------------------------------------
+# Grafana jest jedynym miejscem w BPP, w ktorym WAF nie ma czego chronic, za to
+# ma gwarantowane falszywe alarmy. Powod jest strukturalny, nie kosmetyczny:
+# ciala zadan do /grafana/api/ds/query to ZAPYTANIA LogQL, a wiec z natury
+# tekst pelen metaznakow powloki i regexpow — i, w przypadku dashboardu WAF-a,
+# doslownie PAYLOADY ATAKOW, po ktorych operator filtruje. Skanowanie tego
+# regulami CRS oznacza podawanie WAF-owi jego wlasnych znalezisk na wejscie.
+# Wykluczenie punktowe tej klasy nie domknie: kazde kolejne pole dashboardu
+# dokłada nowy zestaw regul do wyłączenia.
+#
+# POTWIERDZONY PRZYPADEK (produkcja publikacje-test.up.lublin.pl, 2026-08-05):
+# KAZDY POST na /grafana/api/ds/query konczyl sie 403, a wiec KAZDY panel
+# kazdego dashboardu pokazywal "No data". Wyzwalaczem bylo rozwiniecie zmiennej
+# `$level` przy "Log Level = All":
+#
+#     detected_level=~"critical|debug|error|info|unknown|warn"
+#
+# W srodku siedzi `|debug`. Regula 932110 (REQUEST-932, "Remote Command
+# Execution: Windows Command Injection") szuka wzorca "metaznak powloki, potem
+# nazwa polecenia" — a `debug` to polecenie DOS-a z jej slownika. Audit log
+# wprost: `Matched Data: |debug found within ARGS:json.queries.array_0.expr`.
+# Severity CRITICAL = 5 pkt przy progu ANOMALY_INBOUND 5, wiec JEDNO trafienie
+# od razu blokuje. Objaw jest maksymalnie mylacy: dashboard laduje sie
+# normalnie (GET-y przechodza), puste sa dopiero dane.
+#
+# DLACZEGO WOLNO NAM TO WYLACZYC: caly `location /grafana/`
+# (_bpp-locations.conf) stoi za `auth_request /_bpp_superuser_auth`. Zadanie
+# anonimowe dostaje 401 i redirect na logowanie BPP, zanim dojdzie do Grafany.
+# Wylaczamy wiec inspekcje ruchu, ktory i tak moze wygenerowac wylacznie
+# zalogowany SUPERUSER — czyli ktos, kto ma w BPP uprawnienia daleko
+# powazniejsze niz cokolwiek, co CRS moglby tu powstrzymac.
+#
+# ZAKRES: `ctl:ruleEngine=Off`, czyli twardo caly silnik dla tej transakcji —
+# nie DetectionOnly jak w 10002/10003 (bo trafienia nie sa nam do niczego
+# potrzebne i tylko zasmiecaja dashboard WAF-a) i nie zakres regul jak
+# w 10004 (bo problem nie ogranicza sie do jednej rodziny: LogQL potrafi
+# zapalic 930/932/941/942 naraz — patrz komentarz przy 10003, gdzie ten sam
+# mechanizm zmierzono dla DjangoQL: score 15 przy progu 5).
+#
+# REGULA 10004 ZOSTAJE NIETKNIETA i nadal wymienia /grafana/. Jest teraz dla
+# niej nadmiarowa, ale jest to nadmiarowosc celowa: gdyby ktos kiedys zwezil
+# 10006 (np. tylko do /grafana/api/), wykluczenie regul WYCHODZACYCH dla
+# reszty Grafany musi przetrwac — bez niego wraca urwana strona z 953100 na
+# `sqlConnectionLimits`.
+#
+# NIE ROZSZERZAC "przy okazji" na /dozzle/, /flower/ i /netdata/ bez pomiaru.
+# Dozzle jest kandydatem z tego samego powodu (przegladarka logow przesyla
+# szukany tekst), ale nikt tego nie zmierzyl, a spekulatywne poszerzanie
+# wykluczen to dokladnie ten nawyk, ktory ta konfiguracja stara sie trzymac
+# w ryzach.
+SecRule REQUEST_URI "@rx ^/grafana(/|$)" \
+    "id:10006,\
+    phase:1,\
+    pass,\
+    nolog,\
+    ctl:ruleEngine=Off"

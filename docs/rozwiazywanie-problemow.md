@@ -63,6 +63,34 @@ Najczęstsze przyczyny: brak migracji bazy (uruchom `make migrate`), brak połą
 Redis (sprawdź czy `redis` jest healthy), niepoprawne wartości w `.env`. O reaktywnym
 restarcie niezdrowych kontenerów: [Healthchecks i autoheal](architektura/healthchecks-autoheal.md).
 
+## Wszystkie panele w Grafanie pokazują „No data"
+
+**Symptom**: Grafana działa — strona się ładuje, dashboardy się otwierają, listy
+w rozwijankach się wypełniają — ale **każdy** panel na **każdym** dashboardzie
+jest pusty.
+
+Najpierw ustal, czy żądania o dane w ogóle dochodzą do Grafany:
+
+```bash
+docker compose logs --tail=200 webserver | grep '/grafana/api/ds/query'
+```
+
+- **`403`** → blokuje je nasz własny WAF. Tak wyglądał błąd naprawiony regułą
+  `10006` (2026-08-05): zapytanie LogQL zawiera ciąg `|debug` (rozwinięcie
+  `Log Level = All`), a reguła CRS `932110` czyta to jako wstrzyknięcie
+  polecenia. Pełny opis:
+  [WAF → Dlaczego Grafana jest wyjęta w całości](architektura/waf.md#grafana-poza-waf).
+  Naprawa to `git pull && make up` — reguła jedzie w wersjonowanym bind-moucie,
+  bez migracji `.env`.
+- **`502`** → Grafana nie stoi; `make ps`, `make logs-grafana`.
+- **brak takich linii** → problem jest po stronie przeglądarki albo
+  `auth_request` (patrz `401` w logu) — sprawdź, czy jesteś zalogowany w BPP
+  jako superuser.
+
+Jeśli żądania wracają z `200`, a panele i tak są puste, przyczyna leży w danych,
+nie w brzegu — patrz [Logowanie](monitoring/logowanie.md) i uwaga o pułapce
+filtrów ad-hoc w [dashboardach Grafany](monitoring/dashboardy-grafany.md).
+
 ## Po `git pull` coś się rozjechało
 
 **Symptom**: nowe usługi się nie pojawiają, obrazy są stare, `.env` nie ma nowych zmiennych.

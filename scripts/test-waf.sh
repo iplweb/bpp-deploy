@@ -359,6 +359,65 @@ fi
 LACZNIE=$(( ${#PRZYPADKI[@]} + 1 ))
 
 # --------------------------------------------------------------------------
+# Regula 10006: /grafana/ poza inspekcja WAF-a
+# --------------------------------------------------------------------------
+# DLACZEGO OSOBNO, A NIE JAKO WPIS "PASS" W TABELCE: tamta bateria strzela
+# wylacznie GET-em bez ciala, a tu caly problem siedzi w CIELE POST-a. Co
+# wazniejsze, jej rozstrzygniecie liczy KAZDY kod HTTP jako PASS — czyli 403
+# od ModSecurity przeszloby tam jako sukces. Regresja bylaby niewidoczna.
+#
+# CO SIE STALO NA PRODUKCJI (publikacje-test.up.lublin.pl, 2026-08-05): kazdy
+# POST na /grafana/api/ds/query wracal z 403, wiec KAZDY panel KAZDEGO
+# dashboardu pokazywal "No data". Zapalala go zmienna `$level` przy
+# "Log Level = All", ktora rozwija sie do `detected_level=~"critical|debug|..."`
+# — a ciag `|debug` to dla reguly 932110 wstrzykniecie polecenia Windows
+# (metaznak powloki + polecenie DOS-a `debug`). Severity CRITICAL = 5 pkt przy
+# progu 5, wiec jedno trafienie blokowalo.
+#
+# SA DWA SPRAWDZENIA I OBA SA POTRZEBNE. Samo "grafana przechodzi" nie dowodzi
+# niczego, dopoki nie wiadomo, ze payload W OGOLE jest blokowany gdzie indziej
+# — inaczej test przeszedlby tak samo po skasowaniu reguly 10006, a nawet po
+# wylaczeniu calego CRS. To ta sama pulapka, ktora opisano wyzej przy regulach
+# wychodzacych: wykluczenie, ktore nic nie wylacza, jest gorsze niz zadne.
+CIALO_LOGQL='{"queries":[{"refId":"A","datasource":{"type":"loki","uid":"loki"},"expr":"sum(count_over_time({job=\"docker\", detected_level=~\"critical|debug|error|info|unknown|warn\"} | modsec_src=~\".*\" [1m])) by (detected_level)"}],"from":"now-6h","to":"now"}'
+
+# Zwraca: BLOK (403 albo zerwane polaczenie) / PASS (cokolwiek innego) / BLAD.
+strzel_ds_query() {
+    local sciezka="$1" kod rc
+    kod=$(curl -sk --http1.1 -o /dev/null -w '%{http_code}' --max-time 8 \
+        --resolve "$HOST_NAME:$PORT:127.0.0.1" \
+        -X POST -H 'Content-Type: application/json' --data "$CIALO_LOGQL" \
+        "https://$HOST_NAME:$PORT/$sciezka" 2>/dev/null)
+    rc=$?
+    if [ "$rc" -eq 52 ] || [ "$rc" -eq 56 ] || [ "$rc" -eq 92 ]; then
+        echo "BLOK|polaczenie zerwane (curl $rc)"
+    elif [ "$rc" -ne 0 ]; then
+        echo "BLAD|curl $rc"
+    elif [ "$kod" = "403" ]; then
+        echo "BLOK|HTTP 403 od ModSecurity"
+    else
+        echo "PASS|HTTP $kod"
+    fi
+}
+
+echo
+printf "%-6s %-46s %s\n" "WYNIK" "ZAPYTANIE LogQL Z GRAFANY (POST)" "SZCZEGOLY"
+printf "%s\n" "----------------------------------------------------------------------------------"
+for para in "BLOK|kontrola: ten sam payload poza /grafana/|" \
+            "PASS|/grafana/api/ds/query nie jest blokowane|grafana/api/ds/query"; do
+    IFS='|' read -r oczek opis sciezka <<< "$para"
+    LACZNIE=$((LACZNIE + 1))
+    IFS='|' read -r faktyczny szczegol <<< "$(strzel_ds_query "$sciezka")"
+    if [ "$faktyczny" = "$oczek" ]; then
+        printf "  \033[32mOK\033[0m   %-46s %s\n" "$opis" "$szczegol"
+    else
+        printf "  \033[31mFAIL\033[0m %-46s oczekiwano %s, jest %s (%s)\n" \
+            "$opis" "$oczek" "$faktyczny" "$szczegol"
+        BLEDY=$((BLEDY + 1))
+    fi
+done
+
+# --------------------------------------------------------------------------
 # Przypadek osobny: legalne zadanie po HTTP/3
 # --------------------------------------------------------------------------
 # Nie siedzi w tablicy PRZYPADKI, bo tamte strzelaja `curl --http1.1` Z HOSTA,

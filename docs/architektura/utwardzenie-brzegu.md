@@ -167,7 +167,7 @@ się na `administrator`, a `/static/js/app.js` musi przejść.
 make test-waf
 ```
 
-35 przypadków, w tym wszystkie reguły z tej strony i asercja, że `Server` nie
+37 przypadków, w tym wszystkie reguły z tej strony i asercja, że `Server` nie
 niesie numeru wersji. Szczegóły stanowiska: [WAF → `make test-waf`](waf.md#sprawdzenie-czy-waf-dziala-make-test-waf).
 
 ## Pomiar: co naprawdę puka do Waszego serwisu
