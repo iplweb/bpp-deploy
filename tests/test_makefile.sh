@@ -437,6 +437,51 @@ test_waf_audit_only_rules() {
 }
 
 # ============================================================
+# TEST: Log Monitoring — filtr ModSecurity we wszystkich panelach
+# ============================================================
+
+test_log_monitoring_waf_filter() {
+    yellow "=== Test: Log Monitoring — filtr ModSecurity ==="
+
+    local dash="$REPO_DIR/defaults/grafana/provisioning/dashboards/error-monitoring.json"
+
+    # Fragment potoku musi byc w KAZDYM z trzech paneli. Eksport dashboardu
+    # z UI Grafany po recznej edycji potrafi zgubic go z jednego — wtedy filtr
+    # dziala "prawie", co jest gorsze, niz gdyby nie dzialal wcale.
+    # `|| true` jest tu OBOWIAZKOWE: skrypt leci pod `set -e`, a `grep -c`
+    # przy zerowej liczbie trafien konczy sie kodem 1 — bez tego przypisanie
+    # wywala CALY zestaw testow zamiast pozwolic tej jednej asercji zawiesc.
+    local n
+    n="$(grep -cF '${waf:raw}' "$dash" || true)"
+    if [ "$n" -eq 3 ]; then
+        pass "error-monitoring.json: filtr WAF-a we wszystkich 3 panelach"
+    else
+        fail "error-monitoring.json: filtr WAF-a w $n z 3 paneli"
+    fi
+
+    # Interpolacja MUSI byc przez :raw. Samo $waf przy wlaczonym multi-value
+    # zamieniloby `.*` na `\.\*` — zapytanie zostaje skladniowo poprawne,
+    # tylko przestaje cokolwiek zwracac. Cicha awaria.
+    if grep -q '\$waf[^:]' "$dash"; then
+        fail "error-monitoring.json: goly \$waf zamiast \${waf:raw}"
+    else
+        pass "error-monitoring.json: zmienna waf interpolowana przez :raw"
+    fi
+
+    assert_file_contains "zmienna waf istnieje" \
+        '"name": "waf"' "$dash"
+
+    # Trzy opcje, bajt w bajt. Zadna nie moze byc pusta — Grafana nie sparsuje
+    # opcji `custom` bez wartosci i wstawi do zapytania sam tekst opcji.
+    assert_file_contains "opcja 'wszystko' = no-op" \
+        'modsec_src=~\\"\.\*\\"' "$dash"
+    assert_file_contains "opcja 'tylko WAF' = linia error.log" \
+        'modsec_src=\\"nginx\\"' "$dash"
+    assert_file_contains "opcja 'bez WAF' = brak klucza" \
+        'modsec_src=\\"\\"' "$dash"
+}
+
+# ============================================================
 # TEST 12: .env.sample istnieje
 # ============================================================
 
@@ -1320,6 +1365,7 @@ test_normal_path_help
 test_normal_path_targets
 test_compose_bind_mounts
 test_waf_audit_only_rules
+test_log_monitoring_waf_filter
 test_env_sample
 test_no_scp_in_configs
 test_init_configs_multihost_skips_hostname

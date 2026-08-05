@@ -159,25 +159,56 @@ Poszlaki za: panel „Kategorie ataków" w `waf.json` używa `| modsec_attack !=
 właśnie po to, by odsiać wpisy bez tego pola — czyli produkcyjnie polegamy już
 na tej semantyce.
 
-Weryfikacja mimo to, bo cały projekt na tym stoi: jednorazowy kontener
-**`grafana/loki:3.7.1`** (dokładnie ten tag co produkcja —
-`docker-compose.monitoring.yml:30`), push dwóch linii (jedna ze structured
-metadata, jedna bez), trzy zapytania przez `/loki/api/v1/query_range`,
-sprawdzenie liczby zwróconych linii dla każdego z trzech wariantów.
+**Zweryfikowane empirycznie 2026-08-05** na `grafana/loki:3.7.1` (dokładnie ten
+tag co produkcja — `docker-compose.monitoring.yml:30`). Dwie linie wypchnięte
+przez `/loki/api/v1/push` — jedna ze structured metadata `modsec_src="nginx"`,
+druga bez tego klucza — i trzy zapytania przez `/loki/api/v1/query_range`:
 
-## Drugie założenie: data links a stan zmiennej
+| Filtr | Oczekiwano | Zwrócono |
+|---|---|---|
+| `\| modsec_src=~".*"` | 2 | 2 |
+| `\| modsec_src="nginx"` | 1 | 1 |
+| `\| modsec_src=""` | 1 | 1 |
+
+Nośny jest **trzeci** przypadek: zwrócił linię appservera, która klucza
+`modsec_src` w ogóle nie ma. Brakująca structured metadata jest więc rzutowana
+na pusty string.
+
+Warto było to sprawdzić, bo nie jest oczywiste: w Prometheusie brak etykiety
+i pusta etykieta to jedno i to samo w selektorze serii, ale LogQL stosuje filtry
+potokowe do **każdej linii z osobna**, już po wybraniu strumieni — równie dobrze
+mógłby traktować brak klucza jako „nie ma czego porównać" i odrzucać linię.
+Gdyby tak było, stan „bez WAF" trzeba by wyrazić podwójną negacją
+(`| modsec_src!="nginx" | modsec_src!="audit"`).
+
+## Data links a stan zmiennej
 
 Panel „Log volume" ma data link `?var-level=${__field.labels.detected_level}`
 (`error-monitoring.json:71`), a tabela „By service" — `?var-service=…` (`:375`).
-Jeśli Grafana 12 przy takim linku **podmienia** query string zamiast go
-scalać, klik w tabelę zresetuje `var-waf` do „wszystko" — operator, który
-wyciszył WAF, dostanie go z powrotem bez ostrzeżenia. (Ten sam mechanizm
-gubiłby dziś `var-service`/`var-container`, więc może się okazać, że Grafana
-jednak scala.)
+Jeśli Grafana 12 przy takim linku **podmienia** query string zamiast go scalać,
+klik w tabelę zresetuje `var-waf` do „wszystko" — operator, który wyciszył WAF,
+dostanie go z powrotem bez ostrzeżenia.
 
-Do sprawdzenia empirycznie przy implementacji. Jeśli podmienia — dopisujemy do
-obu linków `&var-waf=${waf:percentencode}` (percent-encoding jest konieczny:
-wartość zawiera `|`, `"` i spacje).
+**Nie weryfikujemy tego empirycznie, bo nie trzeba.** Dopisanie
+`&var-waf=${waf:percentencode}` do obu linków jest korzystne w **obu**
+przypadkach:
+
+- semantyka „podmienia" → link zachowuje wybrany stan filtra (naprawa),
+- semantyka „scala" → link ustawia zmienną na jej własną, bieżącą wartość
+  (no-op).
+
+Weryfikacja kosztowałaby postawienie Grafany z provisioningiem, a jedyne, co
+by rozstrzygnęła, to *czy* poprawka jest potrzebna — nie *czy* jest bezpieczna.
+
+Percent-encoding jest konieczny, bo wartość zawiera `|`, `"` i spacje. Gdyby
+format `:percentencode` okazał się nieobsługiwany, degradacja jest łagodna:
+`var-waf` dostaje wartość spoza listy opcji, Grafana cofa się do pierwszej
+opcji — czyli do „wszystko", stanu dzisiejszego. Nic się nie psuje.
+
+**Świadomie poza zakresem:** te same linki gubią dziś `var-service`
+i `var-container`, jeśli semantyka to „podmienia". To defekt zastany, nie
+wprowadzany tą zmianą, i dotyczy zmiennych `multi`, których round-trip przez
+URL jest osobnym tematem.
 
 ## Zabezpieczenie przed regresją
 

@@ -9,12 +9,27 @@ Dashboardy tworzone w UI Grafany żyją w jej bazie i nie są ruszane.
 
 ## Dostępne dashboardy
 
-### Error Monitoring
+### Log Monitoring
 
-Liczba błędów w czasie (per serwer) + log błędów z Loki. Dropdowny
-`service`/`container`/`level` filtrują oba panele; klik w serię na wykresie ustawia
-`var-service` (data link) i zawęża logi; drag-select po wykresie zawęża czas. Panel
-„Error Logs" z `enableInfiniteScrolling`.
+Wolumen logów w czasie z podziałem na poziom + tabela per serwer + przeglądarka
+logów z Loki. Dropdowny `Service` / `Container` / `Log Level` filtrują wszystkie
+panele; klik w serię na wykresie ustawia `var-level`, klik w wiersz tabeli —
+`var-service` (data linki); drag-select po wykresie zawęża czas. Panel „Logs"
+z `enableInfiniteScrolling`.
+
+Czwarty dropdown, **`ModSecurity`**, izoluje albo wycisza trafienia WAF-a:
+
+| Stan | Co pokazuje |
+|---|---|
+| `wszystko` | domyślny, bez filtrowania |
+| `tylko WAF` | wyłącznie czytelne linie error.log ModSecurity |
+| `bez WAF` | wszystko **poza** zdarzeniami WAF-a (znikają oba wpisy — JSON audit i linia error.log) |
+
+`tylko WAF` pokazuje żądania, na których CRS przekroczył próg anomalii — te mają
+poziom `warn`, więc przy `Log Level = error` wynik będzie pusty. Trafienia
+podprogowe (reguła się zapaliła, ale próg nie został przekroczony) nie trafiają
+do error.log i widać je wyłącznie na dashboardzie
+[WAF](#waf-modsecurity-owasp-crs).
 
 ### WAF (ModSecurity / OWASP CRS)
 

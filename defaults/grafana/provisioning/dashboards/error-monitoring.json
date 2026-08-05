@@ -68,7 +68,7 @@
           "links": [
             {
               "title": "Filtruj po poziomie: ${__field.labels.detected_level}",
-              "url": "?var-level=${__field.labels.detected_level}"
+              "url": "?var-level=${__field.labels.detected_level}&var-waf=${waf:percentencode}"
             }
           ],
           "mappings": [],
@@ -341,7 +341,7 @@
             "uid": "loki"
           },
           "editorMode": "code",
-          "expr": "sum(count_over_time({job=\"docker\", service=~\"$service\", container=~\"$container\", detected_level=~\"$level\"} [$__interval])) by (detected_level)",
+          "expr": "sum(count_over_time({job=\"docker\", service=~\"$service\", container=~\"$container\", detected_level=~\"$level\"} ${waf:raw} [$__interval])) by (detected_level)",
           "legendFormat": "{{detected_level}}",
           "queryType": "range",
           "refId": "A"
@@ -372,7 +372,7 @@
           "links": [
             {
               "title": "Filtruj dashboard tym serwerem",
-              "url": "?var-service=${__data.fields.service}"
+              "url": "?var-service=${__data.fields.service}&var-waf=${waf:percentencode}"
             }
           ],
           "mappings": [],
@@ -438,7 +438,7 @@
             "uid": "loki"
           },
           "editorMode": "code",
-          "expr": "sum(count_over_time({job=\"docker\", container=~\"$container\", detected_level=~\"$level\"} [$__range])) by (service)",
+          "expr": "sum(count_over_time({job=\"docker\", container=~\"$container\", detected_level=~\"$level\"} ${waf:raw} [$__range])) by (service)",
           "queryType": "instant",
           "refId": "A"
         }
@@ -497,7 +497,7 @@
             "uid": "loki"
           },
           "editorMode": "code",
-          "expr": "{job=\"docker\", service=~\"$service\", container=~\"$container\", detected_level=~\"$level\"}",
+          "expr": "{job=\"docker\", service=~\"$service\", container=~\"$container\", detected_level=~\"$level\"} ${waf:raw}",
           "queryType": "range",
           "refId": "A"
         }
@@ -602,6 +602,38 @@
         "regexApplyTo": "value",
         "sort": 1,
         "type": "query"
+      },
+      {
+        "type": "custom",
+        "name": "waf",
+        "label": "ModSecurity",
+        "description": "\"tylko WAF\" pokazuje linie error.log, czyli zadania, na ktorych CRS przekroczyl prog anomalii — maja poziom warn, wiec przy Log Level = error wynik bedzie pusty. Trafienia podprogowe nie trafiaja do error.log i widac je wylacznie na dashboardzie WAF.",
+        "query": "wszystko : | modsec_src=~\".*\", tylko WAF : | modsec_src=\"nginx\", bez WAF : | modsec_src=\"\"",
+        "options": [
+          {
+            "selected": true,
+            "text": "wszystko",
+            "value": "| modsec_src=~\".*\""
+          },
+          {
+            "selected": false,
+            "text": "tylko WAF",
+            "value": "| modsec_src=\"nginx\""
+          },
+          {
+            "selected": false,
+            "text": "bez WAF",
+            "value": "| modsec_src=\"\""
+          }
+        ],
+        "includeAll": false,
+        "multi": false,
+        "current": {
+          "text": "wszystko",
+          "value": "| modsec_src=~\".*\""
+        },
+        "hide": 0,
+        "skipUrlSync": false
       }
     ]
   },
