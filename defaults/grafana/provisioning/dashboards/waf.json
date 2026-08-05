@@ -55,7 +55,7 @@
             "uid": "loki"
           },
           "editorMode": "code",
-          "expr": "sum(count_over_time({job=\"docker\", service=\"webserver\"} | modsec_src = \"audit\" | modsec_rule_id != \"\" | modsec_hostname =~ \"$vhost\" | modsec_action =~ \"$action\" [$__range]))",
+          "expr": "sum(count_over_time({job=\"docker\", service=\"webserver\"} | modsec_src = \"audit\" | modsec_rule_id != \"\" | modsec_rule_id =~ \"$rule\" | modsec_client =~ \"$client\" | modsec_uri =~ \"$uri\" | modsec_score =~ \"$score\" | modsec_attack =~ \"$attack\" | modsec_hostname =~ \"$vhost\" | modsec_action =~ \"$action\" [$__range]))",
           "queryType": "instant",
           "refId": "A",
           "instant": true,
@@ -109,7 +109,7 @@
             "uid": "loki"
           },
           "editorMode": "code",
-          "expr": "sum(count_over_time({job=\"docker\", service=\"webserver\"} | modsec_src = \"audit\" | modsec_rule_id != \"\" | modsec_action = \"blocked\" | modsec_hostname =~ \"$vhost\" [$__range]))",
+          "expr": "sum(count_over_time({job=\"docker\", service=\"webserver\"} | modsec_src = \"audit\" | modsec_rule_id != \"\" | modsec_rule_id =~ \"$rule\" | modsec_client =~ \"$client\" | modsec_uri =~ \"$uri\" | modsec_score =~ \"$score\" | modsec_attack =~ \"$attack\" | modsec_action = \"blocked\" | modsec_hostname =~ \"$vhost\" [$__range]))",
           "queryType": "instant",
           "refId": "A",
           "instant": true,
@@ -163,7 +163,7 @@
             "uid": "loki"
           },
           "editorMode": "code",
-          "expr": "count(sum by (modsec_client) (count_over_time({job=\"docker\", service=\"webserver\"} | modsec_src = \"audit\" | modsec_rule_id != \"\" | modsec_hostname =~ \"$vhost\" | modsec_action =~ \"$action\" [$__range])))",
+          "expr": "count(sum by (modsec_client) (count_over_time({job=\"docker\", service=\"webserver\"} | modsec_src = \"audit\" | modsec_rule_id != \"\" | modsec_rule_id =~ \"$rule\" | modsec_client =~ \"$client\" | modsec_uri =~ \"$uri\" | modsec_score =~ \"$score\" | modsec_attack =~ \"$attack\" | modsec_hostname =~ \"$vhost\" | modsec_action =~ \"$action\" [$__range])))",
           "queryType": "instant",
           "refId": "A",
           "instant": true,
@@ -217,7 +217,7 @@
             "uid": "loki"
           },
           "editorMode": "code",
-          "expr": "count(sum by (modsec_rule_id) (count_over_time({job=\"docker\", service=\"webserver\"} | modsec_src = \"audit\" | modsec_rule_id != \"\" | modsec_hostname =~ \"$vhost\" | modsec_action =~ \"$action\" [$__range])))",
+          "expr": "count(sum by (modsec_rule_id) (count_over_time({job=\"docker\", service=\"webserver\"} | modsec_src = \"audit\" | modsec_rule_id != \"\" | modsec_rule_id =~ \"$rule\" | modsec_client =~ \"$client\" | modsec_uri =~ \"$uri\" | modsec_score =~ \"$score\" | modsec_attack =~ \"$attack\" | modsec_hostname =~ \"$vhost\" | modsec_action =~ \"$action\" [$__range])))",
           "queryType": "instant",
           "refId": "A",
           "instant": true,
@@ -314,7 +314,7 @@
             "uid": "loki"
           },
           "editorMode": "code",
-          "expr": "sum by (modsec_action) (count_over_time({job=\"docker\", service=\"webserver\"} | modsec_src = \"audit\" | modsec_rule_id != \"\" | modsec_hostname =~ \"$vhost\" | modsec_action =~ \"$action\" [$__interval]))",
+          "expr": "sum by (modsec_action) (count_over_time({job=\"docker\", service=\"webserver\"} | modsec_src = \"audit\" | modsec_rule_id != \"\" | modsec_rule_id =~ \"$rule\" | modsec_client =~ \"$client\" | modsec_uri =~ \"$uri\" | modsec_score =~ \"$score\" | modsec_attack =~ \"$attack\" | modsec_hostname =~ \"$vhost\" | modsec_action =~ \"$action\" [$__interval]))",
           "queryType": "range",
           "refId": "A",
           "legendFormat": "{{modsec_action}}"
@@ -344,7 +344,13 @@
             },
             "filterable": false
           },
-          "mappings": []
+          "mappings": [],
+          "links": [
+            {
+              "title": "Filtruj dashboard ta wartoscia",
+              "url": "/d/waf-modsecurity?${vhost:queryparam}&${action:queryparam}&var-rule=${__data.fields.modsec_rule_id:percentencode}&${attack:queryparam}&${client:queryparam}&${uri:queryparam}&${score:queryparam}"
+            }
+          ]
         },
         "overrides": []
       },
@@ -373,7 +379,7 @@
             "uid": "loki"
           },
           "editorMode": "code",
-          "expr": "topk(10, sum by (modsec_rule_id, modsec_msg) (count_over_time({job=\"docker\", service=\"webserver\"} | modsec_src = \"audit\" | modsec_rule_id != \"\" | modsec_hostname =~ \"$vhost\" | modsec_action =~ \"$action\" [$__range])))",
+          "expr": "topk(10, sum by (modsec_rule_id, modsec_msg) (count_over_time({job=\"docker\", service=\"webserver\"} | modsec_src = \"audit\" | modsec_rule_id != \"\" | modsec_rule_id =~ \"$rule\" | modsec_client =~ \"$client\" | modsec_uri =~ \"$uri\" | modsec_score =~ \"$score\" | modsec_attack =~ \"$attack\" | modsec_hostname =~ \"$vhost\" | modsec_action =~ \"$action\" [$__range])))",
           "queryType": "instant",
           "refId": "A",
           "instant": true,
@@ -419,7 +425,13 @@
             },
             "filterable": false
           },
-          "mappings": []
+          "mappings": [],
+          "links": [
+            {
+              "title": "Filtruj dashboard ta wartoscia",
+              "url": "/d/waf-modsecurity?${vhost:queryparam}&${action:queryparam}&${rule:queryparam}&var-attack=${__data.fields.modsec_attack:percentencode}&${client:queryparam}&${uri:queryparam}&${score:queryparam}"
+            }
+          ]
         },
         "overrides": []
       },
@@ -448,7 +460,7 @@
             "uid": "loki"
           },
           "editorMode": "code",
-          "expr": "sum by (modsec_attack) (count_over_time({job=\"docker\", service=\"webserver\"} | modsec_src = \"audit\" | modsec_rule_id != \"\" | modsec_hostname =~ \"$vhost\" | modsec_action =~ \"$action\" | modsec_attack != \"\" [$__range]))",
+          "expr": "sum by (modsec_attack) (count_over_time({job=\"docker\", service=\"webserver\"} | modsec_src = \"audit\" | modsec_rule_id != \"\" | modsec_rule_id =~ \"$rule\" | modsec_client =~ \"$client\" | modsec_uri =~ \"$uri\" | modsec_score =~ \"$score\" | modsec_attack =~ \"$attack\" | modsec_hostname =~ \"$vhost\" | modsec_action =~ \"$action\" | modsec_attack != \"\" [$__range]))",
           "queryType": "instant",
           "refId": "A",
           "instant": true,
@@ -493,7 +505,13 @@
             },
             "filterable": false
           },
-          "mappings": []
+          "mappings": [],
+          "links": [
+            {
+              "title": "Filtruj dashboard ta wartoscia",
+              "url": "/d/waf-modsecurity?${vhost:queryparam}&${action:queryparam}&${rule:queryparam}&${attack:queryparam}&var-client=${__data.fields.modsec_client:percentencode}&${uri:queryparam}&${score:queryparam}"
+            }
+          ]
         },
         "overrides": []
       },
@@ -522,7 +540,7 @@
             "uid": "loki"
           },
           "editorMode": "code",
-          "expr": "topk(15, sum by (modsec_client) (count_over_time({job=\"docker\", service=\"webserver\"} | modsec_src = \"audit\" | modsec_rule_id != \"\" | modsec_hostname =~ \"$vhost\" | modsec_action =~ \"$action\" [$__range])))",
+          "expr": "topk(15, sum by (modsec_client) (count_over_time({job=\"docker\", service=\"webserver\"} | modsec_src = \"audit\" | modsec_rule_id != \"\" | modsec_rule_id =~ \"$rule\" | modsec_client =~ \"$client\" | modsec_uri =~ \"$uri\" | modsec_score =~ \"$score\" | modsec_attack =~ \"$attack\" | modsec_hostname =~ \"$vhost\" | modsec_action =~ \"$action\" [$__range])))",
           "queryType": "instant",
           "refId": "A",
           "instant": true,
@@ -567,7 +585,13 @@
             },
             "filterable": false
           },
-          "mappings": []
+          "mappings": [],
+          "links": [
+            {
+              "title": "Filtruj dashboard ta wartoscia",
+              "url": "/d/waf-modsecurity?${vhost:queryparam}&${action:queryparam}&${rule:queryparam}&${attack:queryparam}&${client:queryparam}&var-uri=%5C%5CQ${__data.fields.modsec_uri:percentencode}%5C%5CE&${score:queryparam}"
+            }
+          ]
         },
         "overrides": []
       },
@@ -596,7 +620,7 @@
             "uid": "loki"
           },
           "editorMode": "code",
-          "expr": "topk(15, sum by (modsec_uri) (count_over_time({job=\"docker\", service=\"webserver\"} | modsec_src = \"audit\" | modsec_rule_id != \"\" | modsec_hostname =~ \"$vhost\" | modsec_action =~ \"$action\" [$__range])))",
+          "expr": "topk(15, sum by (modsec_uri) (count_over_time({job=\"docker\", service=\"webserver\"} | modsec_src = \"audit\" | modsec_rule_id != \"\" | modsec_rule_id =~ \"$rule\" | modsec_client =~ \"$client\" | modsec_uri =~ \"$uri\" | modsec_score =~ \"$score\" | modsec_attack =~ \"$attack\" | modsec_hostname =~ \"$vhost\" | modsec_action =~ \"$action\" [$__range])))",
           "queryType": "instant",
           "refId": "A",
           "instant": true,
@@ -641,7 +665,13 @@
             },
             "filterable": false
           },
-          "mappings": []
+          "mappings": [],
+          "links": [
+            {
+              "title": "Filtruj dashboard ta wartoscia",
+              "url": "/d/waf-modsecurity?${vhost:queryparam}&${action:queryparam}&${rule:queryparam}&${attack:queryparam}&${client:queryparam}&${uri:queryparam}&var-score=${__data.fields.modsec_score:percentencode}"
+            }
+          ]
         },
         "overrides": []
       },
@@ -670,7 +700,7 @@
             "uid": "loki"
           },
           "editorMode": "code",
-          "expr": "sum by (modsec_score) (count_over_time({job=\"docker\", service=\"webserver\"} | modsec_src = \"audit\" | modsec_rule_id != \"\" | modsec_hostname =~ \"$vhost\" | modsec_action =~ \"$action\" | modsec_score != \"\" [$__range]))",
+          "expr": "sum by (modsec_score) (count_over_time({job=\"docker\", service=\"webserver\"} | modsec_src = \"audit\" | modsec_rule_id != \"\" | modsec_rule_id =~ \"$rule\" | modsec_client =~ \"$client\" | modsec_uri =~ \"$uri\" | modsec_score =~ \"$score\" | modsec_attack =~ \"$attack\" | modsec_hostname =~ \"$vhost\" | modsec_action =~ \"$action\" | modsec_score != \"\" [$__range]))",
           "queryType": "instant",
           "refId": "A",
           "instant": true,
@@ -723,7 +753,7 @@
             "uid": "loki"
           },
           "editorMode": "code",
-          "expr": "{job=\"docker\", service=\"webserver\"} | modsec_src = \"nginx\" | modsec_hostname =~ \"$vhost\" | modsec_action =~ \"$action\"",
+          "expr": "{job=\"docker\", service=\"webserver\"} | modsec_src = \"nginx\" | modsec_rule_id =~ \"$rule\" | modsec_client =~ \"$client\" | modsec_uri =~ \"$uri\" | modsec_score =~ \"$score\" | modsec_hostname =~ \"$vhost\" | modsec_action =~ \"$action\"",
           "queryType": "range",
           "refId": "A"
         }
@@ -779,6 +809,76 @@
           "text": "All",
           "value": "$__all"
         },
+        "hide": 0,
+        "skipUrlSync": false
+      },
+      {
+        "type": "textbox",
+        "name": "rule",
+        "label": "Regula",
+        "description": "Regex po ID reguly CRS (modsec_rule_id). Ustawiany klikiem w tabele \"Najczestsze reguly CRS\". Domyslnie .* = wszystkie.",
+        "query": ".*",
+        "current": {
+          "text": ".*",
+          "value": ".*"
+        },
+        "options": [],
+        "hide": 0,
+        "skipUrlSync": false
+      },
+      {
+        "type": "textbox",
+        "name": "attack",
+        "label": "Atak",
+        "description": "Regex po kategorii ataku (modsec_attack). UWAGA: to pole istnieje WYLACZNIE we wpisach audit logu — do error.log trafiaja tylko reguly decyzyjne 949110/959100 z tagiem anomaly-evaluation. Dlatego panel \"Ostatnie trafienia\" tym filtrem NIE jest zawezany. Domyslnie .* = wszystkie.",
+        "query": ".*",
+        "current": {
+          "text": ".*",
+          "value": ".*"
+        },
+        "options": [],
+        "hide": 0,
+        "skipUrlSync": false
+      },
+      {
+        "type": "textbox",
+        "name": "client",
+        "label": "Adres IP",
+        "description": "Regex po adresie zrodlowym (modsec_client). Ustawiany klikiem w tabele \"Najaktywniejsze adresy IP\". Domyslnie .* = wszystkie.",
+        "query": ".*",
+        "current": {
+          "text": ".*",
+          "value": ".*"
+        },
+        "options": [],
+        "hide": 0,
+        "skipUrlSync": false
+      },
+      {
+        "type": "textbox",
+        "name": "uri",
+        "label": "Sciezka",
+        "description": "Regex po sciezce zadania (modsec_uri). Klik w tabele wstawia tu wartosc cytowana literalnie przez \\\\Q...\\\\E, bo sciezki skanerow zawieraja znaki specjalne regexa. Domyslnie .* = wszystkie.",
+        "query": ".*",
+        "current": {
+          "text": ".*",
+          "value": ".*"
+        },
+        "options": [],
+        "hide": 0,
+        "skipUrlSync": false
+      },
+      {
+        "type": "textbox",
+        "name": "score",
+        "label": "Anomaly score",
+        "description": "Regex po sumie punktow anomalii (modsec_score). Ustawiany klikiem w tabele \"Anomaly score\". Domyslnie .* = wszystkie.",
+        "query": ".*",
+        "current": {
+          "text": ".*",
+          "value": ".*"
+        },
+        "options": [],
         "hide": 0,
         "skipUrlSync": false
       }

@@ -511,6 +511,129 @@ test_waf_audit_only_rules() {
 }
 
 # ============================================================
+# TEST 11c: WAF — klikalny cross-filtr (regula / atak / IP / sciezka)
+# ============================================================
+# Istnieje, bo wbudowane "Filter for value" Grafany na tym dashboardzie
+# NIE DZIALA i dziala w najgorszy sposob: wywala wszystkie panele naraz.
+# Grafana 12.4.2, datasource.ts:
+#     addAdHocFilters() -> addLabelToQuery(acc, key, operator, value)
+# — bez piatego argumentu `labelType`. A modifyQuery.ts bez niego zgaduje:
+#     if (parserPositions.length === 0) return addFilterToStreamSelector(...)
+# Nasze zapytania nie maja ani jednego parsera, wiec filtr LADUJE W SELEKTORZE
+# STRUMIENIA: {job="docker", service="webserver", modsec_msg="..."}. A pola
+# modsec_* to structured metadata (swiadomie — patrz config.alloy: modsec_uri
+# x modsec_client jako labele wysadzilyby kardynalnosc indeksu), wiec zaden
+# strumien nie pasuje i kazdy panel pokazuje "No data".
+# Tego przycisku NIE DA SIE wylaczyc z JSON-a (setDashboardPanelContext.ts
+# ustawia onAddAdHocFilter bezwarunkowo; `filterable: false` dotyczy filtra
+# kolumny i nic tu nie zmienia). Jedyna obrona to dac operatorowi wlasna,
+# dzialajaca sciezke — te zmienne i te data linki.
+# ============================================================
+
+test_waf_crossfilter() {
+    yellow "=== Test 11c: WAF — klikalny cross-filtr ==="
+
+    local waf="$REPO_DIR/defaults/grafana/provisioning/dashboards/waf.json"
+
+    local v
+    for v in rule attack client uri score; do
+        assert_file_contains "waf.json: zmienna $v istnieje" "\"name\": \"$v\"" "$waf"
+    done
+
+    # `|| true` obowiazkowe pod `set -e` — grep -c przy zerze trafien konczy
+    # sie kodem 1 i bez tego wywala CALY zestaw testow zamiast tej asercji.
+    local zapytan
+    zapytan="$(grep -c '"expr":' "$waf" || true)"
+
+    # modsec_rule_id / _client / _uri / _score Alloy ustawia w OBU blokach
+    # structured metadata (audit i nginx), wiec te filtry moga i musza byc
+    # w KAZDYM zapytaniu — takze w panelu logow. Brak w jednym = filtr dziala
+    # "prawie", co jest gorsze, niz gdyby nie dzialal wcale.
+    local f n opis
+    # shellcheck disable=SC2016  # to WZORCE grep-a: `$rule` itd. maja zostac literalne
+    for f in 'modsec_rule_id =~ \"$rule\"' 'modsec_client =~ \"$client\"' \
+             'modsec_uri =~ \"$uri\"' 'modsec_score =~ \"$score\"'; do
+        opis="${f%% *}"
+        n="$(grep -cF -- "$f" "$waf" || true)"
+        if [ "$zapytan" -gt 0 ] && [ "$n" -eq "$zapytan" ]; then
+            pass "waf.json: $opis filtrowany w $n z $zapytan zapytan"
+        else
+            fail "waf.json: $opis filtrowany w $n z $zapytan zapytan"
+        fi
+    done
+
+    # modsec_attack to ASYMETRIA, nie przeoczenie: do error.log trafiaja
+    # wylacznie reguly decyzyjne (949110/959100) z tagiem anomaly-evaluation,
+    # wiec blok nginx w config.alloy tego pola NIE USTAWIA. Wpuszczenie
+    # $attack do panelu logow oznaczaloby, ze wybor kategorii ataku czysci
+    # "Ostatnie trafienia" — czyli dokladnie ten sam objaw, ktory naprawiamy.
+    local audyt natt
+    audyt="$(grep -cF 'modsec_src = \"audit\"' "$waf" || true)"
+    # shellcheck disable=SC2016  # jw. — `$attack` to fragment wzorca, nie zmienna
+    natt="$(grep -cF 'modsec_attack =~ \"$attack\"' "$waf" || true)"
+    if [ "$audyt" -gt 0 ] && [ "$natt" -eq "$audyt" ]; then
+        pass "waf.json: \$attack w $natt z $audyt zapytan audytowych"
+    else
+        fail "waf.json: \$attack w $natt z $audyt zapytan audytowych"
+    fi
+    # shellcheck disable=SC2016  # jw. — oba wzorce maja zostac literalne
+    if grep -F 'modsec_src = \"nginx\"' "$waf" | grep -qF '$attack'; then
+        fail "waf.json: \$attack wpuszczony do panelu logow (nginx nie ma tego pola)"
+    else
+        pass "waf.json: \$attack trzymany z dala od panelu logow"
+    fi
+
+    local linkow p
+    linkow="$(grep -c '"url": "/d/' "$waf" || true)"
+    if [ "$linkow" -eq 0 ]; then
+        fail "waf.json: brak data linkow na tabelach"
+    else
+        pass "waf.json: $linkow data linkow na tabelach"
+    fi
+
+    # Kazdy data link musi niesc KOMPLET zmiennych, inaczej klik po cichu
+    # zresetowalby pozostale filtry. Format :queryparam, NIE recznie sklejone
+    # `var-x=${x}` — tylko on poprawnie rozwija zmienne multi-value (na
+    # powtorzone `var-x=a&var-x=b`) i tylko on zachowuje stan `$__all`.
+    for p in vhost action rule attack client uri score; do
+        n="$(grep -oE "\\\$\{$p:queryparam\}|var-$p=" "$waf" | wc -l | tr -d ' ')"
+        if [ "$linkow" -gt 0 ] && [ "$n" -eq "$linkow" ]; then
+            pass "waf.json: zmienna $p w $n z $linkow linkow"
+        else
+            fail "waf.json: zmienna $p w $n z $linkow linkow"
+        fi
+    done
+
+    # REGRESJA: link zaczynajacy sie od "?" GUBI SCIEZKE dashboardu. Wyglada
+    # na URL wzgledny (RFC 3986 zachowalby sciezke), ale Grafana nie robi
+    # resolucji — podaje string do locationService.push(), a router parsuje
+    # "?var-x=1" jako pathname "" i laduje na stronie glownej. Tak wlasnie
+    # przez dwa commity nie dzialal cross-filtr na Log Monitoring: asercje
+    # sprawdzaly OBECNOSC fragmentu w JSON-ie, nie SKUTEK kliknięcia.
+    if grep -q '"url": "?' "$waf"; then
+        fail "waf.json: data link zaczyna sie od '?' — zgubi sciezke dashboardu"
+    else
+        pass "waf.json: data linki niosa sciezke dashboardu"
+    fi
+
+    # modsec_uri jest jedynym z tych pol, ktorego wartosc kontroluje ATAKUJACY,
+    # a trafia do operatora `=~`. Sciezki skanerow sa pelne metaznakow regexa
+    # (`?`, `+`, `.`), wiec link cytuje wartosc literalnie przez \Q...\E.
+    # Backslash MUSI byc podwojony (%5C%5C): samo `\Q` LogQL odrzuca
+    # ("parse error: invalid char escape"), dopiero `\\Q` przechodzi unquoting
+    # i dociera do RE2 jako \Q. Zmierzone na loki 3.7.1: 40/40 linii dla
+    # /wp-login.php. ZNANE OGRANICZENIE: sciezka z LITERALNYM backslashem
+    # (np. sonda ThinkPHP /index.php?s=index/\think\app/...) wymagalaby
+    # podwojenia takze backslashy w wartosci, czego data link Grafany nie
+    # potrafi — taki klik wroci pusty. Sciezki z %5C (postac realnie logowana
+    # przez ModSecurity) dzialaja normalnie. Reguly/ataki/IP/score sa
+    # z zamknietych alfabetow ([0-9], attack-[a-z-], IP) i cytowania nie
+    # potrzebuja — dostaja samo :percentencode.
+    assert_file_contains "waf.json: link po sciezce cytuje wartosc przez \\\\Q...\\\\E" \
+        'var-uri=%5C%5CQ' "$waf"
+}
+
+# ============================================================
 # TEST: Log Monitoring — filtr ModSecurity we wszystkich panelach
 # ============================================================
 
@@ -555,6 +678,31 @@ test_log_monitoring_waf_filter() {
         'modsec_src=\\"nginx\\"' "$dash"
     assert_file_contains "opcja 'bez WAF' = brak klucza" \
         'modsec_src=\\"\\"' "$dash"
+
+    # Ta sama regresja co w waf.json — patrz komentarz przy test_waf_crossfilter.
+    # Tu byla realna: linki "?var-service=..." z 989bf83/ef6e8ad przez dwa
+    # commity wyrzucaly operatora na strone glowna Grafany zamiast filtrowac.
+    if grep -q '"url": "?' "$dash"; then
+        fail "error-monitoring.json: data link zaczyna sie od '?' — zgubi sciezke dashboardu"
+    else
+        pass "error-monitoring.json: data linki niosa sciezke dashboardu"
+    fi
+
+    local linkow v n
+    linkow="$(grep -c '"url": "/d/' "$dash" || true)"
+    if [ "$linkow" -eq 2 ]; then
+        pass "error-monitoring.json: $linkow data linki cross-filtra"
+    else
+        fail "error-monitoring.json: $linkow z 2 data linkow cross-filtra"
+    fi
+    for v in service container level waf; do
+        n="$(grep -oE "\\\$\{$v:queryparam\}|var-$v=" "$dash" | wc -l | tr -d ' ')"
+        if [ "$linkow" -gt 0 ] && [ "$n" -eq "$linkow" ]; then
+            pass "error-monitoring.json: zmienna $v w $n z $linkow linkow"
+        else
+            fail "error-monitoring.json: zmienna $v w $n z $linkow linkow"
+        fi
+    done
 }
 
 # ============================================================
@@ -1442,6 +1590,7 @@ test_normal_path_targets
 test_compose_bind_mounts
 test_compose_shell_vars_escaped
 test_waf_audit_only_rules
+test_waf_crossfilter
 test_log_monitoring_waf_filter
 test_env_sample
 test_no_scp_in_configs

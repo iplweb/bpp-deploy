@@ -68,7 +68,7 @@
           "links": [
             {
               "title": "Filtruj po poziomie: ${__field.labels.detected_level}",
-              "url": "?var-level=${__field.labels.detected_level}&var-waf=${waf:percentencode}"
+              "url": "/d/error-monitoring?${service:queryparam}&${container:queryparam}&var-level=${__field.labels.detected_level:percentencode}&${waf:queryparam}"
             }
           ],
           "mappings": [],
@@ -372,7 +372,7 @@
           "links": [
             {
               "title": "Filtruj dashboard tym serwerem",
-              "url": "?var-service=${__data.fields.service}&var-waf=${waf:percentencode}"
+              "url": "/d/error-monitoring?var-service=${__data.fields.service:percentencode}&${container:queryparam}&${level:queryparam}&${waf:queryparam}"
             }
           ],
           "mappings": [],
