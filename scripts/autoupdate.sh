@@ -13,6 +13,9 @@
 # Zmienne srodowiskowe (wszystkie z domyslnymi):
 #   AUTOUPDATE_DB_BACKUP=1     -> `make db-backup` przed deployem (domyslnie wyl.)
 #   AUTOUPDATE_LOCK_DIR=<dir>   -> nadpisanie katalogu locka (glownie do testow)
+#   AUTOUPDATE_WARNING_MINUTES  -> gdy > 0, deploy idzie przez sesje z
+#                                  ostrzezeniem (baner N minut -> blokada ->
+#                                  deploy -> odblokowanie). Puste/0 = jak dotad.
 #
 # `make run` dostaje BPP_SKIP_HEALTH_GATE=1 — inaczej prompt [s]/[d] bramki
 # zdrowia zablokowalby petle pod pseudo-TTY screena (kontrakt z CLAUDE.md).
@@ -105,11 +108,24 @@ if [ "$git_changed" -eq 1 ]; then
 	fi
 fi
 
-log "make run (BPP_SKIP_HEALTH_GATE=1)"
-if BPP_SKIP_HEALTH_GATE=1 "$MAKE" run; then
+warning_minutes="${AUTOUPDATE_WARNING_MINUTES:-0}"
+if [ -n "$warning_minutes" ] && [ "$warning_minutes" != "0" ]; then
+	# Nienadzorowana aktualizacja z uprzedzeniem uzytkownikow: baner na
+	# $warning_minutes minut, potem blokada, deploy i odblokowanie. Sesja jest
+	# tu bez TTY, wiec okno banera to zwykly sleep, a stary obraz (bez komend
+	# django-countdown) degraduje sie do zwyklego deployu zamiast pytac.
+	log "AUTOUPDATE_WARNING_MINUTES=$warning_minutes -> deploy z ostrzezeniem."
+	MINUTES="$warning_minutes" bash "$REPO_DIR/scripts/deploy-with-warning.sh"
+	rc=$?
+else
+	log "make run (BPP_SKIP_HEALTH_GATE=1)"
+	BPP_SKIP_HEALTH_GATE=1 "$MAKE" run
+	rc=$?
+fi
+
+if [ "$rc" -eq 0 ]; then
 	log "✓ Auto-update zakonczony sukcesem."
 else
-	rc=$?
-	log "BLAD: 'make run' zakonczony kodem $rc."
+	log "BLAD: deploy zakonczony kodem $rc."
 	exit "$rc"
 fi

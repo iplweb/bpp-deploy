@@ -318,7 +318,9 @@ test_normal_path_targets() {
     make -C "$REPO_COPY" init-configs BPP_CONFIGS_DIR="$CONFIG_DIR" >/dev/null 2>&1
     echo "BPP_CONFIGS_DIR=$CONFIG_DIR" > "$REPO_COPY/.env"
 
-    for target in up stop health logs db-backup migrate update-configs init-configs; do
+    for target in up stop health logs db-backup migrate update-configs init-configs \
+                  run-with-warning enable-site-down-warning disable-site-down-warning \
+                  extend-site-down-warning status-site-down-warning; do
         local outfile="$WORK_DIR/target_${target}.txt"
         make -C "$REPO_COPY" --dry-run "$target" > "$outfile" 2>&1 || true
         if grep -q "No rule to make target" "$outfile"; then
@@ -329,6 +331,52 @@ test_normal_path_targets() {
     done
 
     cleanup_temp
+}
+
+# ============================================================
+# TEST 10a: przerwa techniczna — kontrakty, ktorych nie widac w testach jednostkowych
+# ============================================================
+
+# scripts/test-deploy-with-warning.sh sprawdza zachowanie na mockach. Tutaj
+# pilnujemy trzech rzeczy, ktore latwo cofnac "porzadkujac" kod, a ktore
+# kosztuja awaria produkcyjna.
+test_site_down_warning_contract() {
+    yellow "=== Test 10a: przerwa techniczna — kontrakty ==="
+
+    local deploy="$REPO_DIR/scripts/deploy-with-warning.sh"
+    local warn="$REPO_DIR/scripts/site-down-warning.sh"
+
+    # 1. Bez BPP_SKIP_HEALTH_GATE=1 prompt bramki zdrowia [s]/[d] zawiesza sesje
+    #    pod pseudo-TTY screena — przy ZABLOKOWANEJ stronie (kontrakt z CLAUDE.md).
+    # shellcheck disable=SC2016  # to WZORZEC grep-a: `$MAKE` ma zostac literalne
+    assert_file_contains "sesja wola make run z BPP_SKIP_HEALTH_GATE=1" \
+        'BPP_SKIP_HEALTH_GATE=1 "\$MAKE" run' "$deploy"
+
+    # 2. Sonda wsparcia NIE moze byc potokiem do `grep -q`: pod `pipefail`
+    #    wczesne zamkniecie potoku przez grep-a daje producentowi SIGPIPE (141),
+    #    wiec UDANE dopasowanie zwraca blad. Objaw: losowa cicha degradacja do
+    #    deployu bez ostrzezenia.
+    if grep -qE 'manage help --commands.*\|.*grep' "$warn"; then
+        fail "sonda wsparcia uzywa potoku do grep-a (SIGPIPE + pipefail)"
+    else
+        pass "sonda wsparcia czyta cale wyjscie przed dopasowaniem"
+    fi
+
+    # 3. Heartbeat bez `|| true` — pusty cel jest dla --at-least sukcesem, wiec
+    #    niezerowy kod naprawde znaczy "ochrona przerwy przestala dzialac".
+    if grep -qE 'extend_countdown --at-least.*\|\| *true' "$warn"; then
+        fail "heartbeat wyciszony przez '|| true'"
+    else
+        pass "heartbeat nie jest wyciszany przez '|| true'"
+    fi
+
+    assert_file_contains "heartbeat uzywa --at-least (idempotentna podloga)" \
+        'extend_countdown --at-least' "$warn"
+
+    # 4. Blokade zdejmujemy WYLACZNIE po pelnym sukcesie: przerwanie po odcieciu
+    #    ma ja zostawic, bo stack jest w nieznanym stanie.
+    assert_file_contains "trap rozroznia faze banera i blokady" \
+        'blocked)' "$deploy"
 }
 
 # ============================================================
@@ -1698,6 +1746,7 @@ test_init_configs_no_overwrite
 test_passwords_are_random
 test_normal_path_help
 test_normal_path_targets
+test_site_down_warning_contract
 test_compose_bind_mounts
 test_compose_shell_vars_escaped
 test_waf_audit_only_rules

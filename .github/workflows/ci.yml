@@ -22,6 +22,15 @@ jobs:
           BPP_REQUIRE_DOCKER: "1"
         run: ./tests/test_makefile.sh
 
+      # Testy na mockach (bez dockera i sieci): petla auto-update oraz sesja
+      # wdrozenia z ostrzezeniem. Obie dotykaja tej samej sciezki `make run`,
+      # wiec regresja w jednej lubi wychodzic w drugiej.
+      - name: Auto-update (mocki)
+        run: ./scripts/test-autoupdate.sh
+
+      - name: Wdrozenie z ostrzezeniem (mocki)
+        run: ./scripts/test-deploy-with-warning.sh
+
   pre-commit:
     name: Pre-commit hooks
     runs-on: ubuntu-latest

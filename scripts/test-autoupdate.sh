@@ -119,6 +119,7 @@ run_cycle() {
 		MOCK_IMAGE_CHANGE="${MOCK_IMAGE_CHANGE:-0}" \
 		MOCK_BACKUP_FAIL="${MOCK_BACKUP_FAIL:-0}" \
 		AUTOUPDATE_DB_BACKUP="${AUTOUPDATE_DB_BACKUP:-0}" \
+		AUTOUPDATE_WARNING_MINUTES="${AUTOUPDATE_WARNING_MINUTES:-0}" \
 		bash "$SCRIPT" >/dev/null 2>&1
 	RUN_EXIT=$?
 	set -e
@@ -167,7 +168,17 @@ AUTOUPDATE_DB_BACKUP=1 MOCK_BACKUP_FAIL=0 MOCK_IMAGE_CHANGE=1 run_cycle
 if marker_has "make-db-backup"; then pass "backup on -> make db-backup"; else fail "backup on -> brak db-backup"; fi
 assert_deployed "backup on + OK -> make run"
 
-# 7. Lock zajety -> exit 0, brak deployu.
+# 7. AUTOUPDATE_WARNING_MINUTES -> deploy przez sesje z ostrzezeniem.
+# Rozroznik: sesja z ostrzezeniem zaczyna od `make pull`, a zwykla sciezka
+# autoupdate wola `docker compose pull` bezposrednio i `make pull` nie pada.
+# Obraz w tym tescie nie zna komend countdownu (mock dockera nie zwraca
+# 'show_countdown'), wiec sprawdzamy tez, ze brak wsparcia NIE zatrzymuje petli.
+AUTOUPDATE_WARNING_MINUTES=5 MOCK_IMAGE_CHANGE=1 run_cycle
+assert_deployed "ostrzezenie wlaczone -> make run"
+if marker_has "make-pull"; then pass "ostrzezenie wlaczone -> sesja z ostrzezeniem (make pull)"; else fail "ostrzezenie wlaczone -> brak make pull"; fi
+assert_exit 0 "ostrzezenie + stary obraz -> exit 0 (petla nie staje)"
+
+# 8. Lock zajety -> exit 0, brak deployu.
 export MARKER="$TEST_ROOT/marker.lock"
 : > "$MARKER"
 LOCKED="$TEST_ROOT/held-lock.d"

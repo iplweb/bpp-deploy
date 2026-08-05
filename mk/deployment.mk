@@ -1,4 +1,5 @@
-.PHONY: all run refresh up up-quick up-appserver up-webserver stop rmrf restart restart-appserver health check-quic validate-env-quotes fix-env-quotes test-validate-env-quotes test-upgrade test-upgrade-clean autoupdate screen-with-autoupdate test-autoupdate setup-autoupdate-cron remove-autoupdate-cron test-autoupdate-cron
+.PHONY: all run refresh up up-quick up-appserver up-webserver stop rmrf restart restart-appserver health check-quic validate-env-quotes fix-env-quotes test-validate-env-quotes test-upgrade test-upgrade-clean autoupdate screen-with-autoupdate test-autoupdate setup-autoupdate-cron remove-autoupdate-cron test-autoupdate-cron \
+       run-with-warning enable-site-down-warning disable-site-down-warning extend-site-down-warning status-site-down-warning test-deploy-with-warning
 
 all: run
 
@@ -90,6 +91,48 @@ check-quic:
 run: pull build update-configs up
 	@echo ""
 	@echo "Deploy zakonczony. Diagnostyka powiadomien/uslug na zadanie: make doctor"
+
+# === Przerwa techniczna z ostrzezeniem (django-countdown >= 0.3.0) ===========
+#
+# Sesja: make pull -> baner "za N minut przerwa" -> odciecie -> make run ->
+# zdjecie blokady. Cala logika countdownu siedzi w komendach `manage.py`
+# dostarczanych przez django-countdown; tutaj sa tylko cienkie opakowania.
+#
+# Pod screenem:  screen -dmS bpp-deploy make run-with-warning
+# Regulacja deklarowanego powrotu Z INNEGO OKNA (sesja nic nie czyta z klawiatury):
+#   make extend-site-down-warning MINUTES=+10
+#
+# Parametry (puste = wartosc z .env, a potem stala w skrypcie):
+#   MINUTES  - dlugosc fazy banera (domyslnie 5); w extend-* to przesuniecie ±N
+#   SERVICE  - deklarowana dlugosc przerwy (domyslnie 10)
+#   MESSAGE  - naglowek banera i strony przerwy
+#   SITE_IDS - lista id witryn przy multi-hoscie (domyslnie: witryna biezaca)
+# Pelny opis: docs/eksploatacja/przerwa-techniczna.md
+SITE_DOWN_ENV = MINUTES='$(MINUTES)' SERVICE='$(SERVICE)' MESSAGE='$(MESSAGE)' \
+                LONG_DESCRIPTION='$(LONG_DESCRIPTION)' SITE_IDS='$(SITE_IDS)'
+
+run-with-warning: validate-env-quotes
+	@$(SITE_DOWN_ENV) bash scripts/deploy-with-warning.sh
+
+enable-site-down-warning:
+	@$(SITE_DOWN_ENV) bash scripts/site-down-warning.sh enable
+
+disable-site-down-warning:
+	@bash scripts/site-down-warning.sh disable
+
+extend-site-down-warning:
+	@if [ -z "$(MINUTES)" ]; then \
+		echo "Uzycie: make extend-site-down-warning MINUTES=+10   (albo -5)"; \
+		exit 2; \
+	fi
+	@$(SITE_DOWN_ENV) bash scripts/site-down-warning.sh adjust '$(MINUTES)'
+
+status-site-down-warning:
+	@JSON='$(JSON)' bash scripts/site-down-warning.sh status
+
+# Unit-testy sesji z ostrzezeniem (mock docker/make, bez sieci i Dockera).
+test-deploy-with-warning:
+	@bash scripts/test-deploy-with-warning.sh
 
 # Nienadzorowana aktualizacja: petla co AUTOUPDATE_INTERVAL sekund (domyslnie 2h)
 # wolajaca scripts/autoupdate.sh (jeden cykl: sprawdz nowy obraz/commit -> deploy).
