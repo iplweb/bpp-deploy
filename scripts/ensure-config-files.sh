@@ -95,11 +95,14 @@ copy_always() {
 # co przy datasources.yaml.tpl, tylko wykryta pozniej.
 copy_always "$DEFAULTS_DIR/alloy/config.alloy" "$BPP_CONFIGS_DIR/alloy/config.alloy"
 
-# Loki: NADAL copy_if_missing. Tu siedzi polityka retencji per-stream, ktora
-# operator ma prawo dostosowac do swojego dysku — docs/monitoring/logowanie.md
-# wprost instruuje "Strojenie: edytuj...". Dlatego wylaczenie wbudowanej detekcji
-# poziomow jedzie FLAGA CLI w docker-compose.monitoring.yml, a nie tym plikiem.
-copy_if_missing "$DEFAULTS_DIR/loki/local-config.yaml" "$BPP_CONFIGS_DIR/loki/local-config.yaml"
+# Loki: force-sync SZABLONU, a wlasciwy local-config.yaml renderowany nizej
+# (jak netdata.conf). Do tej pory byl copy_if_missing — z tego samego powodu co
+# alloy przed 60ea290 zadna zmiana w nim NIGDY nie docierala na istniejace
+# wdrozenie; dlatego wylaczenie wbudowanej detekcji poziomow musialo jechac
+# FLAGA CLI w docker-compose.monitoring.yml zamiast kluczem w tym pliku.
+# Blokada byla jedna: retencja per-stream, ktora operator ma prawo stroic.
+# Jest teraz w .env (LOKI_RETENTION_*), wiec overwrite jej nie kasuje.
+copy_always "$DEFAULTS_DIR/loki/local-config.yaml.tpl" "$BPP_CONFIGS_DIR/loki/local-config.yaml.tpl"
 
 while IFS= read -r -d '' f; do
     rel="${f#"$DEFAULTS_DIR/grafana/provisioning/"}"
@@ -205,6 +208,46 @@ if [ -f "$_ENV" ]; then
     # bez koniecznosci recznego `make init-configs`.
     _ensure_var DJANGO_BPP_MEDIA_ROOT "/mediaroot" \
         "  + dopisano brakujace DJANGO_BPP_MEDIA_ROOT=/mediaroot w .env"
+
+    # Retencja Loki: wyciagnieta z local-config.yaml do .env, zeby ten plik mogl
+    # przejsc na force-sync (patrz komentarz przy copy_always wyzej).
+    #
+    # KRYTYCZNE: wartoscia domyslna dla ISTNIEJACEJ instalacji jest to, co
+    # operator ma FAKTYCZNIE w swoim yamlu — NIE stala z repo. Przez cale zycie
+    # tego pliku docs/monitoring/logowanie.md instruowalo "Strojenie: edytuj...",
+    # wiec wpisanie tu stalej po cichu przestawiloby komus retencje (np. z 168h
+    # z powrotem na 720h) przy zwyklym `git pull && make up` — czyli dokladnie
+    # ten rodzaj cichej zmiany zachowania, ktorego zakazuje kontrakt
+    # kompatybilnosci wstecznej. Odczyt MUSI lecec przed renderem nizej.
+    _LOKI_YAML="$BPP_CONFIGS_DIR/loki/local-config.yaml"
+    _loki_period() {  # $1 = nazwa service (puste = globalny retention_period), $2 = fallback z repo
+        local out=""
+        if [ -f "$_LOKI_YAML" ]; then
+            if [ -z "$1" ]; then
+                out="$(awk '$1=="retention_period:" {print $2; exit}' "$_LOKI_YAML" 2>/dev/null || true)"
+            else
+                out="$(awk -v svc="$1" '
+                    index($0, "service=\"" svc "\"") { f=1; next }
+                    f && $1=="period:" { print $2; exit }
+                ' "$_LOKI_YAML" 2>/dev/null || true)"
+            fi
+        fi
+        # Sanity: przepuszczamy wylacznie <liczba><jednostka>. Smiec z recznie
+        # polamanego yamla nie moze trafic do .env — Loki nie wstalby wtedy
+        # wcale, a blad wygladalby jak awaria monitoringu, nie jak zly .env.
+        case "$out" in
+            [0-9]*[hmsd]) printf '%s' "$out" ;;
+            *)            printf '%s' "$2" ;;
+        esac
+    }
+    _ensure_var LOKI_RETENTION_DEFAULT   "$(_loki_period ''          720h)" \
+        "  + dopisano LOKI_RETENTION_DEFAULT w .env (retencja logow — docs/monitoring/logowanie.md)"
+    _ensure_var LOKI_RETENTION_APPSERVER "$(_loki_period appserver  2160h)" \
+        "  + dopisano LOKI_RETENTION_APPSERVER w .env"
+    _ensure_var LOKI_RETENTION_DBSERVER  "$(_loki_period dbserver   2160h)" \
+        "  + dopisano LOKI_RETENTION_DBSERVER w .env"
+    _ensure_var LOKI_RETENTION_WEBSERVER "$(_loki_period webserver  4320h)" \
+        "  + dopisano LOKI_RETENTION_WEBSERVER w .env"
 
     # backup-runner image override - TYLKO w trybie zewnetrznej bazy. Tam
     # dbserver to lekki sentinel postgres:<major>-alpine, wiec backup-runner ma
@@ -345,5 +388,56 @@ if [ -f "$_ENV" ] && [ -f "$DEFAULTS_DIR/netdata/netdata.conf.tpl" ]; then
         echo "  ~ zsynchronizowano (render+overwrite): $_nd_dest"
     else
         rm -f "$_nd_tmp"
+    fi
+fi
+
+# Loki main config: renderowany host-side z local-config.yaml.tpl i FORCE-SYNCOWANY,
+# dokladnie jak netdata.conf wyzej. Do wersji z sierpnia 2026 byl copy_if_missing,
+# przez co plik zostawal zamrozony w stanie z dnia instalacji NA ZAWSZE — kazda
+# zmiana schematu, limitow czy compactora omijala istniejace wdrozenia. Jedynym
+# powodem, dla ktorego tak bylo, jest retencja: operator ma prawo ja dostosowac
+# do swojego dysku. Siedzi teraz w .env (LOKI_RETENTION_*), wiec overwrite jej
+# nie kasuje, a reszta pliku wreszcie dociera na produkcje przez `git pull`.
+#
+# Renderujemy BEZ warunku na .env: na swiezej instalacji ten skrypt potrafi
+# wystartowac zanim .env powstanie, a Loki bez configu nie wstaje w ogole.
+# Brak zmiennej => wartosc z repo (te same liczby, co przed parametryzacja).
+if [ -f "$DEFAULTS_DIR/loki/local-config.yaml.tpl" ]; then
+    _lk_get() {
+        local raw=""
+        if [ -f "$_ENV" ]; then
+            raw="$(grep -E "^${1}=" "$_ENV" 2>/dev/null | tail -1 | cut -d= -f2-)" || true
+            raw="${raw#\"}"; raw="${raw%\"}"
+            raw="${raw#\'}"; raw="${raw%\'}"
+        fi
+        # Ta sama walidacja co przy migracji: pusta/polamana wartosc nie moze
+        # wyrenderowac yamla, ktorego Loki nie sparsuje.
+        case "$raw" in
+            [0-9]*[hmsd]) printf '%s' "$raw" ;;
+            *)            printf '%s' "$2" ;;
+        esac
+    }
+    _lk_dest="$BPP_CONFIGS_DIR/loki/local-config.yaml"
+    _lk_tmp="${_lk_dest}.tmp.$$"
+    mkdir -p "$(dirname "$_lk_dest")"
+    # Wartosci to <liczba><jednostka> — brak znakow specjalnych sed-a, wiec
+    # bez escapowania (inaczej niz przy netdacie, gdzie w replacemencie siedzi URL).
+    sed \
+        -e "s/__RETENTION_DEFAULT__/$(_lk_get LOKI_RETENTION_DEFAULT 720h)/g" \
+        -e "s/__RETENTION_APPSERVER__/$(_lk_get LOKI_RETENTION_APPSERVER 2160h)/g" \
+        -e "s/__RETENTION_DBSERVER__/$(_lk_get LOKI_RETENTION_DBSERVER 2160h)/g" \
+        -e "s/__RETENTION_WEBSERVER__/$(_lk_get LOKI_RETENTION_WEBSERVER 4320h)/g" \
+        "$DEFAULTS_DIR/loki/local-config.yaml.tpl" > "$_lk_tmp"
+    # Zaden placeholder nie moze przetrwac renderu: Loki na "__RETENTION_X__"
+    # w miejscu duration wywala sie przy starcie, a operator zobaczylby to jako
+    # padniety monitoring, nie jako zla konfiguracje.
+    if grep -q '__RETENTION_' "$_lk_tmp"; then
+        rm -f "$_lk_tmp"
+        echo "  ! BLAD: nierozwiniety placeholder w local-config.yaml.tpl - pomijam render" >&2
+    elif ! cmp -s "$_lk_tmp" "$_lk_dest" 2>/dev/null; then
+        mv "$_lk_tmp" "$_lk_dest"
+        echo "  ~ zsynchronizowano (render+overwrite): $_lk_dest"
+    else
+        rm -f "$_lk_tmp"
     fi
 fi

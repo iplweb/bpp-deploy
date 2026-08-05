@@ -66,7 +66,11 @@ limits_config:
   discover_log_levels: false
 
   # Default retention dla wszystkich strumieni bez dopasowania ponizej.
-  retention_period: 720h  # 30 dni
+  # WARTOSCI POCHODZA Z .env — ten plik jest RENDEROWANY i force-syncowany
+  # przy kazdym `make up`. Nie edytuj $BPP_CONFIGS_DIR/loki/local-config.yaml,
+  # bo zmiana zniknie przy najblizszym git pull. Strojenie: LOKI_RETENTION_*
+  # w $BPP_CONFIGS_DIR/.env (patrz docs/monitoring/logowanie.md).
+  retention_period: __RETENTION_DEFAULT__
 
   # Per-stream overrides. Priority = kolejnosc dopasowania (wyzszy wygrywa).
   # Selector uzywa labela `service` ustawianego przez Alloy z
@@ -74,15 +78,15 @@ limits_config:
   retention_stream:
     - selector: '{service="appserver"}'
       priority: 1
-      period: 2160h   # 90 dni - logi aplikacji Django dla debugowania incydentow
+      period: __RETENTION_APPSERVER__
 
     - selector: '{service="dbserver"}'
       priority: 1
-      period: 2160h   # 90 dni - logi Postgresa dla analizy wolnych zapytan / blokad
+      period: __RETENTION_DBSERVER__
 
     - selector: '{service="webserver"}'
       priority: 1
-      period: 4320h   # 180 dni - access log nginx, compliance / traffic analysis
+      period: __RETENTION_WEBSERVER__
 
 compactor:
   working_directory: /loki/compactor

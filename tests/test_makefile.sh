@@ -1482,6 +1482,95 @@ test_init_configs_generates_altcha() {
 # (regula kompatybilnosci wstecznej z CLAUDE.md). Jednoczesnie: klucz nie moze sie
 # regenerowac przy kazdym `make up` (rotacja = uniewaznienie wyzwan w locie), a
 # swiadome ZGLOS_CAPTCHA_ENABLED=0 musi przezyc upgrade.
+# ============================================================
+# TEST: retencja Loki — migracja do .env i render z force-syncem
+# ============================================================
+# local-config.yaml przeszedl z copy_if_missing na render+force-sync. Jedyne,
+# co temu do tej pory stalo na przeszkodzie, to retencja per-stream, ktora
+# docs/monitoring/logowanie.md wprost kazalo edytowac w tym pliku. Wartosci sa
+# teraz w .env, a migracja MUSI je wyluskac ze STAREGO yamla — wpisanie stalej
+# z repo po cichu przestawiloby operatorowi retencje przy `git pull && make up`.
+# ============================================================
+
+test_loki_retention_migration() {
+    yellow "=== Test: retencja Loki — migracja do .env + render ==="
+
+    local cfg
+    cfg=$(mktemp -d)
+    mkdir -p "$cfg/loki"
+
+    # Stara instalacja: .env bez LOKI_RETENTION_*, a yaml RECZNIE PRZESTROJONY
+    # (mniejszy dysk: 168h zamiast 720h, appserver 999h zamiast 2160h).
+    printf 'BPP_CONFIGS_DIR=%s\n' "$cfg" > "$cfg/.env"
+    cat > "$cfg/loki/local-config.yaml" <<'YAML'
+limits_config:
+  retention_period: 168h  # 7 dni - maly dysk
+  retention_stream:
+    - selector: '{service="appserver"}'
+      priority: 1
+      period: 999h
+    - selector: '{service="dbserver"}'
+      priority: 1
+      period: 2160h
+    - selector: '{service="webserver"}'
+      priority: 1
+      period: 4320h
+YAML
+
+    if ! BPP_CONFIGS_DIR="$cfg" bash "$REPO_DIR/scripts/ensure-config-files.sh" >/dev/null 2>&1; then
+        fail "ensure-config-files zwrocil blad (stara instalacja Loki)"
+        rm -rf "$cfg"; return
+    fi
+
+    assert_file_contains "migracja: LOKI_RETENTION_DEFAULT z yamla (168h, nie 720h)" \
+        '^LOKI_RETENTION_DEFAULT=168h$' "$cfg/.env"
+    assert_file_contains "migracja: LOKI_RETENTION_APPSERVER z yamla (999h)" \
+        '^LOKI_RETENTION_APPSERVER=999h$' "$cfg/.env"
+    assert_file_contains "migracja: LOKI_RETENTION_WEBSERVER z yamla (4320h)" \
+        '^LOKI_RETENTION_WEBSERVER=4320h$' "$cfg/.env"
+
+    # Render musi ODTWORZYC strojenie operatora, a nie je skasowac.
+    assert_file_contains "render: retencja operatora przezyla force-sync" \
+        'retention_period: 168h' "$cfg/loki/local-config.yaml"
+    assert_file_contains "render: per-stream operatora przezyl force-sync" \
+        'period: 999h' "$cfg/loki/local-config.yaml"
+    # Zaden placeholder nie moze przeciec do pliku, ktory czyta Loki.
+    assert_file_not_contains "render: brak nierozwinietych placeholderow" \
+        '__RETENTION_' "$cfg/loki/local-config.yaml"
+    # Force-sync ma dowozic RESZTE pliku: klucz dodany w repo po instalacji
+    # (tu: wylaczona wbudowana detekcja poziomow) musi sie pojawic.
+    assert_file_contains "force-sync: reszta configu dociera na stara instalke" \
+        'discover_log_levels: false' "$cfg/loki/local-config.yaml"
+
+    rm -rf "$cfg"
+
+    # Swieza instalacja: brak starego yamla -> wartosci domyslne z repo.
+    cfg=$(mktemp -d)
+    printf 'BPP_CONFIGS_DIR=%s\n' "$cfg" > "$cfg/.env"
+    if ! BPP_CONFIGS_DIR="$cfg" bash "$REPO_DIR/scripts/ensure-config-files.sh" >/dev/null 2>&1; then
+        fail "ensure-config-files zwrocil blad (swieza instalacja Loki)"
+        rm -rf "$cfg"; return
+    fi
+    assert_file_contains "swieza instalka: LOKI_RETENTION_DEFAULT=720h" \
+        '^LOKI_RETENTION_DEFAULT=720h$' "$cfg/.env"
+    assert_file_contains "swieza instalka: render 720h" \
+        'retention_period: 720h' "$cfg/loki/local-config.yaml"
+    assert_file_contains "swieza instalka: render webserver 4320h" \
+        'period: 4320h' "$cfg/loki/local-config.yaml"
+
+    # Idempotencja: drugi przebieg nie przestawia wartosci.
+    BPP_CONFIGS_DIR="$cfg" bash "$REPO_DIR/scripts/ensure-config-files.sh" >/dev/null 2>&1 || true
+    local n
+    n="$(grep -c '^LOKI_RETENTION_DEFAULT=' "$cfg/.env" || true)"
+    if [ "$n" -eq 1 ]; then
+        pass "LOKI_RETENTION_DEFAULT wystepuje raz po dwoch przebiegach"
+    else
+        fail "LOKI_RETENTION_DEFAULT wystepuje $n razy po dwoch przebiegach"
+    fi
+
+    rm -rf "$cfg"
+}
+
 test_ensure_config_files_altcha_selfheal() {
     yellow "=== Test: ensure-config-files dosypuje ALTCHA do starego .env ==="
 
@@ -1600,6 +1689,7 @@ test_nginx_runtime
 test_configure_resources
 test_configure_resources_worker_consolidation
 test_init_configs_generates_altcha
+test_loki_retention_migration
 test_ensure_config_files_altcha_selfheal
 
 echo ""
