@@ -452,6 +452,7 @@ test_log_monitoring_waf_filter() {
     # przy zerowej liczbie trafien konczy sie kodem 1 — bez tego przypisanie
     # wywala CALY zestaw testow zamiast pozwolic tej jednej asercji zawiesc.
     local n
+    # shellcheck disable=SC2016  # to WZORZEC grep-a: `${waf:raw}` ma zostac literalne
     n="$(grep -cF '${waf:raw}' "$dash" || true)"
     if [ "$n" -eq 3 ]; then
         pass "error-monitoring.json: filtr WAF-a we wszystkich 3 panelach"
@@ -462,6 +463,7 @@ test_log_monitoring_waf_filter() {
     # Interpolacja MUSI byc przez :raw. Samo $waf przy wlaczonym multi-value
     # zamieniloby `.*` na `\.\*` — zapytanie zostaje skladniowo poprawne,
     # tylko przestaje cokolwiek zwracac. Cicha awaria.
+    # shellcheck disable=SC2016  # jw. — `\$waf` to fragment wzorca, nie zmienna
     if grep -q '\$waf[^:]' "$dash"; then
         fail "error-monitoring.json: goly \$waf zamiast \${waf:raw}"
     else
