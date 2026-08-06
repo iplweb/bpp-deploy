@@ -672,6 +672,7 @@ test_waf_crossfilter() {
     fi
 
     local zle_miejsce
+    # shellcheck disable=SC2016  # to WZORZEC grep-a: `$__range`/`$__interval` maja zostac literalne
     zle_miejsce="$(grep '"expr":' "$waf" \
         | grep -cvE 'drop bpp_noop( \[\$__(range|interval)\])?[")]' || true)"
     if [ "$zle_miejsce" -eq 0 ]; then
