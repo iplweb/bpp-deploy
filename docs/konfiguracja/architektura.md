@@ -142,11 +142,20 @@ przez `webserver`/nginx (mount `/var/www/html/staticroot`). Źródłem jest
 `/app/staticroot.baked/` wbudowane w obraz appservera na etapie build (gdy dostępne jest
 `node_modules` — runtime już go nie ma).
 
-1. Entrypoint appservera w Fazie 2 robi `cp -ru /app/staticroot.baked/. "$STATIC_ROOT/"`.
-2. `cp -ru` zasiewa pusty wolumen **i** dokłada nowsze pliki przy upgrade obrazu, bez
-   kasowania istniejącej treści.
-3. Runtime **nie** odpala `collectstatic` — katalog `.baked` to ten sam output. Fallback
+1. Entrypoint appservera w Fazie 2 robi `cp -rf /app/staticroot.baked/. "$STATIC_ROOT/"`.
+2. `cp -rf` zasiewa pusty wolumen **i** przy upgrade obrazu **zawsze nadpisuje**.
+   Wariant `-u` był tu pułapką: mtime w `.baked` pochodzi z czasu builda obrazu, więc
+   restart późniejszy niż build (typowe przy szybkich deployach) powodował, że `-u`
+   pomijał kopiowanie i wolumen zostawał ze starymi plikami.
+3. Pliki, których nie ma w `.baked` (np. custom branding wgrany po wdrożeniu),
+   przeżywają — `cp` nie kasuje treści spoza źródła.
+4. Runtime **nie** odpala `collectstatic` — katalog `.baked` to ten sam output. Fallback
    odpala `collectstatic` tylko dla obrazów sprzed `.baked`.
+
+Pliki tekstowe w `.baked` są **prekompresowane gzipem już na etapie builda obrazu**
+(a wyjście django-compressora w `CACHE/` — przy starcie kontenera), dzięki czemu
+`gzip_static on` po stronie nginksa ma co serwować. Powód, dla którego nie wolno
+tego robić później, na wolumenie: [Pułapki — kompresja odpowiedzi](../rozwoj/pulapki-kompresji.md).
 
 `STATIC_ROOT=/staticroot/` w `.env` nadpisuje domyślne `/app/staticroot` z obrazu.
 Po `make refresh` lub `make prune-orphan-volumes` wolumen jest ponownie wypełniany z `.baked`.
