@@ -51,6 +51,7 @@ Operator topics and their canonical pages:
 | `defaults/alloy/config.alloy` | `docs/rozwoj/pulapki-alloy.md` |
 | `scripts/autoupdate.sh`, `scripts/deploy-with-warning.sh`, `scripts/site-down-warning.sh`, `mk/deployment.mk` | `docs/rozwoj/pulapki-wdrozenia.md` |
 | `defaults/webserver/*` | `docs/architektura/waf.md` + `docs/architektura/utwardzenie-brzegu.md` |
+| kompresja (`gzip_*`, brotli, zstd) w `_bpp-locations.conf` | `docs/rozwoj/pulapki-kompresji.md` |
 
 ## Configuration Architecture (essentials)
 
@@ -94,7 +95,9 @@ Leaving a config on `copy_if_missing` freezes it **at install time forever** —
 
 ### Staticfiles volume — contract with appserver image
 
-`staticfiles` is populated by `appserver` (mount `/staticroot`) and served by `webserver`/nginx (mount `/var/www/html/staticroot`). Source is `/app/staticroot.baked/` baked into the appserver image at build time. Entrypoint Phase 2 runs `cp -ru /app/staticroot.baked/. "$STATIC_ROOT/"` — seeds an empty volume and tops up newer files on upgrade without deleting. Runtime does **not** run `collectstatic` (fallback only for pre-`.baked` images). `STATIC_ROOT=/staticroot/` in `.env` overrides image default. After `make refresh`/`prune-orphan-volumes`, volume is repopulated from `.baked`.
+`staticfiles` is populated by `appserver` (mount `/staticroot`) and served by `webserver`/nginx (mount `/var/www/html/staticroot`). Source is `/app/staticroot.baked/` baked into the appserver image at build time. Entrypoint Phase 2 runs `cp -rf /app/staticroot.baked/. "$STATIC_ROOT/"` — seeds an empty volume and **always overwrites** on upgrade (`-u` was a trap: `.baked` mtimes come from image build, so a recent restart made `-u` skip the copy and leave stale files). Files absent from `.baked` survive — `cp` doesn't delete. Runtime does **not** run `collectstatic` (fallback only for pre-`.baked` images). `STATIC_ROOT=/staticroot/` in `.env` overrides image default. After `make refresh`/`prune-orphan-volumes`, volume is repopulated from `.baked`.
+
+**Compression is the appserver image's job, not ours.** `gzip_static on` is set in `_bpp-locations.conf`, but it only means "serve `x.js.gz` if it exists" — with no `.gz` files it is a **silent no-op** (it was, for the whole life of that config: 3429 files, 0 `.gz`). The `.gz` must be generated **in the same build step as the source file**, because nginx serving `x.js.gz` **does not compare mtime with `x.js`** — a stale `.gz` means serving old JS forever, to every browser, with no log trace. Don't "fix" a missing-`.gz` by adding a runtime compression step over the `staticfiles` volume. Brotli/zstd have been measured and rejected — **don't re-propose them without reading the page**, three separate blockers make it a custom-image project, not a config change. Detail: `docs/rozwoj/pulapki-kompresji.md`.
 
 ### Media volume — `DJANGO_BPP_MEDIA_ROOT` is required
 
