@@ -283,6 +283,39 @@ PRZYPADKI=(
   # bo wykluczenie obejmowalo tylko wariant API.
   "PASS|DjangoQL (UI) z tekstem wygladajacym na LFI|bpp/zapytanie/?model=rekord&query=test%20%3D%205/etc/passwd"
   "PASS|dbtemplates z surowym HTML|admin/dbtemplates/template/1/?body=%3Cscript%3Ex%3C/script%3E"
+  # --- OAuth: petla zwrotna wg RFC 8252 (regula 10007) ---
+  # Realne zgloszenie 2026-08-07: logowanie do API przez OAuth (DCR + PKCE,
+  # m.in. serwer MCP) konczylo sie 403. Zapalalo je 931100 ("RFI: URL Parameter
+  # using IP Address") na `redirect_uri=http://127.0.0.1:<port>/callback`, czyli
+  # na formie, ktora RFC 8252 sek. 7.3 wprost ZALECA — wariant z `localhost`
+  # jest tam NOT RECOMMENDED i, o ironie, przechodzil przez WAF bez problemu.
+  # Severity CRITICAL = 5 pkt przy progu 5, wiec blokowalo pojedyncze trafienie.
+  "PASS|OAuth: /o/authorize/ z petla zwrotna|o/authorize/?response_type=code&client_id=abc&redirect_uri=http%3A%2F%2F127.0.0.1%3A50603%2Fcallback&scope=read&code_challenge_method=S256"
+  # KONTROLA GRANICY WYKLUCZENIA. Bez niej powyzszy PASS przechodzilby tak samo
+  # po skasowaniu reguly 10007, a nawet po wylaczeniu calego CRS — czyli test
+  # nie dowodzilby niczego. 931100 poza `/o/` ma dalej blokowac.
+  "BLOK|kontrola: adres IP w parametrze poza /o/|bpp/szukaj/?q=http%3A%2F%2F127.0.0.1%3A50603%2Fcallback"
+  # --- discovery OAuth/MCP: /.well-known/ musi byc OSIAGALNE ---
+  # To NIE jest test WAF-a, tylko KOLEJNOSCI MATCHOWANIA LOCATION w nginksie,
+  # i dlatego siedzi tutaj: regex `~` bije zwykly prefiks, wiec blok
+  # `location ~ /\.` (blokada plikow ukrytych) przechwytywal `/.well-known/`
+  # i zwracal 403 — `bpp-mcp login` nie mial skad wziac `authorization_endpoint`.
+  # Ratuje to modyfikator `^~` w `_bpp-locations.conf`; skasowanie go albo
+  # dopisanie nowego regexa nad tym prefiksem odtworzy blad, ktory NIE zostawia
+  # sladu w logach WAF-a (to zwykly `deny all`, nie ModSecurity).
+  #
+  "PASS|discovery: /.well-known/oauth-authorization-server|.well-known/oauth-authorization-server"
+  "PASS|discovery: /.well-known/oauth-protected-resource|.well-known/oauth-protected-resource"
+  # Regula 10007 obejmuje OBA prefiksy, bo `/o/` i `/.well-known/` to dwie
+  # polowy jednego logowania: klient najpierw pyta o metadane, dopiero z nich
+  # bierze adresy endpointow. Samo discovery jest dzis GET-em bez argumentow
+  # (wiec 931100 by sie nie zapalilo), ale ten przypadek pilnuje, ze gdy klient
+  # DOLOZY argument z petla zwrotna — np. `resource=` z RFC 9728 — nie oberwie
+  # blokady o krok przed `/o/`.
+  "PASS|discovery z petla zwrotna w argumencie|.well-known/oauth-protected-resource?resource=http%3A%2F%2F127.0.0.1%3A50603%2Fcallback"
+  # Kontrola granicy: `^~` ma odslonic WYLACZNIE /.well-known/, a nie cala
+  # rodzine plikow ukrytych. `.git/config` wyzej ma dalej byc blokowany.
+  "BLOK|kontrola: /.git/config nadal blokowany|.well-known/../.git/config"
   # --- infrastruktura ---
   "PASS|healthcheck|healthz"
 )
@@ -408,6 +441,108 @@ for para in "BLOK|kontrola: ten sam payload poza /grafana/|" \
     IFS='|' read -r oczek opis sciezka <<< "$para"
     LACZNIE=$((LACZNIE + 1))
     IFS='|' read -r faktyczny szczegol <<< "$(strzel_ds_query "$sciezka")"
+    if [ "$faktyczny" = "$oczek" ]; then
+        printf "  \033[32mOK\033[0m   %-46s %s\n" "$opis" "$szczegol"
+    else
+        printf "  \033[31mFAIL\033[0m %-46s oczekiwano %s, jest %s (%s)\n" \
+            "$opis" "$oczek" "$faktyczny" "$szczegol"
+        BLEDY=$((BLEDY + 1))
+    fi
+done
+
+# --------------------------------------------------------------------------
+# Regula 10007: przeplyw OAuth (POST) z petla zwrotna
+# --------------------------------------------------------------------------
+# DLACZEGO OSOBNO, A NIE JAKO WPISY W TABELCE: `/o/authorize/` jest GET-em
+# i tam siedzi, ale pozostale dwa kroki przeplywu sa POST-ami i to wlasnie
+# w ich CIELE jedzie `redirect_uri`. Rejestracja klienta (DCR) wysyla go
+# dodatkowo jako JSON, wiec ModSecurity widzi argument pod nazwa
+# `ARGS:json.redirect_uris.array_0` — inna niz `ARGS:redirect_uri` z GET-a.
+#
+# To nie jest szczegol formalny, tylko powod ksztaltu reguly 10007: dokladnie
+# na tej roznicy nazw rozsypuje sie wykluczenie celowane w argument
+# (`ctl:ruleRemoveTargetById=931100;ARGS:redirect_uri`), ktore naprawia
+# `/o/authorize/` i `/o/token/`, a rejestracje klienta zostawia na 403.
+# Zmierzone 2026-08-07 — i bez tej sekcji regresja w te strone bylaby
+# niewidoczna, bo GET z tabelki nadal by przechodzil.
+CIALO_TOKEN='grant_type=authorization_code&code=abc123&redirect_uri=http%3A%2F%2F127.0.0.1%3A50603%2Fcallback&client_id=abc&code_verifier=xyz'
+CIALO_DCR='{"client_name":"bpp-mcp","redirect_uris":["http://127.0.0.1:50603/callback"],"grant_types":["authorization_code"],"response_types":["code"],"token_endpoint_auth_method":"none"}'
+
+# Zwraca: BLOK (403 albo zerwane polaczenie) / PASS (cokolwiek innego) / BLAD.
+strzel_oauth_post() {
+    local sciezka="$1" typ="$2" cialo="$3" kod rc
+    kod=$(curl -sk --http1.1 -o /dev/null -w '%{http_code}' --max-time 8 \
+        --resolve "$HOST_NAME:$PORT:127.0.0.1" \
+        -X POST -H "Content-Type: $typ" --data "$cialo" \
+        "https://$HOST_NAME:$PORT/$sciezka" 2>/dev/null)
+    rc=$?
+    if [ "$rc" -eq 52 ] || [ "$rc" -eq 56 ] || [ "$rc" -eq 92 ]; then
+        echo "BLOK|polaczenie zerwane (curl $rc)"
+    elif [ "$rc" -ne 0 ]; then
+        echo "BLAD|curl $rc"
+    elif [ "$kod" = "403" ]; then
+        echo "BLOK|HTTP 403 od ModSecurity"
+    else
+        echo "PASS|HTTP $kod"
+    fi
+}
+
+echo
+printf "%-6s %-46s %s\n" "WYNIK" "PRZEPLYW OAuth Z PETLA ZWROTNA (POST)" "SZCZEGOLY"
+printf "%s\n" "----------------------------------------------------------------------------------"
+# Ostatni wpis to kontrola granicy — ten sam payload poza `/o/` ma nadal
+# dostawac 403, inaczej sekcja przechodzilaby po skasowaniu reguly 10007.
+for para in "PASS|/o/token/ — wymiana kodu na token|o/token/|application/x-www-form-urlencoded|$CIALO_TOKEN" \
+            "PASS|/o/register/ — DCR z redirect_uris w JSON|o/register/|application/json|$CIALO_DCR" \
+            "BLOK|kontrola: to samo cialo JSON poza /o/|bpp/szukaj/|application/json|$CIALO_DCR"; do
+    IFS='|' read -r oczek opis sciezka typ cialo <<< "$para"
+    LACZNIE=$((LACZNIE + 1))
+    IFS='|' read -r faktyczny szczegol <<< "$(strzel_oauth_post "$sciezka" "$typ" "$cialo")"
+    if [ "$faktyczny" = "$oczek" ]; then
+        printf "  \033[32mOK\033[0m   %-46s %s\n" "$opis" "$szczegol"
+    else
+        printf "  \033[31mFAIL\033[0m %-46s oczekiwano %s, jest %s (%s)\n" \
+            "$opis" "$oczek" "$faktyczny" "$szczegol"
+        BLEDY=$((BLEDY + 1))
+    fi
+done
+
+# --------------------------------------------------------------------------
+# Regula 10008: lista naglowkow zakazanych polityka (920450)
+# --------------------------------------------------------------------------
+# DLACZEGO OSOBNO: tabelka PRZYPADKI strzela bez wlasnych naglowkow, a tu caly
+# problem jest W NAGLOWKU. 920450 nie patrzy ani na URL, ani na argumenty —
+# porownuje NAZWY naglowkow z lista `tx.restricted_headers`.
+#
+# ZGLOSZENIE 2026-08-07: blokada na `/bpp/rekord/`, czyli na poprawnym adresie
+# istniejacego rekordu, wywolana samym naglowkiem `Accept-Charset`. W logach
+# WAF-a widac przy tym URI zadania, wiec objaw wskazuje w zupelnie zla strone.
+#
+# SA DWA SPRAWDZENIA I OBA SA POTRZEBNE. "Accept-Charset przechodzi" nie
+# dowodzi niczego samo z siebie — przeszloby tak samo po skasowaniu CALEJ
+# reguly 920450. Drugi przypadek pilnuje, ze zdjelismy jedna pozycje z listy,
+# a nie cala regule: naglowek `Proxy` (httpoxy, CVE-2016-5385) ma dalej
+# blokowac. To ta sama zasada, co przy kontrolach reguly 10007.
+echo
+printf "%-6s %-46s %s\n" "WYNIK" "NAGLOWKI ZAKAZANE POLITYKA (920450)" "SZCZEGOLY"
+printf "%s\n" "----------------------------------------------------------------------------------"
+for para in "PASS|Accept-Charset przechodzi (falszywy alarm)|Accept-Charset: utf-8" \
+            "BLOK|kontrola: Proxy nadal blokowany (httpoxy)|Proxy: http://198.51.100.7:3128"; do
+    IFS='|' read -r oczek opis naglowek <<< "$para"
+    LACZNIE=$((LACZNIE + 1))
+    kod=$(curl -sk --http1.1 -o /dev/null -w '%{http_code}' --max-time 8 \
+        --resolve "$HOST_NAME:$PORT:127.0.0.1" -H "$naglowek" \
+        "https://$HOST_NAME:$PORT/bpp/rekord/75,7/" 2>/dev/null)
+    rc=$?
+    if [ "$rc" -eq 52 ] || [ "$rc" -eq 56 ] || [ "$rc" -eq 92 ]; then
+        faktyczny="BLOK"; szczegol="polaczenie zerwane (curl $rc)"
+    elif [ "$rc" -ne 0 ]; then
+        faktyczny="BLAD"; szczegol="curl $rc"
+    elif [ "$kod" = "403" ]; then
+        faktyczny="BLOK"; szczegol="HTTP 403 od ModSecurity"
+    else
+        faktyczny="PASS"; szczegol="HTTP $kod"
+    fi
     if [ "$faktyczny" = "$oczek" ]; then
         printf "  \033[32mOK\033[0m   %-46s %s\n" "$opis" "$szczegol"
     else

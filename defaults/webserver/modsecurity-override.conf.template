@@ -233,3 +233,135 @@ SecRule REQUEST_URI "@rx ^/grafana(/|$)" \
     pass,\
     nolog,\
     ctl:ruleEngine=Off"
+
+# ---------------------------------------------------------------------------
+# 10007: OAuth (/o/ i /.well-known/) — 931100 blokuje petle zwrotna,
+#        czyli calego klienta natywnego
+# ---------------------------------------------------------------------------
+# Regula 931100 ("Possible RFI Attack: URL Parameter using IP Address") szuka
+# w argumentach URL-a z LITERALEM ADRESU IP zamiast nazwy hosta. Klasyczny
+# atak RFI wyglada wlasnie tak: `?page=http://198.51.100.7/shell.txt`.
+#
+# Kloci sie to wprost z RFC 8252 (OAuth dla aplikacji natywnych), ktore dla
+# klienta bez wlasnej domeny — CLI, skrypt, serwer MCP — przewiduje odbior
+# kodu na petli zwrotnej, i to WLASNIE po literale IP. Sekcja 7.3: "Specifying
+# a redirect URI with the loopback IP literal rather than localhost avoids
+# inadvertently listening on network interfaces other than the loopback
+# interface", a wariant z nazwa jest tam oznaczony jako NOT RECOMMENDED.
+#
+# Efekt jest wiec odwrotny do zamierzonego: CRS przepuszcza forme ODRADZANA
+# przez standard, a blokuje ZALECANA.
+#
+# ZMIERZONE (2026-08-07, ten sam obraz, BLOCKING_PARANOIA=1):
+#
+#   redirect_uri=http://127.0.0.1:50603/callback   -> 403   (931100)
+#   redirect_uri=http://[::1]:50603/callback       -> przelot
+#   redirect_uri=http://localhost:50603/callback   -> przelot
+#
+# 931100 ma severity CRITICAL = 5 pkt przy ANOMALY_INBOUND 5, wiec jedno
+# trafienie od razu przekracza prog — audit log pokazuje `Total Score: 5`
+# i 949110. Nie ma tu zadnej kumulacji do wysycenia; wystarcza ta jedna regula.
+#
+# BLOKOWANY BYL CALY PRZEPLYW, NIE JEDEN ENDPOINT — i to jest powod, dla
+# ktorego wykluczenie celuje w sciezke, a nie w nazwe argumentu:
+#
+#   POST /o/register/  (DCR, JSON)          -> 403
+#   GET  /o/authorize/                      -> 403
+#   POST /o/token/     (wymiana kodu)       -> 403
+#   POST /o/token/     (refresh_token)      -> przelot (nie niesie redirect_uri)
+#
+# DLACZEGO NIE `ctl:ruleRemoveTargetById=931100;ARGS:redirect_uri`: sprawdzone,
+# skladnia jest poprawna (nginx wstaje) i zalatwia `/o/authorize/` oraz
+# `/o/token/`, ale NIE rejestracje klienta. DCR wysyla JSON, wiec ModSecurity
+# nazywa argument `ARGS:json.redirect_uris.array_0` (dokladnie tak brzmi wpis
+# `found within` w audit logu) — nazwa zalezy od formatu ciala i od INDEKSU
+# W TABLICY. Wykluczenie po nazwie trzeba by wiec wyliczac dla kazdej formy
+# osobno i tak juz rozsypuje sie przy kliencie z dwoma redirect_uri.
+#
+# ZAKRES: zdejmujemy JEDNA regule, na dwoch prefiksach tej samej powierzchni
+# OAuth. Nie `ruleEngine=Off` jak w 10006 i nie zakres rodzin jak w 10004 —
+# problem jest punktowy i tak ma zostac. Na `/o/` i `/.well-known/` nadal
+# w pelni obowiazuja 941 (XSS), 942 (SQLi), 930 (LFI), 932 (RCE) i blokada
+# progowa 949110.
+#
+# DLACZEGO TAKZE `/.well-known/`: to druga polowa tej samej powierzchni. Klient
+# OAuth/MCP nie zna z gory adresow endpointow — najpierw pyta o metadane
+# serwera autoryzacji (RFC 8414 `/.well-known/oauth-authorization-server`,
+# RFC 9728 `/.well-known/oauth-protected-resource`), a dopiero z nich bierze
+# `authorization_endpoint` i `token_endpoint`. Oba prefiksy sa uzywane
+# WYMIENNIE w jednym logowaniu i musza byc traktowane tak samo — rozjechanie
+# ich to gwarantowany blad przy nastepnej zmianie.
+#
+# Zmierzone 2026-08-07: samo discovery jest GET-em bez argumentow, wiec dzis
+# 931100 sie tam nie zapala. Wykluczenie jest wiec zabezpieczeniem na wypadek,
+# gdy klient dolozy argument z adresem petli zwrotnej (np. `resource=` z RFC
+# 9728) — wtedy padloby DOKLADNIE tak samo jak `/o/`, tyle ze o krok wczesniej
+# i bez zadnego sladu w Django, bo blokada konczy sie na brzegu.
+#
+# DLACZEGO TO BEZPIECZNE: RFI polega na tym, ze SERWER pobiera zasob spod
+# adresu podanego przez atakujacego. django-oauth-toolkit nigdy nie odpytuje
+# `redirect_uri` — porownuje go ze zbiorem URI zarejestrowanych dla klienta
+# i najwyzej odsyla 302. Adres 127.0.0.1 wskazuje przy tym maszyne KLIENTA,
+# nie nasza. Reguly 931100 na `/o/` nie ma czego chronic.
+#
+# NIE ROZSZERZAC na cala witryne. `?q=http://127.0.0.1/...` poza tymi dwoma
+# prefiksami ma nadal dostawac 403 i pilnuja tego osobne asercje kontrolne
+# w test-waf.sh — wykluczenie, ktore niczego nie wylacza, jest gorsze niz
+# zadne, bo test przechodzi tak samo po skasowaniu reguly.
+#
+# UWAGA NA `.` W REGEXPIE: kropka w `\.well-known` MUSI byc escapowana. Bez
+# tego wzorzec `^/(o|.well-known)/` lapie takze `/Xwell-known/` — i, co
+# grozniejsze, kazdy prefiks jednoznakowy, bo `.` to dowolny znak.
+SecRule REQUEST_URI "@rx ^/(o|\.well-known)/" \
+    "id:10007,\
+    phase:1,\
+    pass,\
+    nolog,\
+    ctl:ruleRemoveById=931100"
+
+# ---------------------------------------------------------------------------
+# 10008: `accept-charset` znika z listy naglowkow zakazanych (920450)
+# ---------------------------------------------------------------------------
+# Regula 920450 ("HTTP header is restricted by policy") nie patrzy ani na URL,
+# ani na argumenty — porownuje NAZWY NAGLOWKOW z lista `tx.restricted_headers`.
+# Domyslnie sa na niej: accept-charset, content-encoding, proxy, lock-token,
+# content-range, if. Paranoia 1, severity CRITICAL = 5 pkt przy progu 5, wiec
+# sam naglowek, bez zadnej innej przewiny, wystarcza do blokady.
+#
+# ZGLOSZENIE 2026-08-07: uzytkownik dostal blokade na `/bpp/rekord/`, czyli na
+# poprawnym adresie istniejacego rekordu. Objaw jest maksymalnie mylacy, bo
+# dashboard WAF-a pokazuje URI zadania — a URI nie mial z blokada nic wspolnego.
+# Przy diagnozie takich zgloszen: 920450 to JEDYNA regula, ktora blokuje bez
+# zadnego zwiazku z trescia zadania.
+#
+# DLACZEGO `accept-charset` w ogole tam jest: naglowek zostal wycofany ze
+# standardu (przegladarki go nie wysylaja), wiec CRS traktuje jego obecnosc
+# jako sygnal klienta automatycznego. To heurystyka fingerprintingu, nie
+# wykrycie ataku — nie da sie nim niczego zaatakowac.
+#
+# DLACZEGO NIE `ctl:ruleRemoveById=920450`: na tej samej liscie jest naglowek
+# `Proxy`, czyli ochrona przed httpoxy (CVE-2016-5385) — aplikacja czytajaca
+# `HTTP_PROXY` ze srodowiska dawala sie przekierowac przez naglowek zadania.
+# Skasowanie calej reguly zdjeloby takze ja, a takze `content-encoding`,
+# `lock-token`, `content-range` i `if`. Zamiast tego PRZEDEFINIOWUJEMY liste,
+# usuwajac z niej jedna pozycje.
+#
+# DLACZEGO TO DZIALA Z TEGO PLIKU: CRS ustawia domyslna liste w
+# REQUEST-901-INITIALIZATION.conf pod warunkiem, ze zmienna jeszcze nie
+# istnieje. Nasz plik jest includowany PRZED regulami CRS, wiec w phase:1
+# ustawiamy ja pierwsi i inicjalizacja CRS jej nie nadpisuje. Zakomentowany
+# szablon tej samej operacji siedzi w crs-setup.conf jako regula 900250 —
+# nie korzystamy z niego, bo crs-setup.conf nie jest naszym plikiem
+# i `git pull` by go nie zaktualizowal.
+#
+# Zweryfikowane w `make test-waf` DWOMA przypadkami naraz: `Accept-Charset`
+# przechodzi, a `Proxy` nadal jest blokowany. Sam pierwszy przypadek nie
+# wystarcza — przeszedlby tak samo po skasowaniu calej reguly 920450, czyli
+# nie odroznilby precyzyjnego wykluczenia od wylania dziecka z kapiela.
+SecAction \
+    "id:10008,\
+    phase:1,\
+    nolog,\
+    pass,\
+    t:none,\
+    setvar:'tx.restricted_headers=/content-encoding/ /proxy/ /lock-token/ /content-range/ /if/'"

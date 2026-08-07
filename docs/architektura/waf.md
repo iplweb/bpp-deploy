@@ -148,7 +148,7 @@ we własnej regule, bo wykonuje się w trakcie transakcji.
 Zakres ID `1-99999` jest zarezerwowany dla reguł lokalnych (CRS używa
 `900000-999999`).
 
-Obecnie jest ich sześć:
+Obecnie jest ich osiem:
 
 - **`id:10001` — healthcheck poza audytem.** Healthcheck Dockera
   (`curl http://127.0.0.1:80/healthz` co 10 s) zapalał regułę `920350`
@@ -193,6 +193,22 @@ Obecnie jest ich sześć:
   (`ctl:ruleEngine=Off`). Jedyne miejsce w BPP, w którym WAF nie ma czego
   chronić, za to ma gwarantowane fałszywe alarmy. Szczegóły:
   [Dlaczego Grafana jest wyjęta w całości](#grafana-poza-waf).
+
+- **`id:10007` — `931100` („RFI: URL Parameter using IP Address") wyłączone na
+  `/o/` i `/.well-known/`.** Reguła blokowała
+  `redirect_uri=http://127.0.0.1:<port>/callback`, czyli pętlę zwrotną, na
+  której odbiera kod każdy klient OAuth bez własnej domeny — CLI, skrypt,
+  serwer MCP. Oba prefiksy to jedna powierzchnia logowania i **trzymamy je
+  razem**: klient najpierw pyta o metadane w `/.well-known/`, a dopiero z nich
+  bierze adresy endpointów w `/o/`. Szczegóły:
+  [OAuth i pętla zwrotna](#oauth-petla-zwrotna).
+
+- **`id:10008` — `accept-charset` zdjęty z listy nagłówków zakazanych
+  (`920450`).** Nagłówek jest wycofany ze standardu, więc CRS traktuje go jako
+  fingerprint klienta automatycznego — ale wysyłają go też starsze biblioteki
+  HTTP i harvestery bibliograficzne. Zgłoszenie 2026-08-07: blokada na
+  `/bpp/rekord/`, czyli na poprawnym adresie istniejącego rekordu. Szczegóły:
+  [Nagłówki zakazane polityką](#naglowki-zakazane).
 
 Reguły 10002 i 10003 schodzą dla swoich ścieżek do `ctl:ruleEngine=DetectionOnly`:
 trafienia nadal trafiają do audit logu (i posłużą do napisania precyzyjnych
@@ -345,6 +361,194 @@ niż cokolwiek, co CRS mógłby tu powstrzymać.
     w ryzach — patrz
     [Utwardzenie brzegu](utwardzenie-brzegu.md) i lista prefiksów obcych
     aplikacji.
+
+## OAuth i pętla zwrotna — reguła 10007 {#oauth-petla-zwrotna}
+
+### Objaw
+
+Logowanie do API BPP przez OAuth (rejestracja klienta + PKCE — tak działa m.in.
+serwer MCP i skrypty logowania w skillu `bpp-api`) kończy się **zerwanym
+połączeniem**, bez żadnego komunikatu. W Grafanie na dashboardzie WAF-a widać
+przy tym trafienie:
+
+```
+Possible Remote File Inclusion (RFI) Attack: URL Parameter using IP Address
+```
+
+Objaw jest mylący podwójnie: klient nie dostaje czytelnego 403, tylko `curl 52`
+/ „empty reply" (bo BPP mapuje blokadę na [444](#dlaczego-444-a-nie-403)),
+a sama nazwa reguły sugeruje atak na *nasz* serwer — podczas gdy adres
+`127.0.0.1` w `redirect_uri` wskazuje maszynę **klienta**.
+
+### Przyczyna
+
+Reguła CRS `931100` szuka w argumentach URL-a z **literałem adresu IP** zamiast
+nazwy hosta. Klasyczny RFI wygląda dokładnie tak:
+`?page=http://198.51.100.7/shell.txt`.
+
+Kłóci się to wprost z **RFC 8252** (OAuth dla aplikacji natywnych). Klient bez
+własnej domeny odbiera kod autoryzacyjny na pętli zwrotnej i standard każe użyć
+tam literału IP — sekcja 7.3:
+
+> Specifying a redirect URI with the loopback IP literal rather than `localhost`
+> avoids inadvertently listening on network interfaces other than the loopback
+> interface.
+
+Wariant z nazwą `localhost` jest w RFC oznaczony jako **NOT RECOMMENDED**.
+Efekt jest więc odwrotny do zamierzonego — zmierzone 2026-08-07 na
+`owasp/modsecurity-crs:nginx`, `BLOCKING_PARANOIA=1`:
+
+| `redirect_uri` | Wynik |
+|---|---|
+| `http://127.0.0.1:50603/callback` (zalecane przez RFC) | **403** (`931100`) |
+| `http://[::1]:50603/callback` | przelot |
+| `http://localhost:50603/callback` (NOT RECOMMENDED) | przelot |
+
+`931100` ma severity CRITICAL = 5 pkt przy `ANOMALY_INBOUND` 5, więc blokuje
+**pojedyncze** trafienie — audit log pokazuje `Total Score: 5` i `949110`.
+Żadnej kumulacji tu nie ma.
+
+### Blokowany był cały przepływ, nie jeden endpoint
+
+To najważniejsza obserwacja dla kształtu wykluczenia — naprawienie samego
+`/o/authorize/` przesunęłoby błąd o krok dalej:
+
+| Krok | Wynik przed regułą 10007 |
+|---|---|
+| `POST /o/register/` — rejestracja klienta (JSON) | 403 |
+| `GET /o/authorize/` — zgoda użytkownika | 403 |
+| `POST /o/token/` — wymiana kodu na token | 403 |
+| `POST /o/token/` — odświeżenie tokenu | przelot (nie niesie `redirect_uri`) |
+
+### Dlaczego nie wykluczenie celowane w argument
+
+Naturalnym odruchem jest `ctl:ruleRemoveTargetById=931100;ARGS:redirect_uri`.
+Składnia jest poprawna (nginx wstaje) i załatwia `/o/authorize/` oraz
+`/o/token/`, ale **nie rejestrację klienta**: DCR wysyła `redirect_uris` w JSON,
+więc ModSecurity nazywa argument `ARGS:json.redirect_uris.array_0` — nazwa
+zależy od formatu ciała **i od indeksu w tablicy**. Wykluczenie po nazwie
+trzeba by wyliczać dla każdej formy osobno i tak rozsypuje się przy kliencie
+z dwoma `redirect_uri`.
+
+Dlatego 10007 celuje w **ścieżkę**: `ctl:ruleRemoveById=931100` na prefiksie
+`^/(o|\.well-known)/`.
+
+### Dlaczego także `/.well-known/`
+
+To druga połowa tej samej powierzchni. Klient OAuth/MCP nie zna z góry adresów
+endpointów — najpierw pobiera metadane serwera autoryzacji
+(`/.well-known/oauth-authorization-server`, RFC 8414) albo zasobu
+(`/.well-known/oauth-protected-resource`, RFC 9728) i dopiero z nich bierze
+`authorization_endpoint` oraz `token_endpoint` w `/o/`. Oba prefiksy są
+używane **wymiennie w jednym logowaniu**, więc muszą być traktowane tak samo —
+rozjechanie ich to gwarantowany błąd przy następnej zmianie.
+
+Zmierzone 2026-08-07: samo discovery jest dziś GET-em **bez argumentów**, więc
+`931100` (która inspekcjonuje `ARGS`) się tam nie zapala. Wykluczenie jest więc
+zabezpieczeniem na wypadek, gdy klient dołoży argument z adresem pętli zwrotnej
+— np. `resource=` z RFC 9728. Wtedy padłoby dokładnie tak samo jak `/o/`, tyle
+że **o krok wcześniej i bez żadnego śladu w Django**, bo blokada kończy się na
+brzegu. Przypadek testowy strzela właśnie tą formą (z argumentem), więc nie
+jest pusty: po wyłączeniu reguły 10007 pada.
+
+!!! danger "Kropka w `\.well-known` musi być escapowana"
+    W regexpie `^/(o|.well-known)/` kropka to **dowolny znak**, więc wzorzec
+    złapałby też `/Xwell-known/` — a przez alternatywę z `o` każdy prefiks
+    jednoznakowy. Wykluczenie rozlałoby się po serwisie bez żadnego widocznego
+    objawu.
+
+### Routing `/.well-known/` to osobna pułapka — nie mylić z WAF-em
+
+Discovery potrafi paść także **bez udziału ModSecurity**. W nginksie regex `~`
+ma pierwszeństwo przed zwykłym prefiksem, więc blok `location ~ /\.`
+(blokada plików ukrytych) przechwytywał żądania do `/.well-known/` i zwracał
+403 — `bpp-mcp login` nie miał skąd wziąć `authorization_endpoint`. Ratuje to
+modyfikator `^~` w `_bpp-locations.conf`.
+
+Rozpoznanie po logach: to zwykły `deny all` nginksa, więc **nie ma go w logach
+WAF-a ani w dashboardzie ModSecurity** — w odróżnieniu od blokady `931100`.
+Osobne przypadki w `make test-waf` pilnują teraz obu rzeczy naraz: że discovery
+jest osiągalne i że `.git/config` mimo to dalej jest blokowany.
+
+### Dlaczego wolno to wyłączyć
+
+RFI polega na tym, że **serwer** pobiera zasób spod adresu podanego przez
+atakującego. `django-oauth-toolkit` nigdy nie odpytuje `redirect_uri` —
+porównuje go ze zbiorem URI zarejestrowanych dla klienta i najwyżej odsyła 302.
+Reguła `931100` nie ma tu czego chronić.
+
+Zakres jest przy tym najwęższy z wszystkich naszych wykluczeń: **jedna reguła,
+jeden prefiks**. Nie `ruleEngine=Off` jak w 10006 i nie całe rodziny jak
+w 10004 — na `/o/` nadal w pełni obowiązują 941 (XSS), 942 (SQLi), 930 (LFI),
+932 (RCE) i blokada progowa `949110`.
+
+!!! warning "Nie rozszerzać na całą witrynę"
+    `?q=http://127.0.0.1/...` poza `/o/` ma dalej dostawać blokadę. Pilnują tego
+    **dwie asercje kontrolne** w `make test-waf` (GET i POST): bez nich przypadki
+    „OAuth przechodzi" byłyby zielone także po skasowaniu reguły 10007, a nawet
+    po wyłączeniu całego CRS — czyli test nie dowodziłby niczego. Sprawdzone:
+    z wyłączoną regułą padają dokładnie 3 przypadki OAuth, obie kontrole
+    zostają zielone.
+
+## Nagłówki zakazane polityką — reguła 10008 {#naglowki-zakazane}
+
+### Objaw
+
+Użytkownik dostaje blokadę na **całkowicie poprawnym adresie** — zgłoszenie
+2026-08-07 dotyczyło `/bpp/rekord/`, czyli istniejącego rekordu. W dashboardzie
+WAF-a widać przy tym URI żądania, więc trop prowadzi donikąd: z adresem jest
+wszystko w porządku.
+
+!!! tip "Przy diagnozie zgłoszeń typu «zablokowało mi normalny URL»"
+    `920450` to **jedyna** reguła CRS, która blokuje bez żadnego związku
+    z treścią żądania — nie patrzy ani na ścieżkę, ani na argumenty, ani na
+    ciało. Jeśli URI wygląda niewinnie, sprawdzaj ją pierwszą.
+
+### Przyczyna
+
+Reguła porównuje **nazwy nagłówków** z listą `tx.restricted_headers`.
+Domyślnie są na niej:
+
+```
+/accept-charset/ /content-encoding/ /proxy/ /lock-token/ /content-range/ /if/
+```
+
+Paranoia 1, severity CRITICAL = 5 pkt przy progu 5 — więc sam nagłówek, bez
+żadnej innej przewiny, wystarcza do blokady.
+
+`Accept-Charset` jest na tej liście, bo został wycofany ze standardu
+(przeglądarki go nie wysyłają), więc CRS traktuje jego obecność jako sygnał
+klienta automatycznego. To **heurystyka fingerprintingu, nie wykrycie ataku** —
+nie da się tym nagłówkiem niczego zaatakować. Wysyłają go natomiast starsze
+biblioteki HTTP, a w przypadku BPP także harvestery bibliograficzne, systemy
+biblioteczne i menedżery cytowań — czyli realni użytkownicy API.
+
+### Dlaczego nie `ctl:ruleRemoveById=920450`
+
+Na tej samej liście jest nagłówek `Proxy`, czyli ochrona przed **httpoxy**
+(CVE-2016-5385): aplikacja czytająca `HTTP_PROXY` ze środowiska dawała się
+przekierować przez nagłówek żądania. Skasowanie całej reguły zdjęłoby także ją,
+a przy okazji `content-encoding`, `lock-token`, `content-range` i `if`.
+
+Zamiast tego **przedefiniowujemy listę**, usuwając z niej jedną pozycję
+(`SecAction` o `id:10008`).
+
+### Dlaczego to działa z naszego pliku
+
+CRS ustawia domyślną listę w `REQUEST-901-INITIALIZATION.conf` **pod warunkiem,
+że zmienna jeszcze nie istnieje**. Nasz plik jest includowany *przed* regułami
+CRS, więc w `phase:1` ustawiamy ją pierwsi i inicjalizacja CRS jej nie
+nadpisuje.
+
+Zakomentowany szablon tej samej operacji siedzi w `crs-setup.conf` jako reguła
+`900250` — **nie korzystamy z niego**, bo `crs-setup.conf` nie jest naszym
+plikiem i `git pull` by go nie zaktualizował.
+
+!!! warning "Dwa przypadki testowe, oba konieczne"
+    „`Accept-Charset` przechodzi" nie dowodzi niczego samo z siebie —
+    przeszłoby tak samo po skasowaniu **całej** reguły `920450`. Drugi
+    przypadek (`Proxy` nadal blokowany) pilnuje, że zdjęliśmy jedną pozycję
+    z listy, a nie wylaliśmy dziecka z kąpielą.
 
 ## Logi WAF-a w Grafanie
 
