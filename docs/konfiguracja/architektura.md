@@ -233,6 +233,86 @@ wartości. Samo **usunięcie linii nie wystarczy**: zostanie dopisana z powrotem
 Captcha wymaga obrazu BPP z ALTCHA (wydania od `202607.1398` wzwyż). Na starszym obrazie
 zmienne są nieszkodliwe — Django ich po prostu nie czyta.
 
+## Logowanie przez Keycloak (OIDC) — zaufane domeny i wiązanie istniejących kont
+
+BPP potrafi logować przez Keycloaka obok zwykłego hasła (metody działają równolegle —
+OIDC niczego nie przejmuje). Tożsamość wiąże się z kontem po parze **`(issuer, sub)`**,
+nie po adresie e-mail: `sub` nadaje serwer tożsamości i jest niezmienny, a e-mail da się
+w realmie po prostu wpisać. Gdyby BPP dopasowywało po adresie, ktoś z prawem edycji
+własnego adresu mógłby przejąć cudze konto.
+
+Skutek uboczny tej zasady: **konto założone przed wdrożeniem SSO nie ma jeszcze wpisu
+`(issuer, sub)`**. Przy pierwszym logowaniu przez Keycloaka BPP widzi, że konto z tym
+adresem już istnieje, i odmawia — nie zakłada drugiego i nie „przejmuje" istniejącego:
+
+```
+failed to get or create user: OIDC: konto z tym adresem już istnieje —
+połącz je z SSO przez profil (re-auth hasłem), nie tworzę konta.
+```
+
+Domyślna ścieżka to **Profil użytkownika → „Połącz konto z SSO"**, z potwierdzeniem
+hasłem. Wymaga to jednak **hasła lokalnego** — w instalacji, gdzie logowanie idzie
+wyłącznie przez Keycloaka, konta go nie mają i ta droga jest zamknięta.
+
+Dla takich instalacji są trzy zmienne w `.env`:
+
+| Zmienna | Wartość | Znaczenie |
+|---|---|---|
+| `DJANGO_BPP_OIDC_GRACE_BIND` | `1` / `0` | Włącza jednorazowe dowiązanie istniejącego konta przy logowaniu |
+| `DJANGO_BPP_OIDC_TRUSTED_EMAIL_DOMAINS` | domeny po przecinku | Adresy w tych domenach uznajemy za instytucjonalne |
+| `DJANGO_BPP_OIDC_GRACE_BIND_PRIVILEGED` | `1` / `0` | Pozwala dowiązać także konto z uprawnieniami |
+
+Przykład:
+
+```
+DJANGO_BPP_OIDC_GRACE_BIND=1
+DJANGO_BPP_OIDC_TRUSTED_EMAIL_DOMAINS=uczelnia.edu.pl,student.uczelnia.edu.pl
+DJANGO_BPP_OIDC_GRACE_BIND_PRIVILEGED=1
+```
+
+Każda z nich ma wariant z prefiksem skrótu uczelni (`DJANGO_BPP_OIDC_<SKROT>_…`), który
+ma pierwszeństwo przed wariantem bez prefiksu — przydatne w instalacji multi-host.
+Wszystkie trzy domyślnie są **wyłączone**; instalacja, która ich nie ustawi, zachowuje
+się dokładnie jak dotąd. Nie trzeba nic zmieniać w Compose — zmienne docierają do Django
+hurtowym `env_file`.
+
+### Dlaczego lista domen, a nie `email_verified`
+
+Realmy oparte o LDAP często wystawiają **dwa** adresy: instytucjonalny w claimie `mail`
+i prywatny w `email`. BPP domyślnie bierze `mail`. Flaga `email_verified` opisuje
+natomiast claim `email`, czyli akurat ten prywatny — dla adresu pochodzącego z katalogu
+instytucji jest po prostu nieadekwatna. Dlatego zaufanie bierze się z **domeny**: adres
+z właściwego claimu, w wypisanej domenie, jest wiarygodny niezależnie od `email_verified`.
+
+Dopasowanie domen jest **dokładne** — bez subdomen i bez wieloznaczników. Domenę
+studencką trzeba wypisać osobno obok pracowniczej.
+
+Kolejność claimów da się przestawić przez `DJANGO_BPP_OIDC_EMAIL_CLAIMS` (lista po
+przecinku), gdy realm trzyma adres instytucjonalny gdzie indziej.
+
+!!! warning "Lista domen jest jedynym zabezpieczeniem trybu uprzywilejowanego"
+    `DJANGO_BPP_OIDC_GRACE_BIND_PRIVILEGED=1` pozwala dowiązać konto administratora —
+    z `is_staff`, uprawnieniami i tokenem PBN. Rolę bramki przejmuje wtedy w całości
+    lista domen plus założenie, że **użytkownik nie może samodzielnie zmienić sobie
+    adresu w katalogu instytucji**. Zanim to włączysz, potwierdź to z działem IT.
+
+    Blokada wzajemna chroni przed przypadkiem: bez `TRUSTED_EMAIL_DOMAINS` ta flaga
+    **nie robi nic**. Zostają też trzy bezpieczniki — dokładnie jedno konto z danym
+    adresem, konto aktywne i brak tożsamości w tym samym realmie (konta związanego już
+    z innym `sub` nie da się przejąć).
+
+!!! danger "Nie „naprawiaj" tego czyszczeniem adresu e-mail"
+    Skasowanie adresu na istniejącym koncie faktycznie usuwa kolizję — i tworzy **drugie,
+    puste konto**, a to prawdziwe, z uprawnieniami i powiązanym autorem, zostaje
+    osierocone. Objaw znika, problem się mnoży.
+
+Wiązanie jest **jednorazowe**: po pierwszym udanym logowaniu konto ma wpis
+`(issuer, sub)` i dalej rozpoznaje się już po nim, niezależnie od tych ustawień.
+
+Funkcja wymaga obrazu BPP z tą zmianą (`feat(oidc): zaufanie po domenie
+instytucjonalnej`, PR #753). Na starszym obrazie zmienne są nieszkodliwe — Django ich
+po prostu nie czyta.
+
 ## Fallback HTML→DOCX — opcjonalny sidecar `html2docx`
 
 Eksport do DOCX robi **pandoc z obrazu appservera** i to wystarcza w większości
