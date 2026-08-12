@@ -97,11 +97,26 @@ SecRule REQUEST_URI "@rx ^/(bpp|api/v1)/zapytanie/" \
 # sie urwana strona. Grafana wstrzykuje w index.html obiekt
 # `window.grafanaBootData`, a w nim klucz "sqlConnectionLimits". Reguła 953100
 # uzywa `@pmFromFile php-errors.data`, czyli dopasowania po PODCIAGU, bez
-# granic slowa i bez wielkosci liter — a w tym pliku danych jest wpis
+# granic slowa i bez wielkosci liter — a w tym pliku danych byl WOWCZAS wpis
 # `SQLConnect` (funkcja ODBC z PHP). "sqlConnect" siedzi w srodku
-# "sqlConnectionLimits", wiec regula zapala sie na KAZDEJ stronie Grafany.
+# "sqlConnectionLimits", wiec regula zapalala sie na KAZDEJ stronie Grafany.
 # Severity ERROR = +4 do outbound_anomaly_score przy progu 4 (ANOMALY_OUTBOUND),
 # wiec JEDNO takie trafienie od razu przekracza prog.
+#
+# TEN CIAG JUZ NIE ZAPALA REGULY — I TO JEST ARGUMENT ZA WYKLUCZENIEM, NIE
+# PRZECIW. Zmierzone ponownie 2026-08-12 na aktualnym obrazie: cialo
+# z `window.grafanaBootData` i "sqlConnectionLimits" przechodzi BEZ trafien,
+# bo wpisu `SQLConnect` nie ma juz w php-errors.data (dzis 218 wpisow, same
+# dlugie frazy). Sama regula dziala — kontrolne cialo z "Cannot redeclare
+# class" / "Stack trace:" nadal daje 953100 + 959100.
+#
+# Zmienily sie DANE UPSTREAMU, nie nasza konfiguracja: owasp/modsecurity-crs
+# :nginx to tag PLYWAJACY i wraz z przebudowa obrazu przyjezdzaja nowe pliki
+# *.data (ten sam mechanizm ugryzl nas przy 920430, 2026-08-05). Dlatego
+# uzasadnieniem 10004 NIE jest jeden zaobserwowany ciag, tylko to, ze za
+# panelami stoi cudzy dashboard, ktorego HTML-a nie ma sensu skanowac — a jego
+# kolejna wersja, tak jak kolejna wersja pliku danych CRS, moze przyniesc nowy
+# falszywy alarm. NIE ZAWEZAJ tego wykluczenia do konkretnego wzorca.
 #
 # DLACZEGO OBJAW JEST MYLACY: 959100 dziala w phase:4, czyli gdy nginx WYSLAL
 # JUZ NAGLOWKI odpowiedzi. Nie da sie wtedy zwrocic 403 (a wiec i naszego 444)
@@ -218,9 +233,11 @@ SecRule REQUEST_PROTOCOL "@rx ^(HTTP/)?[23]\." \
 #
 # REGULA 10004 ZOSTAJE NIETKNIETA i nadal wymienia /grafana/. Jest teraz dla
 # niej nadmiarowa, ale jest to nadmiarowosc celowa: gdyby ktos kiedys zwezil
-# 10006 (np. tylko do /grafana/api/), wykluczenie regul WYCHODZACYCH dla
-# reszty Grafany musi przetrwac — bez niego wraca urwana strona z 953100 na
-# `sqlConnectionLimits`.
+# 10006 (np. tylko do /grafana/api/), reszta Grafany zostalaby bez zadnej
+# oslony przed regulami WYCHODZACYMI. Nie chodzi przy tym o jeden znany ciag —
+# `sqlConnectionLimits` akurat PRZESTAL zapalac 953100 po zmianie pliku danych
+# upstreamu (patrz komentarz przy 10004) — tylko o to, ze cudzy dashboard moze
+# przyniesc KOLEJNY falszywy alarm, ktorego dzis nie znamy.
 #
 # NIE ROZSZERZAC "przy okazji" na /dozzle/, /flower/ i /netdata/ bez pomiaru.
 # Dozzle jest kandydatem z tego samego powodu (przegladarka logow przesyla
