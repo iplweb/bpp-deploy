@@ -148,7 +148,7 @@ we własnej regule, bo wykonuje się w trakcie transakcji.
 Zakres ID `1-99999` jest zarezerwowany dla reguł lokalnych (CRS używa
 `900000-999999`).
 
-Obecnie jest ich dziewięć:
+Obecnie jest ich dziesięć:
 
 - **`id:10001` — healthcheck poza audytem.** Healthcheck Dockera
   (`curl http://127.0.0.1:80/healthz` co 10 s) zapalał regułę `920350`
@@ -216,6 +216,13 @@ Obecnie jest ich dziewięć:
   `wynik istotny(p <(0 05))` i czyta jako podstawienie procesu powłoki.
   Zgłoszenie 2026-08-12: redaktor nie mógł zapisać rekordu. Szczegóły:
   [Formularze admina](#formularze-admina).
+
+- **`id:10010` — `953110` („PHP source code leakage") zdjęta GLOBALNIE.**
+  Jedyne wykluczenie bez warunku na ścieżkę, bo wyzwalaczem jest **wartość
+  w bazie, nie adres**: DOI czasopisma 4open to `10.1051/fopen/`, a `fopen` jest
+  w nim pełnoprawnym tokenem (ukośniki to znaki niesłowne). Zgłoszenie
+  2026-08-12: `/api/v1/zrodlo/` zwracało uciętą odpowiedź. W BPP nie ma PHP,
+  więc reguła nie ma tu czego chronić. Szczegóły: [DOI z `fopen`](#doi-fopen).
 
 Reguły 10002 i 10003 schodzą dla swoich ścieżek do `ctl:ruleEngine=DetectionOnly`:
 trafienia nadal trafiają do audit logu (i posłużą do napisania precyzyjnych
@@ -295,7 +302,65 @@ wersja każdego z nich może wnieść własny fałszywy alarm.
 !!! note "Aplikacja BPP nadal jest skanowana"
     10004 dotyczy **wyłącznie** czterech ścieżek paneli. Odpowiedzi Django lecą
     przez reguły wychodzące jak dotąd — i tam mają sens, bo to nasz kod może
-    wypluć komunikat błędu bazy danych.
+    wypluć komunikat błędu bazy danych. Jedynym wyjątkiem jest `953110`, zdjęta
+    globalnie przez [regułę 10010](#doi-fopen).
+
+### DOI z `fopen` — reguła 10010 {#doi-fopen}
+
+Zgłoszenie 2026-08-12: `GET /api/v1/zrodlo/` kończył się **urwaną odpowiedzią**.
+
+Czasopismo **4open** (EDP Sciences) ma w bazie DOI `10.1051/fopen/`. Reguła
+`953110` („PHP source code leakage") skanuje ciało odpowiedzi wzorcem nazw
+funkcji PHP — `fopen`, `fread`, `fwrite`, `fgets`, `gzopen`, `scandir`,
+`readfile`, `proc_open`, `call_user_func`, `$_GET`… Granice słowa **są**, ale
+ukośniki to znaki niesłowne, więc `fopen` jest w tym DOI pełnoprawnym tokenem.
+
+Odtworzone lokalnie na realnym ciele odpowiedzi z produkcji, na tym samym
+obrazie i tej samej konfiguracji:
+
+```text
+ruleId=953110  sev=3  PHP source code leakage
+   data: Matched Data: fopen found within RESPONSE_BODY: …
+ruleId=959100  sev=0  Outbound Anomaly Score Exceeded (Total Score: 4)
+```
+
+Severity `ERROR` = 4 pkt przy progu wyjściowym 4 — pojedyncze trafienie od razu
+blokuje.
+
+Zmierzone skutki:
+
+| Żądanie | Wynik |
+|---|---|
+| `/api/v1/zrodlo/` + `Accept: application/json` | `200`, 5733 B — **działa** |
+| `/api/v1/zrodlo/` + `Accept: text/html` | `200` + `Content-Length: 18014`, dojechało **15588 B** |
+| `/api/v1/zrodlo/4276/` + `Accept: text/html` | połączenie zerwane, 0 B |
+
+JSON przechodzi, bo `application/json` **nie jest** na liście
+`MODSEC_RESP_BODY_MIMETYPE` (`text/plain text/html text/xml`) — klienty API
+i harvestery nie ucierpiały, zepsuty był przeglądarkowy widok DRF.
+
+#### Dlaczego globalnie, a nie na `/api/`
+
+**To nie jest problem ścieżki, tylko danych.** Wyzwalaczem jest wartość w bazie,
+a nie adres — ten sam DOI wyrenderuje się wszędzie, gdzie pokazujemy to źródło
+lub publikację z niego: listy, detale rekordów, raporty, eksporty HTML.
+Wykluczenie po prefiksie URI byłoby grą w kreta, za każdym razem z objawem,
+który w niczym nie wskazuje na WAF.
+
+#### Dlaczego wolno zdjąć całą regułę
+
+`953110` wykrywa **wyciek kodu źródłowego PHP**. W BPP nie ma PHP — ani
+interpretera, ani plików, ani modułu w nginksie; stos to Django/Python. Reguła
+nie ma tu czego chronić, więc jedyne, co może wyprodukować, to fałszywe alarmy
+na danych bibliograficznych. Żądania o `*.php` są dodatkowo odcinane `444` już
+na brzegu ([Utwardzenie brzegu](utwardzenie-brzegu.md)).
+
+!!! note "Siostrzane reguły zostają"
+    `953100` (`@pmFromFile php-errors.data`, komunikaty błędów PHP) i `953120`
+    (`@rx <\?(?!xml)`, znaczniki `<?php`) działają dalej. Zmierzone 2026-08-12:
+    dzisiejszy `php-errors.data` ma 218 wpisów i wszystkie są długimi frazami
+    („PDO: driver", „Cannot redeclare class", „Stack trace:"), więc na danych
+    bibliograficznych się nie zapalają.
 
 ## Dlaczego Grafana jest wyjęta w całości (reguła 10006) {#grafana-poza-waf}
 

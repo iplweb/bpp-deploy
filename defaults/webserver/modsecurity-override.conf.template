@@ -459,3 +459,71 @@ SecRule REQUEST_FILENAME "@rx ^/admin/[^/]+/[^/]+/" \
     nolog,\
     t:none,\
     ctl:ruleRemoveById=932130"
+
+# ---------------------------------------------------------------------------
+# 10010: 953110 ("PHP source code leakage") — GLOBALNIE, bo w BPP nie ma PHP
+# ---------------------------------------------------------------------------
+# Regula 953110 skanuje CIALO ODPOWIEDZI wzorcem nazw funkcji PHP:
+#
+#   \b(?:f(?:tp_...|get(?:s?s|c)|scanf|write|open|read)|gz(?:...)|session_start
+#     |scandir|read(?:(?:gz)?file|dir)|move_uploaded_file|(?:proc_|bz)open
+#     |call_user_func)|\$_(?:(?:pos|ge)t|session)\b
+#
+# ZGLOSZENIE 2026-08-12 (bpp.umlub.pl): `GET /api/v1/zrodlo/` konczylo sie
+# urwana odpowiedzia. Czasopismo "4open" (EDP Sciences, zrodlo id 4276) ma
+# w bazie DOI `10.1051/fopen/`. Granice slowa we wzorcu SA, ale ukosniki to
+# znaki NIESLOWNE — `fopen` jest w tym DOI pelnoprawnym tokenem i regula trafia.
+#
+# ODTWORZONE LOKALNIE na realnym ciele odpowiedzi z produkcji, na tym samym
+# obrazie (owasp/modsecurity-crs:nginx), przez konfiguracje z defaults/webserver:
+#
+#   ruleId=953110 sev=3  PHP source code leakage
+#      data: Matched Data: fopen found within RESPONSE_BODY: ...
+#   ruleId=959100 sev=0  Outbound Anomaly Score Exceeded (Total Score: 4)
+#
+# Severity ERROR = 4 pkt przy progu WYJSCIOWYM 4 (ANOMALY_OUTBOUND), wiec
+# pojedyncze trafienie od razu przekracza prog — reguly wychodzace nie maja
+# zapasu, jaki maja wejsciowe.
+#
+# OBJAW JEST MYLACY, bo 959100 dziala w phase:4, gdy nagłowki sa juz u klienta:
+#
+#   Accept: application/json  -> 200, 5733 B, dziala      (JSON NIE jest skanowany)
+#   Accept: text/html         -> 200 + Content-Length: 18014, dojechalo 15588 B
+#   /api/v1/zrodlo/4276/      -> polaczenie zerwane, 0 B
+#
+# Serwer obiecuje 200 OK, wysyla czesc ciala i zrywa polaczenie. Klient widzi
+# urwana strone albo blad transportu, nie blokade.
+#
+# DLACZEGO GLOBALNIE, A NIE NA `/api/` — TO NIE JEST PROBLEM SCIEZKI, TYLKO
+# DANYCH. Wyzwalaczem jest WARTOSC W BAZIE (DOI zrodla), a nie adres. Ten sam
+# ciag wyrenderuje sie wszedzie, gdzie pokazujemy to zrodlo lub publikacje
+# z niego — listy, detale rekordow, raporty, eksporty HTML. Wykluczenie po
+# prefiksie URI byloby gra w kreta: kazda nowa strona pokazujaca ten DOI
+# psulaby sie od nowa, za kazdym razem z objawem nie wskazujacym na WAF.
+#
+# DLACZEGO WOLNO ZDJAC CALA REGULE: 953110 wykrywa WYCIEK KODU ZRODLOWEGO PHP.
+# W BPP nie ma PHP — ani interpretera, ani plikow, ani modulu w nginksie. Stos
+# to Django/Python. Reguła nie ma tu czego chronic, wiec jedyne, co moze
+# wyprodukowac, to falszywe alarmy na danych bibliograficznych. Zadania o `*.php`
+# sa dodatkowo odcinane 444 juz na brzegu (_bpp-locations.conf, patrz
+# "Utwardzenie brzegu") — sonda o plik PHP nie dochodzi nawet do Django.
+#
+# ZAKRES: zdejmujemy JEDNA regule, nie cala rodzine 953 i nie wszystkie reguly
+# wychodzace. Siostrzane zostaja i nadal chronia:
+#   953100 (@pmFromFile php-errors.data) — komunikaty bledow PHP,
+#   953120 (@rx `<\?(?!xml)`)            — znaczniki `<?php` w odpowiedzi.
+# Zmierzone 2026-08-12: dzisiejszy php-errors.data ma 218 wpisow i wszystkie sa
+# dlugimi frazami ("PDO: driver", "Cannot redeclare class", "Stack trace:"),
+# wiec nie zapalaja sie na danych bibliograficznych. Gdy ktoras z nich realnie
+# strzeli — dopisac ja tutaj PO ZMIERZENIU, jak wyzej.
+#
+# UWAGA: `SecAction`, a nie `SecRule`, bo wykluczenie jest bezwarunkowe. Musi
+# byc w phase:1, zeby wykonac sie przed faza 4, w ktorej dziala 953110.
+# `SecRuleRemoveById` tu NIE zadziala — nasz plik jest includowany przed CRS.
+SecAction \
+    "id:10010,\
+    phase:1,\
+    nolog,\
+    pass,\
+    t:none,\
+    ctl:ruleRemoveById=953110"

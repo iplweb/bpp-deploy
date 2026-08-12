@@ -98,6 +98,16 @@ Warning: mysql_connect(): Access denied for user 'root'@'localhost' in /var/www/
 </body></html>
 WYCIEK
 
+# Realny fragment odpowiedzi `/api/v1/zrodlo/` z produkcji (2026-08-12).
+# Czasopismo "4open" ma DOI `10.1051/fopen/`, a `fopen` jest w nim PELNOPRAWNYM
+# TOKENEM, bo ukosniki to znaki nieslowne — regula 953110 ("PHP source code
+# leakage") lapala go i urywala odpowiedz. Wyklucza to regula 10010.
+cat > "$TMP/html/zrodlo-doi.html" <<'DOI'
+<!DOCTYPE html><html><body>
+"nazwa": "4open", "doi": "10.1051/fopen/", "jezyk": "angielski"
+</body></html>
+DOI
+
 docker network create "$NET" >/dev/null 2>&1
 
 # Atrapa backendu MUSI nazywac sie `appserver` — _bpp-locations.conf ma ten
@@ -386,10 +396,35 @@ else
     BLEDY=$((BLEDY + 1))
 fi
 
-# Suma przypadkow: tablica PRZYPADKI + inspekcja ciala odpowiedzi. Przypadek
+# Regula 10010: DOI `10.1051/fopen/` NIE moze zapalac regul wychodzacych.
+#
+# ROZSTRZYGAMY PO AUDIT LOGU, NIE PO KODZIE HTTP — z tego samego powodu, co
+# wyzej: blokada w phase:4 raz zrywa polaczenie, a raz oddaje cale 200, wiec
+# asercja na wyniku HTTP migotalaby. Wykrycie jest deterministyczne.
+#
+# TE DWA SPRAWDZENIA SA PARA i oba sa potrzebne. Powyzsze pilnuje, ze reguly
+# wychodzace jako KLASA nadal dzialaja; to ponizej, ze konkretny DOI ich nie
+# zapala. Samo drugie przeszloby tak samo po wylaczeniu calej inspekcji ciala
+# odpowiedzi — czyli nie odroznialoby wykluczenia 953110 od wylania dziecka
+# z kapiela.
+curl -sk --http1.1 -o /dev/null --max-time 8 --resolve "$HOST_NAME:$PORT:127.0.0.1" \
+    "https://$HOST_NAME:$PORT/odpowiedz/zrodlo-doi.html" >/dev/null 2>&1
+TRAFIENIA_DOI=$(docker logs "$FRONT" 2>&1 \
+    | grep -c '"uri":"/odpowiedz/zrodlo-doi.html".*"ruleId":"95' || true)
+if [ "$TRAFIENIA_DOI" -eq 0 ]; then
+    printf "  \033[32mOK\033[0m   %-46s %s\n" \
+        "DOI 10.1051/fopen/ nie zapala regul 95xxx" "zadnego trafienia"
+else
+    printf "  \033[31mFAIL\033[0m %-46s %s\n" \
+        "DOI 10.1051/fopen/ nie zapala regul 95xxx" "$TRAFIENIA_DOI trafien (953110 wrocila?)"
+    BLEDY=$((BLEDY + 1))
+fi
+
+# Suma przypadkow: tablica PRZYPADKI + DWA sprawdzenia inspekcji ciala
+# odpowiedzi (klasa 95xxx dziala / DOI z `fopen` jej nie zapala). Przypadek
 # HTTP/3 dolicza sie nizej, bo jako jedyny bywa POMIJANY (brak klienta QUIC) —
 # a wtedy nie ma go czym liczyc.
-LACZNIE=$(( ${#PRZYPADKI[@]} + 1 ))
+LACZNIE=$(( ${#PRZYPADKI[@]} + 2 ))
 
 # --------------------------------------------------------------------------
 # Regula 10006: /grafana/ poza inspekcja WAF-a
