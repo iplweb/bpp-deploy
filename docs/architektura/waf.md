@@ -270,16 +270,35 @@ wysłał już nagłówki**. Nie da się wtedy zwrócić 403, a więc i naszego
 Użytkownik widzi **urwaną albo pustą stronę**, a w access logu zostaje `500 0`.
 Objaw nie wskazuje na WAF w żaden sposób.
 
-### Dlaczego panele są z tego wyjęte (reguła 10004)
+### Dlaczego panele są z tego wyjęte (reguła 10004) {#panele-poza-regulami-wychodzacymi}
 
 Potwierdzony przypadek ze stagingu, 2026-08-03: `/grafana/` było nie do
 otwarcia. Winna reguła **`953100` „PHP Information Leakage"**, która używa
 operatora `@pmFromFile php-errors.data` — dopasowania **po podciągu**, bez
-granic słowa i bez rozróżniania wielkości liter. W tym pliku danych jest wpis
-`SQLConnect` (funkcja ODBC z PHP), a Grafana wstrzykuje w `index.html` obiekt
-`window.grafanaBootData` z kluczem **`"sqlConnectionLimits"`**. Ciąg
-`sqlConnect` siedzi w jego środku, więc reguła zapala się na **każdej** stronie
-Grafany.
+granic słowa i bez rozróżniania wielkości liter. Wtedy w tym pliku danych był
+wpis `SQLConnect` (funkcja ODBC z PHP), a Grafana wstrzykuje w `index.html`
+obiekt `window.grafanaBootData` z kluczem **`"sqlConnectionLimits"`**. Ciąg
+`sqlConnect` siedzi w jego środku, więc reguła zapalała się na **każdej**
+stronie Grafany.
+
+!!! warning "Ten konkretny ciąg już nie zapala reguły — i to jest argument ZA wykluczeniem, nie przeciw"
+    Zmierzone ponownie **2026-08-12** na aktualnym obrazie: ciało z
+    `window.grafanaBootData` i `sqlConnectionLimits` przechodzi **bez żadnego
+    trafienia**. Wpisu `SQLConnect` nie ma już w `php-errors.data` (dziś 218
+    wpisów, wszystkie długie frazy). Sama reguła działa — kontrolne ciało
+    z `Cannot redeclare class` / `Stack trace:` nadal daje `953100` + `959100`.
+
+    Zmieniły się więc **dane upstreamu, nie nasza konfiguracja**:
+    `owasp/modsecurity-crs:nginx` to tag pływający (patrz „Obraz CRS to tag
+    pływający" w [Konfiguracji](#konfiguracja)), a wraz z przebudową obrazu
+    przyjeżdżają nowe pliki `*.data`. Ten sam mechanizm zaskoczył nas już przy
+    regule `920430` (2026-08-05).
+
+    **Wniosek dla wykluczeń:** nie zawężaj ich do jednego zaobserwowanego
+    ciągu. Uzasadnieniem 10004 nie jest „`SQLConnect` trafia w
+    `sqlConnectionLimits`", tylko to, że za panelami stoi **cudzy dashboard,
+    którego HTML-a nie ma sensu skanować** — a jego kolejna wersja, tak jak
+    kolejna wersja pliku danych CRS, może przynieść nowy fałszywy alarm.
 
 Za `/grafana/`, `/dozzle/`, `/flower/` i `/netdata/` nie stoi żadna aplikacja
 BPP — stoi gotowy dashboard innego producenta, dostępny wyłącznie dla superusera
@@ -422,9 +441,15 @@ niż cokolwiek, co CRS mógłby tu powstrzymać.
 !!! note "Reguła 10004 zostaje"
     Po wejściu 10006 wykluczenie reguł wychodzących jest dla Grafany
     nadmiarowe. Zostawiamy je celowo: gdyby ktoś kiedyś zawęził 10006 (np.
-    tylko do `/grafana/api/`), bez 10004 wróciłaby urwana strona z `953100` na
-    `sqlConnectionLimits`. Dla `/dozzle/`, `/flower/` i `/netdata/` 10004 jest
-    zresztą nadal jedynym wykluczeniem.
+    tylko do `/grafana/api/`), bez 10004 nic nie chroniłoby reszty Grafany
+    przed regułami wychodzącymi. Dla `/dozzle/`, `/flower/` i `/netdata/` 10004
+    jest zresztą nadal jedynym wykluczeniem.
+
+    Nie jest to zabezpieczenie przed jednym znanym ciągiem — `sqlConnectionLimits`
+    akurat **przestał** zapalać `953100` po zmianie pliku danych upstreamu
+    (patrz ostrzeżenie przy [regule 10004](#panele-poza-regulami-wychodzacymi)).
+    Chodzi o to, że cudzy dashboard może przynieść **kolejny** fałszywy alarm,
+    którego dziś nie znamy.
 
 !!! warning "Nie rozszerzać na pozostałe panele bez pomiaru"
     Dozzle jest kandydatem z tego samego powodu (przeglądarka logów przesyła
