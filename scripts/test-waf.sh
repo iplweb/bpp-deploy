@@ -553,6 +553,68 @@ for para in "PASS|Accept-Charset przechodzi (falszywy alarm)|Accept-Charset: utf
 done
 
 # --------------------------------------------------------------------------
+# Regula 10009: formularze admina a 932130 (wyrazenie powloki w tekscie)
+# --------------------------------------------------------------------------
+# DLACZEGO OSOBNO: tabelka PRZYPADKI strzela GET-em, a tu cala tresc jedzie
+# w CIELE POST-a — i, co wazniejsze, tamta liczy KAZDY kod HTTP jako PASS, wiec
+# 403 od ModSecurity przeszloby tam jako sukces.
+#
+# ZGLOSZENIE 2026-08-12 (bpp.umlub.pl): redaktor nie mogl zapisac rekordu,
+# `POST /admin/bpp/wydawnictwo_ciagle/105013/change/` -> blokada, Total Score 5.
+# Zapalala 932130 ("Unix Shell Expression Found"), bo transformacja `t:cmdLine`
+# KASUJE SPACJE PRZED `(`: legalne "wynik istotny (p < (0,05))" widziane jest
+# przez silnik jako "wynik istotny(p <(0 05))", co pasuje do `[<>]\(.*\)`.
+#
+# SA DWIE GRUPY I OBIE SA POTRZEBNE. Same "PASS-y" nie dowodza niczego —
+# przeszlyby tak samo po wylaczeniu calego CRS. Kontrole pilnuja trzech granic
+# naraz:
+#
+#   1. `/admin/login/` MA dalej blokowac. To nie jest formalnosc: gdyby regula
+#      celowala w `REQUEST_URI` zamiast `REQUEST_FILENAME`, query string
+#      `?next=/admin/` domknalby wzorzec `^/admin/[^/]+/[^/]+/` na formularzu
+#      logowania — czyli na jedynym endpoincie admina osiagalnym anonimowo.
+#      Stad DWA przypadki logowania: goly i z `?next=`.
+#   2. Poza `/admin/` (`/bpp/szukaj/`) 932130 ma dzialac bez zmian.
+#   3. Zdjelismy JEDNA regule, nie ochrone przed RCE: realny payload
+#      `$(id)` z `cat /etc/passwd` ma dalej obrywac od reszty rodziny 932.
+echo
+printf "%-6s %-46s %s\n" "WYNIK" "FORMULARZE ADMINA (932130)" "SZCZEGOLY"
+printf "%s\n" "----------------------------------------------------------------------------------"
+ADMIN_CHANGE='admin/bpp/wydawnictwo_ciagle/105013/change/'
+for para in "PASS|streszczenie: 'p < (0,05)'|$ADMIN_CHANGE|streszczenie=wynik istotny (p < (0,05))" \
+            "PASS|streszczenie: LaTeX \$(1-\\alpha)\$|$ADMIN_CHANGE|streszczenie=przedzial \$(1-\\alpha)\$ dla n=30" \
+            "PASS|adnotacje: \${author} z BibTeksa|admin/bpp/wydawnictwo_ciagle/add/|adnotacje=import: \${author} \${year}" \
+            "PASS|changelist: zakres '<(1990-2020)'|admin/bpp/wydawnictwo_ciagle/|q=zakres <(1990-2020)" \
+            "BLOK|kontrola: ten sam tekst na /admin/login/|admin/login/|username=wynik istotny (p < (0,05))" \
+            "BLOK|kontrola: /admin/login/ z ?next=/admin/|admin/login/?next=/admin/|username=wynik istotny (p < (0,05))" \
+            "BLOK|kontrola: ten sam tekst na /bpp/szukaj/|bpp/szukaj/|q=wynik istotny (p < (0,05))" \
+            "BLOK|kontrola: realne RCE \$(id) na adminie|$ADMIN_CHANGE|streszczenie=x; cat /etc/passwd; echo \$(id)"; do
+    IFS='|' read -r oczek opis sciezka cialo <<< "$para"
+    LACZNIE=$((LACZNIE + 1))
+    kod=$(curl -sk --http1.1 -o /dev/null -w '%{http_code}' --max-time 8 \
+        --resolve "$HOST_NAME:$PORT:127.0.0.1" \
+        -X POST --data-urlencode "$cialo" \
+        "https://$HOST_NAME:$PORT/$sciezka" 2>/dev/null)
+    rc=$?
+    if [ "$rc" -eq 52 ] || [ "$rc" -eq 56 ] || [ "$rc" -eq 92 ]; then
+        faktyczny="BLOK"; szczegol="polaczenie zerwane (curl $rc)"
+    elif [ "$rc" -ne 0 ]; then
+        faktyczny="BLAD"; szczegol="curl $rc"
+    elif [ "$kod" = "403" ]; then
+        faktyczny="BLOK"; szczegol="HTTP 403 od ModSecurity"
+    else
+        faktyczny="PASS"; szczegol="HTTP $kod"
+    fi
+    if [ "$faktyczny" = "$oczek" ]; then
+        printf "  \033[32mOK\033[0m   %-46s %s\n" "$opis" "$szczegol"
+    else
+        printf "  \033[31mFAIL\033[0m %-46s oczekiwano %s, jest %s (%s)\n" \
+            "$opis" "$oczek" "$faktyczny" "$szczegol"
+        BLEDY=$((BLEDY + 1))
+    fi
+done
+
+# --------------------------------------------------------------------------
 # Przypadek osobny: legalne zadanie po HTTP/3
 # --------------------------------------------------------------------------
 # Nie siedzi w tablicy PRZYPADKI, bo tamte strzelaja `curl --http1.1` Z HOSTA,

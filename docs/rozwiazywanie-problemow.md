@@ -91,6 +91,25 @@ Jeśli żądania wracają z `200`, a panele i tak są puste, przyczyna leży w d
 nie w brzegu — patrz [Logowanie](monitoring/logowanie.md) i uwaga o pułapce
 filtrów ad-hoc w [dashboardach Grafany](monitoring/dashboardy-grafany.md).
 
+## Redaktor nie może zapisać publikacji (403 w `/admin/`)
+
+**Symptom**: zapis rekordu w panelu admina kończy się błędem, a w logach kontenerów
+BPP **nie ma śladu tego żądania** — bo nigdy nie dotarło do Django.
+
+To WAF. Formularze admina przyjmują dowolny tekst naukowy, a reguła CRS `932130`
+czyta niektóre jego postacie jako wyrażenie powłoki — `p < (0,05)`, LaTeX
+`$(1-\alpha)$`, `${author}` z BibTeksa. Naprawia to reguła `10009`
+([Formularze admina](architektura/waf.md#formularze-admina)); jeśli instalacja
+jej nie ma, wystarczy `git pull && make up` — wykluczenia jadą w wersjonowanym
+bind-moucie, bez migracji `.env`.
+
+Jeśli objaw wraca na **innej** treści, znajdź regułę, która faktycznie strzeliła —
+wpis `949110` tylko sumuje i nie mówi nic o przyczynie:
+
+```bash
+docker compose logs webserver | grep '<unique_id z wpisu 949110>'
+```
+
 ## Po `git pull` coś się rozjechało
 
 **Symptom**: nowe usługi się nie pojawiają, obrazy są stare, `.env` nie ma nowych zmiennych.
