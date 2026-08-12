@@ -365,3 +365,97 @@ SecAction \
     pass,\
     t:none,\
     setvar:'tx.restricted_headers=/content-encoding/ /proxy/ /lock-token/ /content-range/ /if/'"
+
+# ---------------------------------------------------------------------------
+# 10009: formularze admina — 932130 czyta tekst naukowy jako polecenie powloki
+# ---------------------------------------------------------------------------
+# Regula 932130 ("Remote Command Execution: Unix Shell Expression Found") szuka
+# wyrazen powloki: `$(...)`, `$((...))`, `${...}` oraz `<(...)` i `>(...)`
+# (podstawienie procesu). Severity CRITICAL = 5 pkt przy progu 5, wiec jedno
+# trafienie od razu blokuje — dokladnie jak 931100 w 10007.
+#
+# ZGLOSZENIE 2026-08-12 (bpp.umlub.pl): redaktor nie mogl zapisac rekordu,
+# `POST /admin/bpp/wydawnictwo_ciagle/105013/change/` konczyl sie blokada,
+# `Total Score: 5`. To samo na 105071.
+#
+# WINOWAJCA JEST TRANSFORMACJA, NIE TRESC. 932130 dziala po `t:cmdLine`, ktora
+# m.in. KASUJE SPACJE PRZED `(`, zamienia `,` i `;` na spacje i sprowadza tekst
+# do malych liter. Legalne zdanie ze streszczenia zmienia sie wiec w wyrazenie
+# powloki dopiero W SILNIKU:
+#
+#     wpisane:      wynik istotny (p < (0,05))
+#     po cmdLine:   wynik istotny(p <(0 05))
+#                                   ^^^^^^^ pasuje do `[<>]\(.*\)`
+#
+# ZMIERZONE 2026-08-12 na `owasp/modsecurity-crs:nginx` (ten sam obraz co
+# produkcja, BLOCKING_PARANOIA=1), audit log wprost:
+#
+#     Matched Data: <(0 05)) found within ARGS:streszczenie:
+#                   wynik istotny(p <(0 05))
+#
+# Blokowane byly wszystkie cztery postacie, kazda przez SAMA 932130 (score 5):
+#
+#     streszczenie=wynik istotny (p < (0,05))     -> BLOK  932130
+#     streszczenie=przedzial $(1-\alpha)$ dla...  -> BLOK  932130   (LaTeX)
+#     adnotacje=import: ${author} ${year}         -> BLOK  932130   (BibTeX)
+#     uwagi=grupa n > (30) osob                   -> BLOK  932130
+#     tytul=Wplyw kwasu foliowego                 -> przelot
+#
+# ZAKRES: zdejmujemy JEDNA regule, nie rodzine i nie `ruleEngine`. Kuszace bylo
+# wylaczyc od razu takze 941 (XSS) i 942 (SQLi) — "przeciez redaktor wpisuje
+# dowolny tekst". ZMIERZONE 2026-08-12, ZADEN z tych kandydatow sie nie zapala:
+#
+#     tytul=Stezenie H<sub>2</sub>O<sub>2</sub> w tkance     -> przelot
+#     tytul=Badania <i>in vitro</i> na liniach komorkowych   -> przelot
+#     streszczenie=Crohn's disease -- przeglad literatury    -> przelot
+#     streszczenie=We select data from the national registry -> przelot
+#     tytul=Union of datasets; a comparative study           -> przelot
+#     streszczenie=iloraz szans OR 1=1,25 (95% CI)           -> przelot
+#     uwagi=doi: 10.1016/j.jhep.2020.03.004                  -> przelot
+#
+# Poszerzenie na te rodziny bylo by wiec zdjeciem ochrony bez ani jednego
+# przypadku, ktory by to uzasadnial. Gdy ktoras z nich realnie strzeli — dopisac
+# ja tutaj PO ZMIERZENIU, z data i payloadem, jak wyzej.
+#
+# DLACZEGO ZDJECIE 932130 NIE OTWIERA ADMINA NA WSTRZYKNIECIE POLECEN: 932130
+# to jedna z kilkunastu regul rodziny 932 i akurat ta o najszerszym, czysto
+# skladniowym wzorcu. Realny payload zapala pozostale. Zmierzone 2026-08-12 JUZ
+# Z WLACZONA 10009, na tej samej sciezce `/admin/.../change/`:
+#
+#     streszczenie=x; cat /etc/passwd; echo $(id)
+#         -> BLOK, 930120 + 932100 + 932110 + 932160   (932130 zdjeta, reszta lapie)
+#     streszczenie=<script>alert(1)</script>
+#         -> BLOK, 941100 + 941110 + 941160
+#     streszczenie=' UNION ALL SELECT NULL,NULL-- a
+#         -> BLOK, 942100 + 942190 + 942360
+#
+# Wykluczenie zdejmuje wiec falszywe alarmy, a nie ochrone.
+#
+# DLACZEGO `REQUEST_FILENAME`, A NIE `REQUEST_URI` — TO NIE JEST KOSMETYKA.
+# `REQUEST_URI` zawiera QUERY STRING, a nasz wzorzec ma dwa zmienne segmenty
+# (`<app>/<model>`), wiec query string potrafi go domknac na cudzej sciezce:
+#
+#     /admin/login/?next=/admin/
+#             ^^^^^  ^^^^^^^^^^^   "?next=" jako [^/]+ i "/admin/" jako [^/]+/
+#
+# Wykluczenie objeloby wiec FORMULARZ LOGOWANIA — jedyny endpoint admina
+# osiagalny anonimowo, czyli ten, ktory ochrony potrzebuje najbardziej.
+# `REQUEST_FILENAME` to sama sciezka, wiec `/admin/login/`,
+# `/admin/password_change/` i `/admin/jsi18n/` maja po `/admin/` tylko jeden
+# segment i NIE pasuja. Pilnuja tego dwie asercje kontrolne w test-waf.sh.
+#
+# ZASIEG: `^/admin/<app>/<model>/` pokrywa jednym wzorcem komplet formularzy
+# modelu — `<pk>/change/`, `add/`, changelist z akcjami masowymi, `<pk>/delete/`
+# i `autocomplete/`. Wszystkie przyjmuja te same pola tekstowe.
+#
+# UWAGA: regula 10002 (`/admin/dbtemplates/`) zostaje nietknieta i nadal schodzi
+# tam do DetectionOnly. Jest teraz dla tego prefiksu nadmiarowa, ale dotyczy
+# INNEJ klasy problemu (surowy HTML z JavaScriptem, rodzina 941) i wezsze
+# 10009 jej nie zastepuje.
+SecRule REQUEST_FILENAME "@rx ^/admin/[^/]+/[^/]+/" \
+    "id:10009,\
+    phase:1,\
+    pass,\
+    nolog,\
+    t:none,\
+    ctl:ruleRemoveById=932130"
