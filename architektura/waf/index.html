@@ -1,0 +1,4560 @@
+
+<!doctype html>
+<html lang="pl" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Dokumentacja wdrożeniowa systemu BPP (Bibliografia Publikacji Pracowników) — orkiestracja Docker Compose, monitoring, backupy i konfiguracja.">
+      
+      
+      
+        <link rel="canonical" href="https://iplweb.github.io/bpp-deploy/architektura/waf/">
+      
+      
+        <link rel="prev" href="../utwardzenie-brzegu/">
+      
+      
+        <link rel="next" href="../healthchecks-autoheal/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>WAF (ModSecurity + OWASP CRS) - BPP Deploy — dokumentacja</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#waf-na-brzegu-modsecurity-owasp-crs" class="md-skip">
+          Przejdź do treści
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+<header class="md-header" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Nagłówek">
+    <a href="../.." title="BPP Deploy — dokumentacja" class="md-header__button md-logo" aria-label="BPP Deploy — dokumentacja" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            BPP Deploy — dokumentacja
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              WAF (ModSecurity + OWASP CRS)
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Tryb ciemny"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Tryb ciemny" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m17.75 4.09-2.53 1.94.91 3.06-2.63-1.81-2.63 1.81.91-3.06-2.53-1.94L12.44 4l1.06-3 1.06 3zm3.5 6.91-1.64 1.25.59 1.98-1.7-1.17-1.7 1.17.59-1.98L15.75 11l2.06-.05L18.5 9l.69 1.95zm-2.28 4.95c.83-.08 1.72 1.1 1.19 1.85-.32.45-.66.87-1.08 1.27C15.17 23 8.84 23 4.94 19.07c-3.91-3.9-3.91-10.24 0-14.14.4-.4.82-.76 1.27-1.08.75-.53 1.93.36 1.85 1.19-.27 2.86.69 5.83 2.89 8.02a9.96 9.96 0 0 0 8.02 2.89m-1.64 2.02a12.08 12.08 0 0 1-7.8-3.47c-2.17-2.19-3.33-5-3.49-7.82-2.81 3.14-2.7 7.96.31 10.98 3.02 3.01 7.84 3.12 10.98.31"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Tryb jasny"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Tryb jasny" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 7a5 5 0 0 1 5 5 5 5 0 0 1-5 5 5 5 0 0 1-5-5 5 5 0 0 1 5-5m0 2a3 3 0 0 0-3 3 3 3 0 0 0 3 3 3 3 0 0 0 3-3 3 3 0 0 0-3-3m0-7 2.39 3.42C13.65 5.15 12.84 5 12 5s-1.65.15-2.39.42zM3.34 7l4.16-.35A7.2 7.2 0 0 0 5.94 8.5c-.44.74-.69 1.5-.83 2.29zm.02 10 1.76-3.77a7.131 7.131 0 0 0 2.38 4.14zM20.65 7l-1.77 3.79a7.02 7.02 0 0 0-2.38-4.15zm-.01 10-4.14.36c.59-.51 1.12-1.14 1.54-1.86.42-.73.69-1.5.83-2.29zM12 22l-2.41-3.44c.74.27 1.55.44 2.41.44.82 0 1.63-.17 2.37-.44z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Szukaj" placeholder="Szukaj" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Szukaj">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Wyczyść" aria-label="Wyczyść" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Inicjowanie wyszukiwania
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/iplweb/bpp-deploy" title="Przejdź do repozytorium" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    iplweb/bpp-deploy
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+            
+<nav class="md-tabs" aria-label="Zakładki" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../.." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Start
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../instalacja/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Instalacja
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../konfiguracja/architektura/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Konfiguracja
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../eksploatacja/komendy/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Eksploatacja
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../monitoring/przeglad/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Monitoring i logi
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    
+    
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="../uslugi/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Architektura
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../rozwiazywanie-problemow/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Rozwiązywanie problemów
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../rozwoj/testy/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Rozwój pakietu
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ul>
+  </div>
+</nav>
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Nawigacja" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="BPP Deploy — dokumentacja" class="md-nav__button md-logo" aria-label="BPP Deploy — dokumentacja" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    BPP Deploy — dokumentacja
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/iplweb/bpp-deploy" title="Przejdź do repozytorium" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    iplweb/bpp-deploy
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Start
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../instalacja/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Instalacja
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_2" id="__nav_2_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Instalacja
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../instalacja/linux/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Linux
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../instalacja/macos/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    macOS
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../instalacja/windows/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Windows
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../instalacja/pierwsze-uruchomienie/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pierwsze uruchomienie
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Konfiguracja
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Konfiguracja
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../konfiguracja/architektura/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architektura konfiguracji
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../konfiguracja/struktura-katalogow/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Struktura katalogów
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../konfiguracja/ssl/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    SSL (manual / Let's Encrypt)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../konfiguracja/multi-host/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Multi-host
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../konfiguracja/limity-zasobow/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Limity zasobów
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../konfiguracja/postgresql/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PostgreSQL — wersje i upgrade
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Eksploatacja
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Eksploatacja
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../eksploatacja/komendy/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Najważniejsze komendy
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../eksploatacja/aktualizacje/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Aktualizacje i wersje obrazów
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../eksploatacja/przerwa-techniczna/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Przerwa techniczna z ostrzeżeniem
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../eksploatacja/baza-danych/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Baza danych
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../eksploatacja/migracja-collation-stock-pg/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Migracja bazy na stockowy postgres
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../eksploatacja/backup-i-rclone/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Backup i rclone
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../eksploatacja/przenosiny-serwera/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Przenosiny serwera
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../eksploatacja/wydanie/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Wydanie
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Monitoring i logi
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Monitoring i logi
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../monitoring/przeglad/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Przegląd
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../monitoring/logowanie/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Logowanie
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../monitoring/netdata-alerty/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Netdata i alerty ntfy
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../monitoring/slow-queries/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Wolne zapytania (slow queries)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../monitoring/dashboardy-grafany/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Dashboardy Grafany
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architektura
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Architektura
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../uslugi/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Usługi i przepływ danych
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../rate-limiting/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Rate limiting (nginx)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../utwardzenie-brzegu/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Utwardzenie brzegu (nginx)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    WAF (ModSecurity + OWASP CRS)
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    WAF (ModSecurity + OWASP CRS)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Spis treści">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Spis treści
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#po-co-to-jest" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Po co to jest
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#konfiguracja" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Konfiguracja
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#dwie-puapki-integracyjne-przeczytaj-przed-zmiana-configu-nginksa" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Dwie pułapki integracyjne (przeczytaj przed zmianą configu nginksa)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Dwie pułapki integracyjne (przeczytaj przed zmianą configu nginksa)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#1-inny-katalog-wyjsciowy-envsubst" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Inny katalog wyjściowy envsubst
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#2-brak-nginx_envsubst_filter" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Brak NGINX_ENVSUBST_FILTER
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#wykluczenia-regul" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Wykluczenia reguł
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#reguly-wychodzace" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Reguły wychodzące — inspekcja ciała odpowiedzi
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Reguły wychodzące — inspekcja ciała odpowiedzi">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#panele-poza-regulami-wychodzacymi" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Dlaczego panele są z tego wyjęte (reguła 10004)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#doi-fopen" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        DOI z fopen — reguła 10010
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="DOI z fopen — reguła 10010">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#dlaczego-globalnie-a-nie-na-api" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Dlaczego globalnie, a nie na /api/
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#dlaczego-wolno-zdjac-caa-regue" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Dlaczego wolno zdjąć całą regułę
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#grafana-poza-waf" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Dlaczego Grafana jest wyjęta w całości (reguła 10006)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Dlaczego Grafana jest wyjęta w całości (reguła 10006)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#objaw" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Objaw
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#przyczyna" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Przyczyna
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#dlaczego-nie-punktowe-wykluczenie-932110" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Dlaczego nie punktowe wykluczenie 932110
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#dlaczego-wolno-to-wyaczyc" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Dlaczego wolno to wyłączyć
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#oauth-petla-zwrotna" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        OAuth i pętla zwrotna — reguła 10007
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="OAuth i pętla zwrotna — reguła 10007">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#objaw_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Objaw
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#przyczyna_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Przyczyna
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#blokowany-by-cay-przepyw-nie-jeden-endpoint" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Blokowany był cały przepływ, nie jeden endpoint
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#dlaczego-nie-wykluczenie-celowane-w-argument" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Dlaczego nie wykluczenie celowane w argument
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#dlaczego-takze-well-known" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Dlaczego także /.well-known/
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#routing-well-known-to-osobna-puapka-nie-mylic-z-waf-em" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Routing /.well-known/ to osobna pułapka — nie mylić z WAF-em
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#dlaczego-wolno-to-wyaczyc_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Dlaczego wolno to wyłączyć
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#naglowki-zakazane" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Nagłówki zakazane polityką — reguła 10008
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Nagłówki zakazane polityką — reguła 10008">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#objaw_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Objaw
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#przyczyna_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Przyczyna
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#dlaczego-nie-ctlruleremovebyid920450" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Dlaczego nie ctl:ruleRemoveById=920450
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#dlaczego-to-dziaa-z-naszego-pliku" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Dlaczego to działa z naszego pliku
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#formularze-admina" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Formularze admina — reguła 10009
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Formularze admina — reguła 10009">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#objaw_3" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Objaw
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#przyczyna-winowajca-jest-transformacja-nie-tresc" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Przyczyna — winowajcą jest transformacja, nie treść
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#dlaczego-tylko-932130-a-nie-cae-rodziny-xss-i-sqli" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Dlaczego tylko 932130, a nie całe rodziny XSS i SQLi
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#zdjecie-932130-nie-otwiera-admina-na-wstrzykniecie-polecen" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Zdjęcie 932130 nie otwiera admina na wstrzyknięcie poleceń
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#request-filename" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        REQUEST_FILENAME, nie REQUEST_URI — to nie jest kosmetyka
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#zasieg" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Zasięg
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#logi-waf-a-w-grafanie" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Logi WAF-a w Grafanie
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Logi WAF-a w Grafanie">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#dwa-wpisy-na-jedno-zadanie" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Dwa wpisy na jedno żądanie
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#wpisy-audytowe-w-ktorych-nie-zapalia-sie-zadna-regua" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Wpisy audytowe, w których nie zapaliła się żadna reguła
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pola-modsec_" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Pola modsec_*
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pulapka-filtrow-ad-hoc" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Filtry ad-hoc („Filter for value")
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Filtry ad-hoc („Filter for value&#34;)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#dlaczego-akurat-taki-parser" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Dlaczego akurat taki parser
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#sprawdzenie-czy-waf-dziala-make-test-waf" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Sprawdzenie, czy WAF dziala — make test-waf
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#dlaczego-444-a-nie-403" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Dlaczego 444, a nie 403
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#zawezanie-wykluczen-po-baseline" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Zawężanie wykluczeń po baseline
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#rollback" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Rollback
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#co-waf-pokrywa-a-czego-nie" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Co WAF pokrywa, a czego nie
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../healthchecks-autoheal/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Healthchecks i autoheal
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../zadania-ofelia/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Zadania okresowe (Ofelia)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../rozwiazywanie-problemow/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Rozwiązywanie problemów
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_8" >
+        
+          
+          <label class="md-nav__link" for="__nav_8" id="__nav_8_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Rozwój pakietu
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_8_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_8">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Rozwój pakietu
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../rozwoj/testy/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Testy
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../rozwoj/pre-commit/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pre-commit hooks
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../rozwoj/backwards-compatibility/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Backwards compatibility
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../rozwoj/pulapki-grafany/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pułapki — dashboardy Grafany
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../rozwoj/pulapki-alloy/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pułapki — pipeline Alloy
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../rozwoj/pulapki-wdrozenia/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pułapki — wdrożenie i auto-update
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../rozwoj/pulapki-kompresji/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pułapki — kompresja odpowiedzi
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Spis treści">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Spis treści
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#po-co-to-jest" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Po co to jest
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#konfiguracja" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Konfiguracja
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#dwie-puapki-integracyjne-przeczytaj-przed-zmiana-configu-nginksa" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Dwie pułapki integracyjne (przeczytaj przed zmianą configu nginksa)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Dwie pułapki integracyjne (przeczytaj przed zmianą configu nginksa)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#1-inny-katalog-wyjsciowy-envsubst" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Inny katalog wyjściowy envsubst
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#2-brak-nginx_envsubst_filter" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Brak NGINX_ENVSUBST_FILTER
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#wykluczenia-regul" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Wykluczenia reguł
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#reguly-wychodzace" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Reguły wychodzące — inspekcja ciała odpowiedzi
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Reguły wychodzące — inspekcja ciała odpowiedzi">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#panele-poza-regulami-wychodzacymi" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Dlaczego panele są z tego wyjęte (reguła 10004)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#doi-fopen" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        DOI z fopen — reguła 10010
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="DOI z fopen — reguła 10010">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#dlaczego-globalnie-a-nie-na-api" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Dlaczego globalnie, a nie na /api/
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#dlaczego-wolno-zdjac-caa-regue" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Dlaczego wolno zdjąć całą regułę
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#grafana-poza-waf" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Dlaczego Grafana jest wyjęta w całości (reguła 10006)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Dlaczego Grafana jest wyjęta w całości (reguła 10006)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#objaw" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Objaw
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#przyczyna" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Przyczyna
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#dlaczego-nie-punktowe-wykluczenie-932110" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Dlaczego nie punktowe wykluczenie 932110
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#dlaczego-wolno-to-wyaczyc" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Dlaczego wolno to wyłączyć
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#oauth-petla-zwrotna" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        OAuth i pętla zwrotna — reguła 10007
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="OAuth i pętla zwrotna — reguła 10007">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#objaw_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Objaw
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#przyczyna_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Przyczyna
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#blokowany-by-cay-przepyw-nie-jeden-endpoint" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Blokowany był cały przepływ, nie jeden endpoint
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#dlaczego-nie-wykluczenie-celowane-w-argument" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Dlaczego nie wykluczenie celowane w argument
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#dlaczego-takze-well-known" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Dlaczego także /.well-known/
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#routing-well-known-to-osobna-puapka-nie-mylic-z-waf-em" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Routing /.well-known/ to osobna pułapka — nie mylić z WAF-em
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#dlaczego-wolno-to-wyaczyc_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Dlaczego wolno to wyłączyć
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#naglowki-zakazane" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Nagłówki zakazane polityką — reguła 10008
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Nagłówki zakazane polityką — reguła 10008">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#objaw_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Objaw
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#przyczyna_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Przyczyna
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#dlaczego-nie-ctlruleremovebyid920450" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Dlaczego nie ctl:ruleRemoveById=920450
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#dlaczego-to-dziaa-z-naszego-pliku" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Dlaczego to działa z naszego pliku
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#formularze-admina" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Formularze admina — reguła 10009
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Formularze admina — reguła 10009">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#objaw_3" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Objaw
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#przyczyna-winowajca-jest-transformacja-nie-tresc" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Przyczyna — winowajcą jest transformacja, nie treść
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#dlaczego-tylko-932130-a-nie-cae-rodziny-xss-i-sqli" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Dlaczego tylko 932130, a nie całe rodziny XSS i SQLi
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#zdjecie-932130-nie-otwiera-admina-na-wstrzykniecie-polecen" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Zdjęcie 932130 nie otwiera admina na wstrzyknięcie poleceń
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#request-filename" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        REQUEST_FILENAME, nie REQUEST_URI — to nie jest kosmetyka
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#zasieg" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Zasięg
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#logi-waf-a-w-grafanie" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Logi WAF-a w Grafanie
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Logi WAF-a w Grafanie">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#dwa-wpisy-na-jedno-zadanie" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Dwa wpisy na jedno żądanie
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#wpisy-audytowe-w-ktorych-nie-zapalia-sie-zadna-regua" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Wpisy audytowe, w których nie zapaliła się żadna reguła
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pola-modsec_" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Pola modsec_*
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pulapka-filtrow-ad-hoc" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Filtry ad-hoc („Filter for value")
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Filtry ad-hoc („Filter for value&#34;)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#dlaczego-akurat-taki-parser" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Dlaczego akurat taki parser
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#sprawdzenie-czy-waf-dziala-make-test-waf" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Sprawdzenie, czy WAF dziala — make test-waf
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#dlaczego-444-a-nie-403" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Dlaczego 444, a nie 403
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#zawezanie-wykluczen-po-baseline" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Zawężanie wykluczeń po baseline
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#rollback" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Rollback
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#co-waf-pokrywa-a-czego-nie" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Co WAF pokrywa, a czego nie
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+    <a href="https://github.com/iplweb/bpp-deploy/edit/main/docs/architektura/waf.md" title="Edytuj tę stronę" class="md-content__button md-icon" rel="edit">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"/></svg>
+    </a>
+  
+  
+
+
+<h1 id="waf-na-brzegu-modsecurity-owasp-crs">WAF na brzegu (ModSecurity + OWASP CRS)<a class="headerlink" href="#waf-na-brzegu-modsecurity-owasp-crs" title="Permanent link">&para;</a></h1>
+<p>Webserver BPP nie jest gołym nginksem — to obraz
+<a href="https://github.com/coreruleset/modsecurity-crs-docker"><code>owasp/modsecurity-crs:nginx</code></a>,
+czyli <strong>ten sam oficjalny nginx</strong> plus moduł ModSecurity i reguły OWASP Core
+Rule Set. Zapytania są sprawdzane pod kątem znanych klas ataków, zanim dotkną
+Django.</p>
+<div class="admonition danger">
+<p class="admonition-title">WAF BLOKUJE — rozpoznany atak dostaje zerwane połączenie</p>
+<p><code>MODSEC_RULE_ENGINE=On</code>. Żądanie z rozpoznanym atakiem dostaje od
+ModSecurity 403, które nginx zamienia na <strong>444: zamknięcie połączenia bez
+żadnej odpowiedzi</strong>. Skaner nie dostaje ani kodu, ani strony błędu, ani
+nagłówków.</p>
+<p>Dwie ścieżki są z blokowania wyjęte i tylko obserwowane —
+<code>/admin/dbtemplates/</code> i <code>/api/v1/zapytanie/</code> (patrz <a href="#wykluczenia-regul">Wykluczenia
+reguł</a>).</p>
+<p><strong>Awaryjne zejście do obserwacji</strong> — w <strong>repo-owym</strong> <code>.env</code> (tym obok
+<code>docker-compose.yml</code>, nie w <code>${BPP_CONFIGS_DIR}/.env</code> — patrz
+<code>.env.sample</code>):
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nv">MODSEC_RULE_ENGINE</span><span class="o">=</span>DetectionOnly
+</code></pre></div>
+i <code>make run</code>.</p>
+</div>
+<h2 id="po-co-to-jest">Po co to jest<a class="headerlink" href="#po-co-to-jest" title="Permanent link">&para;</a></h2>
+<p>Przegląd błędów z lipca 2026 pokazał zautomatyzowany skan SQL injection
+(sqlmap) przeciwko jednej z instalacji: 2 165 żądań z payloadami
+<code>UNION ALL SELECT</code> i <code>UPDATEXML(…)</code>. Wszystkie odbiły się o routing Django
+(HTTP 404) i nic nie wyciekło, ale:</p>
+<ul>
+<li>skan przyszedł z <strong>1 342 adresów IP, z czego 1 340 użyto dokładnie raz</strong> —
+  więc <code>limit_req</code> (per-IP) nie miał czego złapać,</li>
+<li>User-Agenty były rotowane na przeglądarkowe, więc filtr po UA też by nie zadziałał.</li>
+</ul>
+<p>Jedyną skuteczną dźwignią przy takim rozkładzie jest <strong>filtrowanie po treści
+żądania</strong> — czyli dokładnie to, co robi WAF.</p>
+<h2 id="konfiguracja">Konfiguracja<a class="headerlink" href="#konfiguracja" title="Permanent link">&para;</a></h2>
+<p>Wszystko przez zmienne w <code>.env</code> (Compose ma sensowne domyślne, więc świeża
+instalacja nie wymaga żadnych zmian).</p>
+<table>
+<thead>
+<tr>
+<th>Zmienna</th>
+<th>Domyślnie u nas</th>
+<th>Domyślnie w obrazie</th>
+<th>Po co</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>MODSEC_RULE_ENGINE</code></td>
+<td><code>On</code></td>
+<td><code>On</code></td>
+<td>blokowanie włączone</td>
+</tr>
+<tr>
+<td><code>BLOCKING_PARANOIA</code></td>
+<td><code>1</code></td>
+<td><code>1</code></td>
+<td>poziom agresywności reguł</td>
+</tr>
+<tr>
+<td><code>MODSEC_REQ_BODY_LIMIT</code></td>
+<td><code>132120576</code> (126 MiB)</td>
+<td><code>13107200</code> (12,5 MiB)</td>
+<td><strong>musi być ≥ <code>client_max_body_size 120M</code></strong></td>
+</tr>
+<tr>
+<td><code>MODSEC_REQ_BODY_NOFILES_LIMIT</code></td>
+<td><code>4194304</code> (4 MiB)</td>
+<td><code>131072</code> (128 KiB)</td>
+<td>duże formularze BPP</td>
+</tr>
+<tr>
+<td><code>MODSEC_AUDIT_LOG_PARTS</code></td>
+<td><code>AHZ</code></td>
+<td><code>ABIJDEFHZ</code></td>
+<td><strong>bez ciał i bez nagłówków w logu</strong></td>
+</tr>
+<tr>
+<td><code>MODSEC_AUDIT_LOG_RELEVANT_STATUS</code></td>
+<td><code>^$</code> (nigdy)</td>
+<td><code>^(?:5\|4(?!04))</code></td>
+<td><strong>audit log wyłącznie z trafień reguł</strong></td>
+</tr>
+<tr>
+<td><code>ALLOWED_HTTP_VERSIONS</code></td>
+<td>+ <code>HTTP/3 HTTP/3.0</code></td>
+<td><code>HTTP/1.0 HTTP/1.1 HTTP/2 HTTP/2.0</code></td>
+<td><strong>bez tego h3 jest blokowane w całości</strong></td>
+</tr>
+</tbody>
+</table>
+<div class="admonition danger">
+<p class="admonition-title">Nie usuwaj HTTP/3 z <code>ALLOWED_HTTP_VERSIONS</code></p>
+<p>Reguła <strong>920430</strong> („HTTP protocol version is not allowed by policy") ma
+severity CRITICAL = <strong>5 punktów</strong>, czyli dokładnie próg blokowania — jedno
+trafienie wystarczy, żeby zerwać połączenie. Domyślna lista CRS nie zna
+HTTP/3, a my h3 włączamy świadomie (<code>listen 443 quic</code> + <code>Alt-Svc</code>), więc
+<strong>każde</strong> żądanie h3 dostawałoby 444.</p>
+<p>Objaw jest wyjątkowo paskudny: przeglądarka raz przełączona na h3 trzyma się
+go przez dobę (<code>Alt-Svc: ma=86400</code>), więc to pełna niedostępność serwisu bez
+żadnego komunikatu. Deklarujemy wersję zamiast wyłączać regułę — polityka
+wersji protokołu zostaje egzekwowana.</p>
+</div>
+<div class="admonition warning">
+<p class="admonition-title">Obraz CRS to tag pływający</p>
+<p><code>owasp/modsecurity-crs:nginx</code> nie jest przypięty do wersji. Przebudowa
+z 2026-08-05 zaczęła egzekwować 920430 i <strong>zablokowała h3</strong> — złapał to
+dopiero <code>make test-waf</code> w CI, dzień po tym, jak ten sam test przechodził.
+Po każdej aktualizacji obrazu warto puścić <code>make test-waf</code>.</p>
+</div>
+<div class="admonition danger">
+<p class="admonition-title">Nie przywracaj domyślnych <code>MODSEC_AUDIT_LOG_PARTS</code></p>
+<p>Domyślne <code>ABIJDEFHZ</code> zawiera <code>I</code> (ciało żądania) i <code>E</code> (ciało odpowiedzi,
+do 1 MiB). Przy nich każda oflagowana transakcja zapisuje do stdout —
+a stamtąd przez Alloy do Loki — pełną treść strony, a <strong>oflagowany POST na
+formularz logowania zapisałby przesłane hasło</strong>. To nie jest tylko kwestia
+objętości logów, tylko danych osobowych.</p>
+<p>Nie wystarczy usunąć ciał. Część <code>B</code> to <strong>nagłówki żądania, a w nich
+<code>Cookie</code> z <code>sessionid</code></strong> — czyli poświadczenie. Kto ma dostęp do Loki,
+mógłby przejąć sesję zalogowanego użytkownika. Potwierdzone na stagingu
+2026-08-03.</p>
+<p><code>AHZ</code> = nagłówek transakcji (<strong>w tym linia żądania z URI, czyli payload</strong>)
++ komunikaty reguł + domknięcie. Do diagnostyki komplet. User-Agent nie
+ginie — jest w access logu nginksa (<code>bpp_access</code>), do skorelowania po
+czasie i adresie IP.</p>
+<p><strong>Inspekcja ciał nadal działa</strong> (<code>MODSEC_REQ_BODY_ACCESS=on</code>) — wyłączamy
+tylko ich <em>logowanie</em>, więc ataki w POST są dalej wykrywane.</p>
+</div>
+<div class="admonition danger">
+<p class="admonition-title">Nie obniżaj limitów ciała żądania</p>
+<p>Domyślne wartości ModSecurity są <strong>znacznie niższe</strong> niż to, co przepuszcza
+nginx. Przy domyślnych: importy POLON/PBN powyżej 12,5 MiB dostają 413,
+a masowa edycja (BPP dopuszcza <code>DATA_UPLOAD_MAX_NUMBER_FIELDS=50000</code>)
+przekracza 128 KiB i też leci 413. Objaw dla użytkownika jest mylący —
+„import nie działa" — i pojawia się dopiero przy dużym pliku, czyli długo
+po wdrożeniu.</p>
+</div>
+<h2 id="dwie-puapki-integracyjne-przeczytaj-przed-zmiana-configu-nginksa">Dwie pułapki integracyjne (przeczytaj przed zmianą configu nginksa)<a class="headerlink" href="#dwie-puapki-integracyjne-przeczytaj-przed-zmiana-configu-nginksa" title="Permanent link">&para;</a></h2>
+<p>Obraz CRS różni się od gołego nginksa w dwóch miejscach, które łatwo przeoczyć.</p>
+<h3 id="1-inny-katalog-wyjsciowy-envsubst">1. Inny katalog wyjściowy envsubst<a class="headerlink" href="#1-inny-katalog-wyjsciowy-envsubst" title="Permanent link">&para;</a></h3>
+<p>Obraz ustawia <strong><code>NGINX_ENVSUBST_OUTPUT_DIR=/etc/nginx</code></strong> (goły nginx ma
+<code>/etc/nginx/conf.d</code>), a jego szablony odwzorowują całe drzewo <code>/etc/nginx</code>.</p>
+<p>Dlatego <code>default.conf.template</code> montujemy pod
+<strong><code>/etc/nginx/templates/conf.d/default.conf.template</code></strong>, a nie prosto w
+<code>templates/</code>. Mount w starym miejscu wyrenderowałby się do
+<code>/etc/nginx/default.conf</code>, którego <code>include /etc/nginx/conf.d/*.conf</code> <strong>nie
+obejmuje</strong> — konfiguracja BPP zniknęłaby, a <strong>nginx wstałby bez błędu</strong>.
+To awaria cicha: <code>nginx -t</code> jej nie wykryje.</p>
+<p>Nasz plik celowo <strong>nadpisuje</strong> <code>default.conf</code> z obrazu. Wersja z obrazu to
+generyczny reverse-proxy z <code>listen … default_server</code> i własną mapą
+<code>$connection_upgrade</code> — jedno i drugie kolidowałoby z konfiguracją BPP.
+Nadpisanie <strong>nie wyłącza WAF-a</strong>: <code>modsecurity on;</code> siedzi w osobnym
+<code>conf.d/modsecurity.conf</code>.</p>
+<h3 id="2-brak-nginx_envsubst_filter">2. Brak <code>NGINX_ENVSUBST_FILTER</code><a class="headerlink" href="#2-brak-nginx_envsubst_filter" title="Permanent link">&para;</a></h3>
+<p>Wcześniej Compose ustawiał <code>NGINX_ENVSUBST_FILTER: "DJANGO_BPP_"</code>. <strong>Tego już
+nie ma i nie wolno tego przywracać.</strong> Szablony obrazu CRS używają 75 zmiennych
+(<code>WORKER_CONNECTIONS</code>, <code>LOGLEVEL</code>, <code>MODSEC_*</code>, <code>SSL_*</code>…); z filtrem
+zostałyby dosłowne i nginx nie wstałby w ogóle (<code>invalid number
+"${WORKER_CONNECTIONS}"</code>).</p>
+<p>Filtr chronił konfigurację BPP przed nadgorliwym podstawianiem — ale
+<code>default.conf.template</code> <strong>nie używa żadnych zmiennych środowiskowych</strong>
+(nginksowe <code>$http_upgrade</code> i <code>$connection_upgrade</code> to zmienne runtime, których
+envsubst i tak nie rusza), więc stracił rację bytu. Vhosty renderuje
+<code>30-render-bpp-vhosts.sh</code> własnym <code>envsubst</code> z jawną listą zmiennych, niezależnie
+od tego mechanizmu.</p>
+<h2 id="wykluczenia-regul">Wykluczenia reguł<a class="headerlink" href="#wykluczenia-regul" title="Permanent link">&para;</a></h2>
+<p>Własne naddefinicje idą do <code>defaults/webserver/modsecurity-override.conf.template</code>
+(montowany jako <code>/etc/nginx/templates/modsecurity.d/modsecurity-override.conf.template</code>).
+<code>setup.conf</code> obrazu includuje ten plik <strong>przed</strong> regułami CRS — co ma
+praktyczną konsekwencję: <strong><code>SecRuleRemoveById</code> tam nie zadziała</strong>, bo reguły
+CRS jeszcze nie istnieją w momencie parsowania. Działa natomiast akcja <code>ctl</code>
+we własnej regule, bo wykonuje się w trakcie transakcji.</p>
+<p>Zakres ID <code>1-99999</code> jest zarezerwowany dla reguł lokalnych (CRS używa
+<code>900000-999999</code>).</p>
+<p>Obecnie jest ich dziesięć:</p>
+<ul>
+<li>
+<p><strong><code>id:10001</code> — healthcheck poza audytem.</strong> Healthcheck Dockera
+  (<code>curl http://127.0.0.1:80/healthz</code> co 10 s) zapalał regułę <code>920350</code>
+  („Host header is a numeric IP address"), bo w nagłówku <code>Host</code> jest numeryczny
+  adres. To ~8 640 wpisów audytowych na dobę, które topiły realne trafienia.
+  Wyciszamy <strong>logowanie</strong> dla tej jednej ścieżki (<code>ctl:auditEngine=Off</code>), a nie
+  regułę globalnie — na ruchu z zewnątrz <code>920350</code> jest sensowna, bo skanery
+  wołają po IP, nie po nazwie.</p>
+</li>
+<li>
+<p><strong><code>id:10002</code> — <code>/admin/dbtemplates/</code> tylko obserwowane.</strong> Superuser edytuje
+  tam szablony HTML, czyli POST-uje surowy HTML z JavaScriptem — kanoniczny
+  fałszywy alarm rodziny 941 (XSS), opisany wprost w dokumentacji CRS.</p>
+</li>
+<li>
+<p><strong><code>id:10003</code> — <code>/bpp/zapytanie/</code> i <code>/api/v1/zapytanie/</code> tylko obserwowane.</strong>
+  Użytkownik wpisuje tam dowolny tekst zapytania DjangoQL, więc zapalić się
+  może praktycznie każda rodzina reguł — nie tylko 942 (SQL). Potwierdzone na
+  stagingu 2026-08-03: <code>query=test = 5/etc/passwd</code> zapaliło <code>930120</code> (LFI),
+  <code>932235</code> i <code>932160</code> (RCE), łączny score 15 przy progu 5 → blokada.</p>
+<p><strong>Są dwa endpointy i łatwo wykluczyć tylko jeden:</strong> <code>/bpp/zapytanie/</code> to
+interfejs użytkownika (<code>bpp/src/bpp/urls.py:113</code>), <code>/api/v1/zapytanie/</code> to
+wariant API. Ten pierwszy jest ważniejszy — to w nim ludzie realnie piszą
+zapytania.</p>
+</li>
+<li>
+<p><strong><code>id:10004</code> — panele administracyjne bez inspekcji ciała odpowiedzi.</strong>
+  <code>/grafana/</code>, <code>/dozzle/</code>, <code>/flower/</code> i <code>/netdata/</code> dostają
+  <code>ctl:ruleRemoveById=950000-959999</code>, czyli zdjęcie całej rodziny reguł
+  <strong>wychodzących</strong>. Szczegóły i uzasadnienie: <a href="#reguly-wychodzace">Reguły wychodzące</a>.</p>
+</li>
+<li>
+<p><strong><code>id:10005</code> — <code>920280</code> („Request Missing a Host Header") wyłączone dla
+  HTTP/2 i HTTP/3.</strong> W h2/h3 adres serwera jedzie w pseudo-nagłówku
+  <code>:authority</code>, którego konektor ModSecurity-nginx (v1.0.4) nie widzi. Reguła
+  (severity CRITICAL = 5 pkt) zapalała się więc na <strong>każdym</strong> żądaniu h3 i sama
+  z siebie osiągała próg anomalii → <code>949110</code> blokowało wszystko, także zwykłe
+  <code>GET /</code>. Ponieważ vhost reklamuje <code>Alt-Svc: h3=":443"; ma=86400</code>, przeglądarka
+  raz przełączona na h3 trzymała się go przez dobę — czyli pełna niedostępność
+  serwisu bez żadnego komunikatu. Nic przy tym nie tracimy: nginx sam odrzuca
+  błędem 400 żądanie h2/h3 bez <code>:authority</code> (i 1.1 bez <code>Host:</code>), zanim dojdzie
+  do aplikacji.</p>
+</li>
+<li>
+<p><strong><code>id:10006</code> — <code>/grafana/</code> całkowicie poza inspekcją WAF-a</strong>
+  (<code>ctl:ruleEngine=Off</code>). Jedyne miejsce w BPP, w którym WAF nie ma czego
+  chronić, za to ma gwarantowane fałszywe alarmy. Szczegóły:
+  <a href="#grafana-poza-waf">Dlaczego Grafana jest wyjęta w całości</a>.</p>
+</li>
+<li>
+<p><strong><code>id:10007</code> — <code>931100</code> („RFI: URL Parameter using IP Address") wyłączone na
+  <code>/o/</code> i <code>/.well-known/</code>.</strong> Reguła blokowała
+  <code>redirect_uri=http://127.0.0.1:&lt;port&gt;/callback</code>, czyli pętlę zwrotną, na
+  której odbiera kod każdy klient OAuth bez własnej domeny — CLI, skrypt,
+  serwer MCP. Oba prefiksy to jedna powierzchnia logowania i <strong>trzymamy je
+  razem</strong>: klient najpierw pyta o metadane w <code>/.well-known/</code>, a dopiero z nich
+  bierze adresy endpointów w <code>/o/</code>. Szczegóły:
+  <a href="#oauth-petla-zwrotna">OAuth i pętla zwrotna</a>.</p>
+</li>
+<li>
+<p><strong><code>id:10008</code> — <code>accept-charset</code> zdjęty z listy nagłówków zakazanych
+  (<code>920450</code>).</strong> Nagłówek jest wycofany ze standardu, więc CRS traktuje go jako
+  fingerprint klienta automatycznego — ale wysyłają go też starsze biblioteki
+  HTTP i harvestery bibliograficzne. Zgłoszenie 2026-08-07: blokada na
+  <code>/bpp/rekord/</code>, czyli na poprawnym adresie istniejącego rekordu. Szczegóły:
+  <a href="#naglowki-zakazane">Nagłówki zakazane polityką</a>.</p>
+</li>
+<li>
+<p><strong><code>id:10009</code> — <code>932130</code> („Unix Shell Expression Found") wyłączone na
+  formularzach admina.</strong> Transformacja <code>t:cmdLine</code> kasuje spacje przed <code>(</code>, więc
+  legalne <code>wynik istotny (p &lt; (0,05))</code> ze streszczenia silnik widzi jako
+  <code>wynik istotny(p &lt;(0 05))</code> i czyta jako podstawienie procesu powłoki.
+  Zgłoszenie 2026-08-12: redaktor nie mógł zapisać rekordu. Szczegóły:
+  <a href="#formularze-admina">Formularze admina</a>.</p>
+</li>
+<li>
+<p><strong><code>id:10010</code> — <code>953110</code> („PHP source code leakage") zdjęta GLOBALNIE.</strong>
+  Jedyne wykluczenie bez warunku na ścieżkę, bo wyzwalaczem jest <strong>wartość
+  w bazie, nie adres</strong>: DOI czasopisma 4open to <code>10.1051/fopen/</code>, a <code>fopen</code> jest
+  w nim pełnoprawnym tokenem (ukośniki to znaki niesłowne). Zgłoszenie
+  2026-08-12: <code>/api/v1/zrodlo/</code> zwracało uciętą odpowiedź. W BPP nie ma PHP,
+  więc reguła nie ma tu czego chronić. Szczegóły: <a href="#doi-fopen">DOI z <code>fopen</code></a>.</p>
+</li>
+</ul>
+<p>Reguły 10002 i 10003 schodzą dla swoich ścieżek do <code>ctl:ruleEngine=DetectionOnly</code>:
+trafienia nadal trafiają do audit logu (i posłużą do napisania precyzyjnych
+wykluczeń), ale nikomu nie urywają połączenia. To <strong>tępe narzędzie na start</strong> —
+patrz <a href="#zawezanie-wykluczen-po-baseline">Zawężanie wykluczeń po baseline</a>.</p>
+<p>Reguła 10004 jest węższa: zdejmuje <strong>tylko</strong> reguły wychodzące, więc żądania
+przychodzące do paneli są nadal w pełni blokowane.</p>
+<div class="admonition warning">
+<p class="admonition-title"><code>ctl:responseBodyAccess</code> nie istnieje w libmodsecurity v3</p>
+<p>Naturalnym zapisem dla 10004 byłoby <code>ctl:responseBodyAccess=Off</code>, ale
+silnik tej akcji <strong>nie zna</strong> i nginx z nią <strong>nie wstaje</strong>:
+<code>Expecting an action, got: ctl:responseBodyAccess</code>. Sprawdzone na
+<code>owasp/modsecurity-crs:nginx</code> (ModSecurity v3.0.16). Z akcji <code>ctl</code> działają
+m.in. <code>ruleEngine</code>, <code>auditEngine</code>, <code>ruleRemoveById</code> (także z zakresem <code>A-B</code>)
+i <code>ruleRemoveByTag</code>.</p>
+</div>
+<h2 id="reguly-wychodzace">Reguły wychodzące — inspekcja ciała odpowiedzi<a class="headerlink" href="#reguly-wychodzace" title="Permanent link">&para;</a></h2>
+<p>Poza regułami sprawdzającymi <strong>żądanie</strong> CRS ma rodzinę <code>RESPONSE-95x</code>, która
+skanuje <strong>ciało odpowiedzi</strong> w poszukiwaniu wycieków: komunikatów błędów
+PHP/SQL/Javy, listingów katalogów, web shelli. Obraz ma je włączone domyślnie
+(<code>MODSEC_RESP_BODY_ACCESS=on</code>, typy <code>text/plain text/html text/xml</code>, limit
+1 MiB) i <strong>my tego nie zmieniamy</strong> — dlatego trzeba o nich wiedzieć.</p>
+<p>Ta rodzina ma dwie własności, które łatwo przeoczyć:</p>
+<p><strong>1. Próg wyjściowy wynosi 4, a jedno trafienie poziomu ERROR to już 4 punkty.</strong>
+Zmienna <code>ANOMALY_OUTBOUND=4</code> (wobec <code>ANOMALY_INBOUND=5</code>). Reguła o
+<code>severity:ERROR</code> dokłada dokładnie 4 — więc <strong>pojedyncze</strong> trafienie od razu
+przekracza próg i <code>959100</code> kończy <code>deny</code>. Reguły wychodzące nie mają zapasu,
+jaki mają wejściowe.</p>
+<p><strong>2. Blokowanie wychodzące nie blokuje czysto — psuje odpowiedź.</strong>
+<code>959100</code> działa w <code>phase:4</code>, czyli na ciele odpowiedzi, gdy nginx <strong>zwykle
+wysłał już nagłówki</strong>. Nie da się wtedy zwrócić 403, a więc i naszego
+<a href="#dlaczego-444-a-nie-403">444</a>. Zamiast blokady dostajemy:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>&quot;GET /grafana/ HTTP/2.0&quot; 500 0 1378 0.038
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>[error] ModSecurity: Access denied with code 403 (phase 4) ... while sending to client
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>[alert] header already sent while sending to client
+</code></pre></div>
+<p>Użytkownik widzi <strong>urwaną albo pustą stronę</strong>, a w access logu zostaje <code>500 0</code>.
+Objaw nie wskazuje na WAF w żaden sposób.</p>
+<h3 id="panele-poza-regulami-wychodzacymi">Dlaczego panele są z tego wyjęte (reguła 10004)<a class="headerlink" href="#panele-poza-regulami-wychodzacymi" title="Permanent link">&para;</a></h3>
+<p>Potwierdzony przypadek ze stagingu, 2026-08-03: <code>/grafana/</code> było nie do
+otwarcia. Winna reguła <strong><code>953100</code> „PHP Information Leakage"</strong>, która używa
+operatora <code>@pmFromFile php-errors.data</code> — dopasowania <strong>po podciągu</strong>, bez
+granic słowa i bez rozróżniania wielkości liter. Wtedy w tym pliku danych był
+wpis <code>SQLConnect</code> (funkcja ODBC z PHP), a Grafana wstrzykuje w <code>index.html</code>
+obiekt <code>window.grafanaBootData</code> z kluczem <strong><code>"sqlConnectionLimits"</code></strong>. Ciąg
+<code>sqlConnect</code> siedzi w jego środku, więc reguła zapalała się na <strong>każdej</strong>
+stronie Grafany.</p>
+<div class="admonition warning">
+<p class="admonition-title">Ten konkretny ciąg już nie zapala reguły — i to jest argument ZA wykluczeniem, nie przeciw</p>
+<p>Zmierzone ponownie <strong>2026-08-12</strong> na aktualnym obrazie: ciało z
+<code>window.grafanaBootData</code> i <code>sqlConnectionLimits</code> przechodzi <strong>bez żadnego
+trafienia</strong>. Wpisu <code>SQLConnect</code> nie ma już w <code>php-errors.data</code> (dziś 218
+wpisów, wszystkie długie frazy). Sama reguła działa — kontrolne ciało
+z <code>Cannot redeclare class</code> / <code>Stack trace:</code> nadal daje <code>953100</code> + <code>959100</code>.</p>
+<p>Zmieniły się więc <strong>dane upstreamu, nie nasza konfiguracja</strong>:
+<code>owasp/modsecurity-crs:nginx</code> to tag pływający (patrz „Obraz CRS to tag
+pływający" w <a href="#konfiguracja">Konfiguracji</a>), a wraz z przebudową obrazu
+przyjeżdżają nowe pliki <code>*.data</code>. Ten sam mechanizm zaskoczył nas już przy
+regule <code>920430</code> (2026-08-05).</p>
+<p><strong>Wniosek dla wykluczeń:</strong> nie zawężaj ich do jednego zaobserwowanego
+ciągu. Uzasadnieniem 10004 nie jest „<code>SQLConnect</code> trafia w
+<code>sqlConnectionLimits</code>", tylko to, że za panelami stoi <strong>cudzy dashboard,
+którego HTML-a nie ma sensu skanować</strong> — a jego kolejna wersja, tak jak
+kolejna wersja pliku danych CRS, może przynieść nowy fałszywy alarm.</p>
+</div>
+<p>Za <code>/grafana/</code>, <code>/dozzle/</code>, <code>/flower/</code> i <code>/netdata/</code> nie stoi żadna aplikacja
+BPP — stoi gotowy dashboard innego producenta, dostępny wyłącznie dla superusera
+(<code>auth_request /_bpp_superuser_auth</code>). Skanowanie jego HTML-a pod kątem wycieku
+błędów PHP nie chroni przed niczym.</p>
+<p>Zmierzone na prawdziwych obrazach paneli, przez prawdziwą konfigurację
+z <code>defaults/webserver/</code>:</p>
+<table>
+<thead>
+<tr>
+<th>Panel</th>
+<th>Sprawdzone strony</th>
+<th>Reguły wychodzące</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Grafana</strong></td>
+<td><code>/</code>, <code>/dashboards</code>, <code>/connections/datasources</code>, <code>/explore</code></td>
+<td><strong><code>953100</code> + <code>959100</code> → blokada</strong></td>
+</tr>
+<tr>
+<td>Dozzle</td>
+<td><code>/</code></td>
+<td>czysto</td>
+</tr>
+<tr>
+<td>Flower</td>
+<td><code>/</code>, <code>/tasks</code>, <code>/broker</code>, <code>/worker/x</code></td>
+<td>czysto</td>
+</tr>
+<tr>
+<td>Netdata</td>
+<td><code>/</code>, <code>/v3/index.html</code> (100 KB)</td>
+<td>czysto</td>
+</tr>
+</tbody>
+</table>
+<p>Wykluczenie obejmuje mimo to wszystkie cztery — są tej samej natury, a kolejna
+wersja każdego z nich może wnieść własny fałszywy alarm.</p>
+<div class="admonition note">
+<p class="admonition-title">Aplikacja BPP nadal jest skanowana</p>
+<p>10004 dotyczy <strong>wyłącznie</strong> czterech ścieżek paneli. Odpowiedzi Django lecą
+przez reguły wychodzące jak dotąd — i tam mają sens, bo to nasz kod może
+wypluć komunikat błędu bazy danych. Jedynym wyjątkiem jest <code>953110</code>, zdjęta
+globalnie przez <a href="#doi-fopen">regułę 10010</a>.</p>
+</div>
+<h3 id="doi-fopen">DOI z <code>fopen</code> — reguła 10010<a class="headerlink" href="#doi-fopen" title="Permanent link">&para;</a></h3>
+<p>Zgłoszenie 2026-08-12: <code>GET /api/v1/zrodlo/</code> kończył się <strong>urwaną odpowiedzią</strong>.</p>
+<p>Czasopismo <strong>4open</strong> (EDP Sciences) ma w bazie DOI <code>10.1051/fopen/</code>. Reguła
+<code>953110</code> („PHP source code leakage") skanuje ciało odpowiedzi wzorcem nazw
+funkcji PHP — <code>fopen</code>, <code>fread</code>, <code>fwrite</code>, <code>fgets</code>, <code>gzopen</code>, <code>scandir</code>,
+<code>readfile</code>, <code>proc_open</code>, <code>call_user_func</code>, <code>$_GET</code>… Granice słowa <strong>są</strong>, ale
+ukośniki to znaki niesłowne, więc <code>fopen</code> jest w tym DOI pełnoprawnym tokenem.</p>
+<p>Odtworzone lokalnie na realnym ciele odpowiedzi z produkcji, na tym samym
+obrazie i tej samej konfiguracji:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>ruleId=953110  sev=3  PHP source code leakage
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>   data: Matched Data: fopen found within RESPONSE_BODY: …
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>ruleId=959100  sev=0  Outbound Anomaly Score Exceeded (Total Score: 4)
+</code></pre></div>
+<p>Severity <code>ERROR</code> = 4 pkt przy progu wyjściowym 4 — pojedyncze trafienie od razu
+blokuje.</p>
+<p>Zmierzone skutki:</p>
+<table>
+<thead>
+<tr>
+<th>Żądanie</th>
+<th>Wynik</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>/api/v1/zrodlo/</code> + <code>Accept: application/json</code></td>
+<td><code>200</code>, 5733 B — <strong>działa</strong></td>
+</tr>
+<tr>
+<td><code>/api/v1/zrodlo/</code> + <code>Accept: text/html</code></td>
+<td><code>200</code> + <code>Content-Length: 18014</code>, dojechało <strong>15588 B</strong></td>
+</tr>
+<tr>
+<td><code>/api/v1/zrodlo/4276/</code> + <code>Accept: text/html</code></td>
+<td>połączenie zerwane, 0 B</td>
+</tr>
+</tbody>
+</table>
+<p>JSON przechodzi, bo <code>application/json</code> <strong>nie jest</strong> na liście
+<code>MODSEC_RESP_BODY_MIMETYPE</code> (<code>text/plain text/html text/xml</code>) — klienty API
+i harvestery nie ucierpiały, zepsuty był przeglądarkowy widok DRF.</p>
+<h4 id="dlaczego-globalnie-a-nie-na-api">Dlaczego globalnie, a nie na <code>/api/</code><a class="headerlink" href="#dlaczego-globalnie-a-nie-na-api" title="Permanent link">&para;</a></h4>
+<p><strong>To nie jest problem ścieżki, tylko danych.</strong> Wyzwalaczem jest wartość w bazie,
+a nie adres — ten sam DOI wyrenderuje się wszędzie, gdzie pokazujemy to źródło
+lub publikację z niego: listy, detale rekordów, raporty, eksporty HTML.
+Wykluczenie po prefiksie URI byłoby grą w kreta, za każdym razem z objawem,
+który w niczym nie wskazuje na WAF.</p>
+<h4 id="dlaczego-wolno-zdjac-caa-regue">Dlaczego wolno zdjąć całą regułę<a class="headerlink" href="#dlaczego-wolno-zdjac-caa-regue" title="Permanent link">&para;</a></h4>
+<p><code>953110</code> wykrywa <strong>wyciek kodu źródłowego PHP</strong>. W BPP nie ma PHP — ani
+interpretera, ani plików, ani modułu w nginksie; stos to Django/Python. Reguła
+nie ma tu czego chronić, więc jedyne, co może wyprodukować, to fałszywe alarmy
+na danych bibliograficznych. Żądania o <code>*.php</code> są dodatkowo odcinane <code>444</code> już
+na brzegu (<a href="../utwardzenie-brzegu/">Utwardzenie brzegu</a>).</p>
+<div class="admonition note">
+<p class="admonition-title">Siostrzane reguły zostają</p>
+<p><code>953100</code> (<code>@pmFromFile php-errors.data</code>, komunikaty błędów PHP) i <code>953120</code>
+(<code>@rx &lt;\?(?!xml)</code>, znaczniki <code>&lt;?php</code>) działają dalej. Zmierzone 2026-08-12:
+dzisiejszy <code>php-errors.data</code> ma 218 wpisów i wszystkie są długimi frazami
+(„PDO: driver", „Cannot redeclare class", „Stack trace:"), więc na danych
+bibliograficznych się nie zapalają.</p>
+</div>
+<h2 id="grafana-poza-waf">Dlaczego Grafana jest wyjęta w całości (reguła 10006)<a class="headerlink" href="#grafana-poza-waf" title="Permanent link">&para;</a></h2>
+<p>Reguła 10004 zdejmowała dla Grafany tylko reguły <strong>wychodzące</strong>. To okazało się
+za mało — ruch <strong>przychodzący</strong> do Grafany jest fałszywym alarmem z definicji,
+a nie przez przypadek.</p>
+<h3 id="objaw">Objaw<a class="headerlink" href="#objaw" title="Permanent link">&para;</a></h3>
+<p>Wszystkie panele wszystkich dashboardów pokazują <strong>„No data"</strong>. Sama Grafana
+działa normalnie: strona się ładuje, dashboardy się otwierają, listy zmiennych
+się wypełniają. Puste są wyłącznie dane.</p>
+<p>Powód: Grafana pobiera dane <strong>POST-em</strong> na <code>/grafana/api/ds/query</code>, a to
+właśnie te żądania dostawały <code>403</code>. Zwykłe <code>GET</code>-y (HTML, JS, listy etykiet)
+przechodziły, więc nic nie wyglądało na zepsute.</p>
+<h3 id="przyczyna">Przyczyna<a class="headerlink" href="#przyczyna" title="Permanent link">&para;</a></h3>
+<p>Ciało tego POST-a to <strong>zapytanie LogQL</strong>. Przy <code>Log Level = All</code> zmienna
+<code>$level</code> rozwija się do wyliczenia wszystkich poziomów:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>detected_level=~&quot;critical|debug|error|info|unknown|warn&quot;
+</code></pre></div>
+<p>W środku siedzi ciąg <strong><code>|debug</code></strong>. Reguła <code>932110</code> („Remote Command Execution:
+Windows Command Injection") szuka wzorca „metaznak powłoki, potem nazwa
+polecenia" — a <code>debug</code> to polecenie DOS-a z jej słownika. Zmierzone na
+produkcji 2026-08-05, wprost z audit logu:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>Matched Data: |debug found within ARGS:json.queries.array_0.expr
+</code></pre></div>
+<p>Severity CRITICAL = <strong>5 punktów</strong> przy progu <code>ANOMALY_INBOUND</code> = 5, więc
+<strong>jedno</strong> trafienie od razu blokowało. Żadne inne reguły nie były potrzebne.</p>
+<h3 id="dlaczego-nie-punktowe-wykluczenie-932110">Dlaczego nie punktowe wykluczenie <code>932110</code><a class="headerlink" href="#dlaczego-nie-punktowe-wykluczenie-932110" title="Permanent link">&para;</a></h3>
+<p>Bo problem jest strukturalny. Zapytania LogQL to z natury tekst pełen
+metaznaków powłoki, nawiasów i regexpów — a w przypadku
+<a href="../../monitoring/dashboardy-grafany/#waf-modsecurity-owasp-crs">dashboardu WAF-a</a>
+<strong>dosłownie payloady ataków</strong>, po których operator filtruje (cross-filtr po
+<code>modsec_uri</code> wstawia w zapytanie ścieżkę skanera). Skanowanie tego regułami CRS
+oznacza podawanie WAF-owi jego własnych znalezisk na wejście. Każde kolejne
+pole dashboardu dokłada nowy zestaw reguł do wyłączenia — to gra nie do
+wygrania.</p>
+<h3 id="dlaczego-wolno-to-wyaczyc">Dlaczego wolno to wyłączyć<a class="headerlink" href="#dlaczego-wolno-to-wyaczyc" title="Permanent link">&para;</a></h3>
+<p>Cały <code>location /grafana/</code> stoi za <code>auth_request /_bpp_superuser_auth</code>
+(<code>defaults/webserver/_bpp-locations.conf</code>). Żądanie anonimowe dostaje <code>401</code>
+i przekierowanie na logowanie BPP, <strong>zanim</strong> dojdzie do Grafany. Wyłączamy więc
+inspekcję ruchu, który i tak może wygenerować wyłącznie zalogowany
+<strong>superuser</strong> — czyli ktoś, kto ma w BPP uprawnienia nieporównanie poważniejsze
+niż cokolwiek, co CRS mógłby tu powstrzymać.</p>
+<div class="admonition note">
+<p class="admonition-title">Reguła 10004 zostaje</p>
+<p>Po wejściu 10006 wykluczenie reguł wychodzących jest dla Grafany
+nadmiarowe. Zostawiamy je celowo: gdyby ktoś kiedyś zawęził 10006 (np.
+tylko do <code>/grafana/api/</code>), bez 10004 nic nie chroniłoby reszty Grafany
+przed regułami wychodzącymi. Dla <code>/dozzle/</code>, <code>/flower/</code> i <code>/netdata/</code> 10004
+jest zresztą nadal jedynym wykluczeniem.</p>
+<p>Nie jest to zabezpieczenie przed jednym znanym ciągiem — <code>sqlConnectionLimits</code>
+akurat <strong>przestał</strong> zapalać <code>953100</code> po zmianie pliku danych upstreamu
+(patrz ostrzeżenie przy <a href="#panele-poza-regulami-wychodzacymi">regule 10004</a>).
+Chodzi o to, że cudzy dashboard może przynieść <strong>kolejny</strong> fałszywy alarm,
+którego dziś nie znamy.</p>
+</div>
+<div class="admonition warning">
+<p class="admonition-title">Nie rozszerzać na pozostałe panele bez pomiaru</p>
+<p>Dozzle jest kandydatem z tego samego powodu (przeglądarka logów przesyła
+szukany tekst), ale <strong>nikt tego nie zmierzył</strong>. Spekulatywne poszerzanie
+wykluczeń to dokładnie ten nawyk, który ta konfiguracja stara się trzymać
+w ryzach — patrz
+<a href="../utwardzenie-brzegu/">Utwardzenie brzegu</a> i lista prefiksów obcych
+aplikacji.</p>
+</div>
+<h2 id="oauth-petla-zwrotna">OAuth i pętla zwrotna — reguła 10007<a class="headerlink" href="#oauth-petla-zwrotna" title="Permanent link">&para;</a></h2>
+<h3 id="objaw_1">Objaw<a class="headerlink" href="#objaw_1" title="Permanent link">&para;</a></h3>
+<p>Logowanie do API BPP przez OAuth (rejestracja klienta + PKCE — tak działa m.in.
+serwer MCP i skrypty logowania w skillu <code>bpp-api</code>) kończy się <strong>zerwanym
+połączeniem</strong>, bez żadnego komunikatu. W Grafanie na dashboardzie WAF-a widać
+przy tym trafienie:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>Possible Remote File Inclusion (RFI) Attack: URL Parameter using IP Address
+</code></pre></div>
+<p>Objaw jest mylący podwójnie: klient nie dostaje czytelnego 403, tylko <code>curl 52</code>
+/ „empty reply" (bo BPP mapuje blokadę na <a href="#dlaczego-444-a-nie-403">444</a>),
+a sama nazwa reguły sugeruje atak na <em>nasz</em> serwer — podczas gdy adres
+<code>127.0.0.1</code> w <code>redirect_uri</code> wskazuje maszynę <strong>klienta</strong>.</p>
+<h3 id="przyczyna_1">Przyczyna<a class="headerlink" href="#przyczyna_1" title="Permanent link">&para;</a></h3>
+<p>Reguła CRS <code>931100</code> szuka w argumentach URL-a z <strong>literałem adresu IP</strong> zamiast
+nazwy hosta. Klasyczny RFI wygląda dokładnie tak:
+<code>?page=http://198.51.100.7/shell.txt</code>.</p>
+<p>Kłóci się to wprost z <strong>RFC 8252</strong> (OAuth dla aplikacji natywnych). Klient bez
+własnej domeny odbiera kod autoryzacyjny na pętli zwrotnej i standard każe użyć
+tam literału IP — sekcja 7.3:</p>
+<blockquote>
+<p>Specifying a redirect URI with the loopback IP literal rather than <code>localhost</code>
+avoids inadvertently listening on network interfaces other than the loopback
+interface.</p>
+</blockquote>
+<p>Wariant z nazwą <code>localhost</code> jest w RFC oznaczony jako <strong>NOT RECOMMENDED</strong>.
+Efekt jest więc odwrotny do zamierzonego — zmierzone 2026-08-07 na
+<code>owasp/modsecurity-crs:nginx</code>, <code>BLOCKING_PARANOIA=1</code>:</p>
+<table>
+<thead>
+<tr>
+<th><code>redirect_uri</code></th>
+<th>Wynik</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>http://127.0.0.1:50603/callback</code> (zalecane przez RFC)</td>
+<td><strong>403</strong> (<code>931100</code>)</td>
+</tr>
+<tr>
+<td><code>http://[::1]:50603/callback</code></td>
+<td>przelot</td>
+</tr>
+<tr>
+<td><code>http://localhost:50603/callback</code> (NOT RECOMMENDED)</td>
+<td>przelot</td>
+</tr>
+</tbody>
+</table>
+<p><code>931100</code> ma severity CRITICAL = 5 pkt przy <code>ANOMALY_INBOUND</code> 5, więc blokuje
+<strong>pojedyncze</strong> trafienie — audit log pokazuje <code>Total Score: 5</code> i <code>949110</code>.
+Żadnej kumulacji tu nie ma.</p>
+<h3 id="blokowany-by-cay-przepyw-nie-jeden-endpoint">Blokowany był cały przepływ, nie jeden endpoint<a class="headerlink" href="#blokowany-by-cay-przepyw-nie-jeden-endpoint" title="Permanent link">&para;</a></h3>
+<p>To najważniejsza obserwacja dla kształtu wykluczenia — naprawienie samego
+<code>/o/authorize/</code> przesunęłoby błąd o krok dalej:</p>
+<table>
+<thead>
+<tr>
+<th>Krok</th>
+<th>Wynik przed regułą 10007</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>POST /o/register/</code> — rejestracja klienta (JSON)</td>
+<td>403</td>
+</tr>
+<tr>
+<td><code>GET /o/authorize/</code> — zgoda użytkownika</td>
+<td>403</td>
+</tr>
+<tr>
+<td><code>POST /o/token/</code> — wymiana kodu na token</td>
+<td>403</td>
+</tr>
+<tr>
+<td><code>POST /o/token/</code> — odświeżenie tokenu</td>
+<td>przelot (nie niesie <code>redirect_uri</code>)</td>
+</tr>
+</tbody>
+</table>
+<h3 id="dlaczego-nie-wykluczenie-celowane-w-argument">Dlaczego nie wykluczenie celowane w argument<a class="headerlink" href="#dlaczego-nie-wykluczenie-celowane-w-argument" title="Permanent link">&para;</a></h3>
+<p>Naturalnym odruchem jest <code>ctl:ruleRemoveTargetById=931100;ARGS:redirect_uri</code>.
+Składnia jest poprawna (nginx wstaje) i załatwia <code>/o/authorize/</code> oraz
+<code>/o/token/</code>, ale <strong>nie rejestrację klienta</strong>: DCR wysyła <code>redirect_uris</code> w JSON,
+więc ModSecurity nazywa argument <code>ARGS:json.redirect_uris.array_0</code> — nazwa
+zależy od formatu ciała <strong>i od indeksu w tablicy</strong>. Wykluczenie po nazwie
+trzeba by wyliczać dla każdej formy osobno i tak rozsypuje się przy kliencie
+z dwoma <code>redirect_uri</code>.</p>
+<p>Dlatego 10007 celuje w <strong>ścieżkę</strong>: <code>ctl:ruleRemoveById=931100</code> na prefiksie
+<code>^/(o|\.well-known)/</code>.</p>
+<h3 id="dlaczego-takze-well-known">Dlaczego także <code>/.well-known/</code><a class="headerlink" href="#dlaczego-takze-well-known" title="Permanent link">&para;</a></h3>
+<p>To druga połowa tej samej powierzchni. Klient OAuth/MCP nie zna z góry adresów
+endpointów — najpierw pobiera metadane serwera autoryzacji
+(<code>/.well-known/oauth-authorization-server</code>, RFC 8414) albo zasobu
+(<code>/.well-known/oauth-protected-resource</code>, RFC 9728) i dopiero z nich bierze
+<code>authorization_endpoint</code> oraz <code>token_endpoint</code> w <code>/o/</code>. Oba prefiksy są
+używane <strong>wymiennie w jednym logowaniu</strong>, więc muszą być traktowane tak samo —
+rozjechanie ich to gwarantowany błąd przy następnej zmianie.</p>
+<p>Zmierzone 2026-08-07: samo discovery jest dziś GET-em <strong>bez argumentów</strong>, więc
+<code>931100</code> (która inspekcjonuje <code>ARGS</code>) się tam nie zapala. Wykluczenie jest więc
+zabezpieczeniem na wypadek, gdy klient dołoży argument z adresem pętli zwrotnej
+— np. <code>resource=</code> z RFC 9728. Wtedy padłoby dokładnie tak samo jak <code>/o/</code>, tyle
+że <strong>o krok wcześniej i bez żadnego śladu w Django</strong>, bo blokada kończy się na
+brzegu. Przypadek testowy strzela właśnie tą formą (z argumentem), więc nie
+jest pusty: po wyłączeniu reguły 10007 pada.</p>
+<div class="admonition danger">
+<p class="admonition-title">Kropka w <code>\.well-known</code> musi być escapowana</p>
+<p>W regexpie <code>^/(o|.well-known)/</code> kropka to <strong>dowolny znak</strong>, więc wzorzec
+złapałby też <code>/Xwell-known/</code> — a przez alternatywę z <code>o</code> każdy prefiks
+jednoznakowy. Wykluczenie rozlałoby się po serwisie bez żadnego widocznego
+objawu.</p>
+</div>
+<h3 id="routing-well-known-to-osobna-puapka-nie-mylic-z-waf-em">Routing <code>/.well-known/</code> to osobna pułapka — nie mylić z WAF-em<a class="headerlink" href="#routing-well-known-to-osobna-puapka-nie-mylic-z-waf-em" title="Permanent link">&para;</a></h3>
+<p>Discovery potrafi paść także <strong>bez udziału ModSecurity</strong>. W nginksie regex <code>~</code>
+ma pierwszeństwo przed zwykłym prefiksem, więc blok <code>location ~ /\.</code>
+(blokada plików ukrytych) przechwytywał żądania do <code>/.well-known/</code> i zwracał
+403 — <code>bpp-mcp login</code> nie miał skąd wziąć <code>authorization_endpoint</code>. Ratuje to
+modyfikator <code>^~</code> w <code>_bpp-locations.conf</code>.</p>
+<p>Rozpoznanie po logach: to zwykły <code>deny all</code> nginksa, więc <strong>nie ma go w logach
+WAF-a ani w dashboardzie ModSecurity</strong> — w odróżnieniu od blokady <code>931100</code>.
+Osobne przypadki w <code>make test-waf</code> pilnują teraz obu rzeczy naraz: że discovery
+jest osiągalne i że <code>.git/config</code> mimo to dalej jest blokowany.</p>
+<h3 id="dlaczego-wolno-to-wyaczyc_1">Dlaczego wolno to wyłączyć<a class="headerlink" href="#dlaczego-wolno-to-wyaczyc_1" title="Permanent link">&para;</a></h3>
+<p>RFI polega na tym, że <strong>serwer</strong> pobiera zasób spod adresu podanego przez
+atakującego. <code>django-oauth-toolkit</code> nigdy nie odpytuje <code>redirect_uri</code> —
+porównuje go ze zbiorem URI zarejestrowanych dla klienta i najwyżej odsyła 302.
+Reguła <code>931100</code> nie ma tu czego chronić.</p>
+<p>Zakres jest przy tym najwęższy z wszystkich naszych wykluczeń: <strong>jedna reguła,
+jeden prefiks</strong>. Nie <code>ruleEngine=Off</code> jak w 10006 i nie całe rodziny jak
+w 10004 — na <code>/o/</code> nadal w pełni obowiązują 941 (XSS), 942 (SQLi), 930 (LFI),
+932 (RCE) i blokada progowa <code>949110</code>.</p>
+<div class="admonition warning">
+<p class="admonition-title">Nie rozszerzać na całą witrynę</p>
+<p><code>?q=http://127.0.0.1/...</code> poza <code>/o/</code> ma dalej dostawać blokadę. Pilnują tego
+<strong>dwie asercje kontrolne</strong> w <code>make test-waf</code> (GET i POST): bez nich przypadki
+„OAuth przechodzi" byłyby zielone także po skasowaniu reguły 10007, a nawet
+po wyłączeniu całego CRS — czyli test nie dowodziłby niczego. Sprawdzone:
+z wyłączoną regułą padają dokładnie 3 przypadki OAuth, obie kontrole
+zostają zielone.</p>
+</div>
+<h2 id="naglowki-zakazane">Nagłówki zakazane polityką — reguła 10008<a class="headerlink" href="#naglowki-zakazane" title="Permanent link">&para;</a></h2>
+<h3 id="objaw_2">Objaw<a class="headerlink" href="#objaw_2" title="Permanent link">&para;</a></h3>
+<p>Użytkownik dostaje blokadę na <strong>całkowicie poprawnym adresie</strong> — zgłoszenie
+2026-08-07 dotyczyło <code>/bpp/rekord/</code>, czyli istniejącego rekordu. W dashboardzie
+WAF-a widać przy tym URI żądania, więc trop prowadzi donikąd: z adresem jest
+wszystko w porządku.</p>
+<div class="admonition tip">
+<p class="admonition-title">Przy diagnozie zgłoszeń typu «zablokowało mi normalny URL»</p>
+<p><code>920450</code> to <strong>jedyna</strong> reguła CRS, która blokuje bez żadnego związku
+z treścią żądania — nie patrzy ani na ścieżkę, ani na argumenty, ani na
+ciało. Jeśli URI wygląda niewinnie, sprawdzaj ją pierwszą.</p>
+</div>
+<h3 id="przyczyna_2">Przyczyna<a class="headerlink" href="#przyczyna_2" title="Permanent link">&para;</a></h3>
+<p>Reguła porównuje <strong>nazwy nagłówków</strong> z listą <code>tx.restricted_headers</code>.
+Domyślnie są na niej:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>/accept-charset/ /content-encoding/ /proxy/ /lock-token/ /content-range/ /if/
+</code></pre></div>
+<p>Paranoia 1, severity CRITICAL = 5 pkt przy progu 5 — więc sam nagłówek, bez
+żadnej innej przewiny, wystarcza do blokady.</p>
+<p><code>Accept-Charset</code> jest na tej liście, bo został wycofany ze standardu
+(przeglądarki go nie wysyłają), więc CRS traktuje jego obecność jako sygnał
+klienta automatycznego. To <strong>heurystyka fingerprintingu, nie wykrycie ataku</strong> —
+nie da się tym nagłówkiem niczego zaatakować. Wysyłają go natomiast starsze
+biblioteki HTTP, a w przypadku BPP także harvestery bibliograficzne, systemy
+biblioteczne i menedżery cytowań — czyli realni użytkownicy API.</p>
+<h3 id="dlaczego-nie-ctlruleremovebyid920450">Dlaczego nie <code>ctl:ruleRemoveById=920450</code><a class="headerlink" href="#dlaczego-nie-ctlruleremovebyid920450" title="Permanent link">&para;</a></h3>
+<p>Na tej samej liście jest nagłówek <code>Proxy</code>, czyli ochrona przed <strong>httpoxy</strong>
+(CVE-2016-5385): aplikacja czytająca <code>HTTP_PROXY</code> ze środowiska dawała się
+przekierować przez nagłówek żądania. Skasowanie całej reguły zdjęłoby także ją,
+a przy okazji <code>content-encoding</code>, <code>lock-token</code>, <code>content-range</code> i <code>if</code>.</p>
+<p>Zamiast tego <strong>przedefiniowujemy listę</strong>, usuwając z niej jedną pozycję
+(<code>SecAction</code> o <code>id:10008</code>).</p>
+<h3 id="dlaczego-to-dziaa-z-naszego-pliku">Dlaczego to działa z naszego pliku<a class="headerlink" href="#dlaczego-to-dziaa-z-naszego-pliku" title="Permanent link">&para;</a></h3>
+<p>CRS ustawia domyślną listę w <code>REQUEST-901-INITIALIZATION.conf</code> <strong>pod warunkiem,
+że zmienna jeszcze nie istnieje</strong>. Nasz plik jest includowany <em>przed</em> regułami
+CRS, więc w <code>phase:1</code> ustawiamy ją pierwsi i inicjalizacja CRS jej nie
+nadpisuje.</p>
+<p>Zakomentowany szablon tej samej operacji siedzi w <code>crs-setup.conf</code> jako reguła
+<code>900250</code> — <strong>nie korzystamy z niego</strong>, bo <code>crs-setup.conf</code> nie jest naszym
+plikiem i <code>git pull</code> by go nie zaktualizował.</p>
+<div class="admonition warning">
+<p class="admonition-title">Dwa przypadki testowe, oba konieczne</p>
+<p>„<code>Accept-Charset</code> przechodzi" nie dowodzi niczego samo z siebie —
+przeszłoby tak samo po skasowaniu <strong>całej</strong> reguły <code>920450</code>. Drugi
+przypadek (<code>Proxy</code> nadal blokowany) pilnuje, że zdjęliśmy jedną pozycję
+z listy, a nie wylaliśmy dziecka z kąpielą.</p>
+</div>
+<h2 id="formularze-admina">Formularze admina — reguła 10009<a class="headerlink" href="#formularze-admina" title="Permanent link">&para;</a></h2>
+<h3 id="objaw_3">Objaw<a class="headerlink" href="#objaw_3" title="Permanent link">&para;</a></h3>
+<p>Redaktor nie może zapisać publikacji. <code>POST</code> na formularz zmiany rekordu kończy
+się blokadą, w logu <code>Total Score: 5</code>:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>[id &quot;949110&quot;] [msg &quot;Inbound Anomaly Score Exceeded (Total Score: 5)&quot;]
+<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>[uri &quot;/admin/bpp/wydawnictwo_ciagle/105013/change/&quot;]
+<a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a>request: &quot;POST /admin/bpp/wydawnictwo_ciagle/105013/change/ HTTP/2.0&quot;
+</code></pre></div>
+<p>Zgłoszenie 2026-08-12 (<code>bpp.umlub.pl</code>), powtarzalne na wielu rekordach.</p>
+<div class="admonition warning">
+<p class="admonition-title">Wpis <code>949110</code> nie mówi, co zablokowało</p>
+<p><code>949110</code> to reguła <strong>sumująca</strong>, wykonywana na końcu fazy 2. Loguje samą
+siebie — stąd puste <code>[data ""]</code>. Reguła, która faktycznie się dopasowała,
+siedzi w <strong>osobnym, wcześniejszym wpisie</strong> o tym samym <code>unique_id</code>. To ona
+ma wypełnione <code>logdata</code> ze wskazaniem pola. Bez niej diagnoza jest zgadywaniem.</p>
+</div>
+<h3 id="przyczyna-winowajca-jest-transformacja-nie-tresc">Przyczyna — winowajcą jest transformacja, nie treść<a class="headerlink" href="#przyczyna-winowajca-jest-transformacja-nie-tresc" title="Permanent link">&para;</a></h3>
+<p><code>932130</code> szuka wyrażeń powłoki: <code>$(...)</code>, <code>$((...))</code>, <code>${...}</code> oraz <code>&lt;(...)</code>
+i <code>&gt;(...)</code> (podstawienie procesu). Działa jednak <strong>po</strong> <code>t:cmdLine</code>, która m.in.
+kasuje spacje przed <code>(</code>, zamienia <code>,</code> i <code>;</code> na spacje i sprowadza tekst do
+małych liter. Legalne zdanie staje się więc wyrażeniem powłoki dopiero w silniku:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>wpisane:     wynik istotny (p &lt; (0,05))
+<a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a>po cmdLine:  wynik istotny(p &lt;(0 05))
+<a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a>                            ^^^^^^^ pasuje do [&lt;&gt;]\(.*\)
+</code></pre></div>
+<p>Audit log (zmierzone 2026-08-12 na <code>owasp/modsecurity-crs:nginx</code>, tym samym
+obrazie co produkcja):</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>Matched Data: &lt;(0 05)) found within ARGS:streszczenie: wynik istotny(p &lt;(0 05))
+</code></pre></div>
+<p>Severity CRITICAL = 5 pkt przy progu 5, więc <strong>jedno</strong> trafienie blokuje.
+Zmierzone postacie — każda blokowana przez samą <code>932130</code>:</p>
+<table>
+<thead>
+<tr>
+<th>Pole i treść</th>
+<th>Wynik</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>streszczenie=wynik istotny (p &lt; (0,05))</code></td>
+<td>BLOK <code>932130</code></td>
+</tr>
+<tr>
+<td><code>streszczenie=przedzial $(1-\alpha)$ dla n=30</code> (LaTeX)</td>
+<td>BLOK <code>932130</code></td>
+</tr>
+<tr>
+<td><code>adnotacje=import: ${author} ${year}</code> (BibTeX)</td>
+<td>BLOK <code>932130</code></td>
+</tr>
+<tr>
+<td><code>uwagi=grupa n &gt; (30) osob</code></td>
+<td>BLOK <code>932130</code></td>
+</tr>
+<tr>
+<td><code>tytul=Wplyw kwasu foliowego</code></td>
+<td>przelot</td>
+</tr>
+</tbody>
+</table>
+<h3 id="dlaczego-tylko-932130-a-nie-cae-rodziny-xss-i-sqli">Dlaczego tylko <code>932130</code>, a nie całe rodziny XSS i SQLi<a class="headerlink" href="#dlaczego-tylko-932130-a-nie-cae-rodziny-xss-i-sqli" title="Permanent link">&para;</a></h3>
+<p>Kuszące było wyłączyć od razu także <code>941</code> i <code>942</code> — „przecież redaktor wpisuje
+dowolny tekst naukowy". <strong>Pomiar tego nie potwierdził.</strong> Żaden z kandydatów się
+nie zapala:</p>
+<table>
+<thead>
+<tr>
+<th>Treść bibliograficzna</th>
+<th>Wynik</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>Stezenie H&lt;sub&gt;2&lt;/sub&gt;O&lt;sub&gt;2&lt;/sub&gt; w tkance</code></td>
+<td>przelot</td>
+</tr>
+<tr>
+<td><code>Badania &lt;i&gt;in vitro&lt;/i&gt; na liniach komorkowych</code></td>
+<td>przelot</td>
+</tr>
+<tr>
+<td><code>Crohn's disease -- przeglad literatury</code></td>
+<td>przelot</td>
+</tr>
+<tr>
+<td><code>We select data from the national registry</code></td>
+<td>przelot</td>
+</tr>
+<tr>
+<td><code>Union of datasets; a comparative study</code></td>
+<td>przelot</td>
+</tr>
+<tr>
+<td><code>iloraz szans OR 1=1,25 (95% CI)</code></td>
+<td>przelot</td>
+</tr>
+<tr>
+<td><code>doi: 10.1016/j.jhep.2020.03.004</code></td>
+<td>przelot</td>
+</tr>
+</tbody>
+</table>
+<p>Poszerzenie byłoby więc zdjęciem ochrony bez ani jednego przypadku, który by to
+uzasadniał — dokładnie ten nawyk, który ta konfiguracja stara się trzymać
+w ryzach (patrz <a href="#zawezanie-wykluczen-po-baseline">Zawężanie wykluczeń po baseline</a>).</p>
+<h3 id="zdjecie-932130-nie-otwiera-admina-na-wstrzykniecie-polecen">Zdjęcie <code>932130</code> nie otwiera admina na wstrzyknięcie poleceń<a class="headerlink" href="#zdjecie-932130-nie-otwiera-admina-na-wstrzykniecie-polecen" title="Permanent link">&para;</a></h3>
+<p><code>932130</code> to jedna z kilkunastu reguł rodziny 932 i akurat ta o najszerszym,
+czysto składniowym wzorcu. Realny payload zapala pozostałe — zmierzone <strong>już
+z włączoną 10009</strong>, na tej samej ścieżce:</p>
+<table>
+<thead>
+<tr>
+<th>Payload w <code>streszczenie</code></th>
+<th>Wynik</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>x; cat /etc/passwd; echo $(id)</code></td>
+<td>BLOK — <code>930120</code> + <code>932100</code> + <code>932110</code> + <code>932160</code></td>
+</tr>
+<tr>
+<td><code>&lt;script&gt;alert(1)&lt;/script&gt;</code></td>
+<td>BLOK — <code>941100</code> + <code>941110</code> + <code>941160</code></td>
+</tr>
+<tr>
+<td><code>' UNION ALL SELECT NULL,NULL-- a</code></td>
+<td>BLOK — <code>942100</code> + <code>942190</code> + <code>942360</code></td>
+</tr>
+</tbody>
+</table>
+<p>Wykluczenie zdejmuje fałszywe alarmy, a nie ochronę.</p>
+<h3 id="request-filename"><code>REQUEST_FILENAME</code>, nie <code>REQUEST_URI</code> — to nie jest kosmetyka<a class="headerlink" href="#request-filename" title="Permanent link">&para;</a></h3>
+<p>Wzorzec ma <strong>dwa zmienne segmenty</strong> (<code>&lt;app&gt;/&lt;model&gt;</code>), a <code>REQUEST_URI</code> zawiera
+query string — który potrafi go domknąć na cudzej ścieżce:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>/admin/login/?next=/admin/
+<a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a>        └─┬─┘ └────┬────┘
+<a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a>      [^/]+       [^/]+/      ← &quot;?next=&quot; i &quot;/admin/&quot; domykają wzorzec
+</code></pre></div>
+<p>Wykluczenie objęłoby więc <strong>formularz logowania</strong> — jedyny endpoint admina
+osiągalny anonimowo, czyli ten, który ochrony potrzebuje najbardziej.
+<code>REQUEST_FILENAME</code> to sama ścieżka bez query stringa, więc <code>/admin/login/</code>,
+<code>/admin/password_change/</code> i <code>/admin/jsi18n/</code> mają po <code>/admin/</code> tylko jeden
+segment i <strong>nie</strong> pasują.</p>
+<p>Pilnują tego dwie asercje kontrolne w <code>make test-waf</code> — goły <code>/admin/login/</code>
+i wariant z <code>?next=/admin/</code>.</p>
+<h3 id="zasieg">Zasięg<a class="headerlink" href="#zasieg" title="Permanent link">&para;</a></h3>
+<p><code>^/admin/&lt;app&gt;/&lt;model&gt;/</code> pokrywa jednym wzorcem komplet formularzy modelu:</p>
+<table>
+<thead>
+<tr>
+<th>URI</th>
+<th>Co to</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>/admin/bpp/wydawnictwo_ciagle/105013/change/</code></td>
+<td>edycja rekordu</td>
+</tr>
+<tr>
+<td><code>/admin/bpp/wydawnictwo_ciagle/add/</code></td>
+<td>dodawanie</td>
+</tr>
+<tr>
+<td><code>/admin/bpp/wydawnictwo_ciagle/</code></td>
+<td>changelist + akcje masowe</td>
+</tr>
+<tr>
+<td><code>/admin/bpp/wydawnictwo_ciagle/105013/delete/</code></td>
+<td>potwierdzenie usunięcia</td>
+</tr>
+<tr>
+<td><code>/admin/bpp/autor/autocomplete/</code></td>
+<td>AJAX select2</td>
+</tr>
+</tbody>
+</table>
+<div class="admonition note">
+<p class="admonition-title">Reguła 10002 zostaje nietknięta</p>
+<p><code>/admin/dbtemplates/</code> nadal schodzi do <code>DetectionOnly</code>. Jest dla tego
+prefiksu nadmiarowa, ale dotyczy <strong>innej</strong> klasy problemu (surowy HTML
+z JavaScriptem, rodzina 941) i węższa 10009 jej nie zastępuje.</p>
+</div>
+<h2 id="logi-waf-a-w-grafanie">Logi WAF-a w Grafanie<a class="headerlink" href="#logi-waf-a-w-grafanie" title="Permanent link">&para;</a></h2>
+<p>Jest gotowy dashboard <strong><a href="../../monitoring/dashboardy-grafany/#waf-modsecurity-owasp-crs">WAF (ModSecurity / OWASP CRS)</a></strong>
+— rankingi reguł, adresów IP i ścieżek, kategorie ataków, rozkład anomaly score.
+Poniżej opis danych, na których stoi.</p>
+<h3 id="dwa-wpisy-na-jedno-zadanie">Dwa wpisy na jedno żądanie<a class="headerlink" href="#dwa-wpisy-na-jedno-zadanie" title="Permanent link">&para;</a></h3>
+<p>Każde oflagowane żądanie zostawia w stdout webservera <strong>dwa</strong> wpisy:</p>
+<ol>
+<li><strong>linię tekstową</strong> nginksowego error.log (<code>ModSecurity: Access denied…</code>),</li>
+<li><strong>wpis audit logu</strong> w JSON.</li>
+</ol>
+<p>Cała treść analityczna jest w (2). Do error.log trafiają <strong>wyłącznie reguły
+decyzyjne</strong> — <code>949110</code> (inbound) i <code>959100</code> (outbound) — bo w CRS z anomaly
+scoringiem pojedyncze reguły ataku się tam nie logują. Rodzaj ataku (<code>942xxx</code> SQLi,
+<code>941xxx</code> XSS, <code>930xxx</code> LFI) jest więc <strong>tylko</strong> w JSON-ie. Widać to gołym okiem na
+jednym przebiegu <code>make test-waf</code>: 8 linii error.log wobec 11 wpisów audit.</p>
+<p><strong>Oba wpisy dostają pola <code>modsec_*</code></strong> — bo to na linię z error.log patrzy człowiek
+w „Log Monitoring" (audit log to ściana JSON-a), a bez własnych pól dałoby się ją
+filtrować wyłącznie pełnotekstowo. Te pola są dziś fundamentem dropdownu
+<strong><code>ModSecurity</code></strong> na tamtym dashboardzie (<code>wszystko</code> / <code>tylko WAF</code> / <code>bez WAF</code> —
+patrz <a href="../../monitoring/dashboardy-grafany/#log-monitoring">Dashboardy Grafany</a>):
+<code>tylko WAF</code> to <code>modsec_src="nginx"</code>, a <code>bez WAF</code> to <code>modsec_src=""</code>, które łapie
+linie nieposiadające tego klucza w ogóle. Rozróżnia je <strong><code>modsec_src</code></strong>:</p>
+<table>
+<thead>
+<tr>
+<th><code>modsec_src</code></th>
+<th>Co to</th>
+<th>Ma <code>modsec_attack</code> / <code>modsec_rules</code></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>audit</code></td>
+<td>wpis audit logu (JSON)</td>
+<td>tak — pełny łańcuch reguł i kategoria ataku</td>
+</tr>
+<tr>
+<td><code>nginx</code></td>
+<td>czytelna linia error.log</td>
+<td><strong>nie</strong> — są tam tylko reguły decyzyjne</td>
+</tr>
+</tbody>
+</table>
+<div class="admonition warning">
+<p class="admonition-title">Agregaty muszą filtrować <code>modsec_src</code></p>
+<p>Jedno żądanie = dwa wpisy. Zapytanie liczące trafienia <strong>bez</strong>
+<code>| modsec_src = "audit"</code> policzy każde żądanie dwa razy. Wszystkie panele
+dashboardu WAF mają ten filtr; panel z logami celowo pokazuje <code>nginx</code>.</p>
+</div>
+<p>Oba wpisy spina <code>modsec_unique_id</code>.</p>
+<h3 id="wpisy-audytowe-w-ktorych-nie-zapalia-sie-zadna-regua">Wpisy audytowe, w których nie zapaliła się żadna reguła<a class="headerlink" href="#wpisy-audytowe-w-ktorych-nie-zapalia-sie-zadna-regua" title="Permanent link">&para;</a></h3>
+<p><code>SecAuditEngine RelevantOnly</code> (domyślne w obrazie) loguje transakcję z <strong>dwóch
+niezależnych powodów</strong>, połączonych <code>OR</code>:</p>
+<ol>
+<li>zapaliła się reguła z akcją <code>auditlog</code>,</li>
+<li><strong>kod odpowiedzi</strong> pasuje do <code>SecAuditLogRelevantStatus</code> — a domyślne w obrazie
+   <code>^(?:5|4(?!04))</code> to <strong>każde 4xx poza 404 i każde 5xx</strong>.</li>
+</ol>
+<p>Powód (2) wpuszcza do audit logu ruch, którego WAF w ogóle nie dotknął. Taki wpis
+ma <code>"messages":[]</code> — zero informacji o ataku — a mimo to niesie komplet pól
+<code>modsec_*</code> (URI, IP, kod), więc dla agregatu wygląda identycznie jak trafienie.
+Łapie się tam:</p>
+<ul>
+<li><strong>401</strong> z <code>auth_request</code> na <code>/grafana/</code>, <code>/dozzle/</code>, <code>/flower/</code>, <code>/netdata/</code> —
+  a to jest <strong>ścieżka zaprojektowana</strong>: <code>error_page 401 = @bpp_login</code> przekierowuje
+  niezalogowanego na logowanie BPP,</li>
+<li><strong>429</strong> z <a href="../rate-limiting/">rate limitingu</a>,</li>
+<li><strong>502/503/504</strong>, gdy leży <code>appserver</code>.</li>
+</ul>
+<div class="admonition danger">
+<p class="admonition-title">Objaw: dashboard WAF-a pokazuje własne panele Grafany jako ataki</p>
+<p>Produkcja, 2026-08-05: wygasła sesja przy otwartej karcie Grafany dała dziewięć
+wpisów 401 (strona + fonty + moduły pluginów), a panel „Najczęściej atakowane
+ścieżki" wyświetlił <code>Inter-Regular.woff2</code> i <code>grafana-lokiexplore-app/module.js</code>
+jako najczęstsze cele ataków. Trop prowadził donikąd — reguła 10004 działała
+poprawnie, CRS nie zgłosił niczego, bo <strong>nie było czego zgłaszać</strong>.</p>
+</div>
+<p>Dlatego ustawiamy <code>MODSEC_AUDIT_LOG_RELEVANT_STATUS=^$</code>: kod statusu jest zawsze
+niepusty, więc ten regexp nie pasuje do niczego i zostaje sam powód (1). Zmierzone
+na <code>owasp/modsecurity-crs:nginx</code>: przy <code>^$</code> zwykłe 502 nie zostawia wpisu, a żądanie
+z SQLi nadal zostawia wpis z czterema regułami.</p>
+<p>Nic przy tym nie tracimy: przy <code>MODSEC_AUDIT_LOG_PARTS=AHZ</code> taki wpis niósł mniej
+niż linia access logu nginksa (format <code>bpp_access</code>, też zbierany przez Alloy),
+a błędy 5xx mają własny dashboard
+<a href="../../monitoring/dashboardy-grafany/#log-monitoring">„Log Monitoring"</a>.</p>
+<div class="admonition warning">
+<p class="admonition-title">Agregaty muszą też filtrować <code>modsec_rule_id</code></p>
+<p>To druga warstwa, niezależna od powyższego ustawienia — <code>MODSEC_AUDIT_LOG_RELEVANT_STATUS</code>
+jest jawnym knobem w <code>.env</code> i operator może je przywrócić. Każde zapytanie
+dashboardu WAF ma dlatego <strong>oba</strong> filtry:
+<code>| modsec_src = "audit" | modsec_rule_id != ""</code>. Wpis bez reguł nie dostaje
+<code>modsec_rule_id</code> (JMESPath <code>messages[0].details.ruleId</code> na pustej liście nie
+tworzy klucza), a LogQL traktuje brakującą etykietę jak pustą — więc wypada.
+Pilnują tego <code>tests/test_makefile.sh</code> (asercja: liczba zapytań z filtrem
+= liczba zapytań po audit logu) i <code>make test-alloy</code> (asercja: wpis bez reguł
+nie dostaje <code>modsec_rule_id</code>, ale zachowuje <code>modsec_code=401</code>).</p>
+</div>
+<h3 id="pola-modsec_">Pola <code>modsec_*</code><a class="headerlink" href="#pola-modsec_" title="Permanent link">&para;</a></h3>
+<p>Wyciągane przez <code>defaults/alloy/config.alloy</code> do <strong>structured metadata</strong> (nie do
+labeli — <code>modsec_uri</code> i <code>modsec_client</code> jako stream labele wysadziłyby kardynalność
+indeksu strumieni):</p>
+<table>
+<thead>
+<tr>
+<th>Pole</th>
+<th>Znaczenie</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>modsec_action</code></td>
+<td><code>blocked</code> (połączenie zerwane) / <code>detected</code> (przepuszczone, reguły 10002/10003)</td>
+</tr>
+<tr>
+<td><code>modsec_rule_id</code></td>
+<td>reguła <strong>wiodąca</strong> — pierwsza dopasowana, ta merytoryczna</td>
+</tr>
+<tr>
+<td><code>modsec_msg</code></td>
+<td>jej opis</td>
+</tr>
+<tr>
+<td><code>modsec_severity</code></td>
+<td>severity reguły wiodącej (skala sysloga, 0–7)</td>
+</tr>
+<tr>
+<td><code>modsec_rules</code></td>
+<td>pełny łańcuch reguł, po przecinku — do wyszukiwania</td>
+</tr>
+<tr>
+<td><code>modsec_attack</code></td>
+<td>kategoria z tagu <code>attack-*</code> (<code>sqli</code>, <code>xss</code>, <code>lfi</code>, <code>rce</code>, <code>disclosure</code>…)</td>
+</tr>
+<tr>
+<td><code>modsec_paranoia</code></td>
+<td>poziom paranoi reguły</td>
+</tr>
+<tr>
+<td><code>modsec_direction</code></td>
+<td><code>inbound</code> / <code>outbound</code></td>
+</tr>
+<tr>
+<td><code>modsec_score</code></td>
+<td>anomaly score w momencie decyzji</td>
+</tr>
+<tr>
+<td><code>modsec_uri</code></td>
+<td>URI z query stringiem (czyli zwykle z payloadem)</td>
+</tr>
+<tr>
+<td><code>modsec_method</code>, <code>modsec_code</code></td>
+<td>metoda HTTP, kod odpowiedzi</td>
+</tr>
+<tr>
+<td><code>modsec_client</code></td>
+<td>adres IP widziany przez nginksa</td>
+</tr>
+<tr>
+<td><code>modsec_hostname</code></td>
+<td>vhost — istotne przy multi-host</td>
+</tr>
+<tr>
+<td><code>modsec_unique_id</code></td>
+<td>spina wpis audit z bliźniaczą linią error.log</td>
+</tr>
+<tr>
+<td><code>modsec_src</code></td>
+<td><code>audit</code> (JSON) / <code>nginx</code> (error.log) — <strong>filtruj po tym w agregatach</strong></td>
+</tr>
+</tbody>
+</table>
+<div class="admonition warning">
+<p class="admonition-title">Poziom trafień to <code>warn</code>, nie <code>error</code></p>
+<p>Mimo że nginx loguje je jako <code>[error]</code>. Ta sama decyzja co przy
+<code>limit_req_log_level warn</code> w <a href="../rate-limiting/">rate limitingu</a>: powódź zdarzeń
+bezpieczeństwa nie ma zalewać dashboardu błędów <strong>aplikacji</strong>. Skan z lipca 2026
+to 2165 żądań z 1342 adresów IP — każde trafienie to osobna linia, czyli tysiące
+„błędów" przy w pełni sprawnej aplikacji. Trafienia mają własny dashboard.</p>
+</div>
+<p>Przykładowe zapytania LogQL:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a># Najczęściej zapalające się reguły
+<a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a>topk(10, sum by (modsec_rule_id, modsec_msg) (
+<a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a>  count_over_time({service=&quot;webserver&quot;} | modsec_action != &quot;&quot; [24h])))
+<a id="__codelineno-11-4" name="__codelineno-11-4" href="#__codelineno-11-4"></a>
+<a id="__codelineno-11-5" name="__codelineno-11-5" href="#__codelineno-11-5"></a># Co zostało zablokowane temu adresowi
+<a id="__codelineno-11-6" name="__codelineno-11-6" href="#__codelineno-11-6"></a>{service=&quot;webserver&quot;} | modsec_action = &quot;blocked&quot; | modsec_client = &quot;203.0.113.7&quot;
+<a id="__codelineno-11-7" name="__codelineno-11-7" href="#__codelineno-11-7"></a>
+<a id="__codelineno-11-8" name="__codelineno-11-8" href="#__codelineno-11-8"></a># Trafienia SQLi na konkretnym vhoście
+<a id="__codelineno-11-9" name="__codelineno-11-9" href="#__codelineno-11-9"></a>{service=&quot;webserver&quot;} | modsec_attack = &quot;sqli&quot; | modsec_hostname = &quot;bpp.example.org&quot;
+</code></pre></div>
+<h3 id="pulapka-filtrow-ad-hoc">Filtry ad-hoc („Filter for value")<a class="headerlink" href="#pulapka-filtrow-ad-hoc" title="Permanent link">&para;</a></h3>
+<p>Grafana pokazuje przy komórkach tabeli i przy polach w szczegółach linii logu lupki
+<strong>„Filter for value" / „Filter out value"</strong>. Na dashboardzie WAF-a <strong>działają</strong> —
+kliknięcie zawęża wszystkie panele, a wybrany filtr ląduje w chipie <code>Filters</code> nad
+dashboardem (usuwasz go ×).</p>
+<div class="admonition warning">
+<p class="admonition-title">Do 08.2026 kliknięcie w tę lupkę wygaszało cały dashboard</p>
+<p>Każdy panel pokazywał „No data", co wyglądało jak awaria zbierania logów i nie
+miało nic wspólnego ze stanem WAF-a. Naprawione <strong>parserem-zaślepką</strong> na końcu
+każdego zapytania — mechanizm opisany niżej. Jeśli widzisz ten objaw po
+<code>git pull</code>, sprawdź, czy zapytania paneli kończą się na
+<code>| logfmt bpp_noop="__bpp_noop__" | drop bpp_noop</code>.</p>
+</div>
+<p>Mechanizm awarii i naprawy. Filtr ad-hoc trafiał do <strong>selektora strumienia</strong>:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a>{job=&quot;docker&quot;, service=&quot;webserver&quot;, modsec_msg=&quot;SQL Injection Attack Detected…&quot;}
+<a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a>                                    ^^^^^^^^^^ to jest structured metadata
+</code></pre></div>
+<p>Selektor strumienia jest rozwiązywany po indeksie strumieni, a <code>modsec_*</code> <strong>nigdy</strong>
+nie były labelami strumienia — celowo, bo <code>modsec_uri</code> × <code>modsec_client</code> wysadziłoby
+kardynalność indeksu (patrz <a href="#pola-modsec_">tabela pól</a> wyżej). Żaden strumień nie
+pasuje, więc wynik jest pusty na każdym panelu. Poprawne miejsce to filtr <strong>za</strong>
+selektorem (<code>| modsec_msg = "…"</code>) i dokładnie tak robi to panel „Logs" — bo tam
+Grafana zna typ pola z odpowiedzi Loki.</p>
+<p>Do filtrów ad-hoc ten typ nie jest przekazywany (Grafana 12.4.2,
+<code>datasource.ts</code> → <code>addAdHocFilters()</code> woła <code>addLabelToQuery()</code> bez argumentu
+<code>labelType</code>). <code>modifyQuery.ts</code> bez niego <strong>zgaduje po obecności parsera</strong>:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">parserPositions</span><span class="p">.</span><span class="nx">length</span><span class="w"> </span><span class="o">===</span><span class="w"> </span><span class="mf">0</span><span class="p">)</span><span class="w"> </span><span class="k">return</span><span class="w"> </span><span class="nx">addFilterToStreamSelector</span><span class="p">(...)</span>
+<a id="__codelineno-13-2" name="__codelineno-13-2" href="#__codelineno-13-2"></a><span class="k">else</span><span class="w">                              </span><span class="k">return</span><span class="w"> </span><span class="nx">addFilterAsLabelFilter</span><span class="p">(...)</span>
+</code></pre></div>
+<p>I to jest cała dźwignia. <strong>Przycisku nie da się ukryć</strong> z poziomu JSON-a
+(<code>setDashboardPanelContext.ts</code> ustawia <code>onAddAdHocFilter</code> bezwarunkowo, a
+<code>filterable: false</code> na tabelach dotyczy filtra kolumny), ale da się sprawić, żeby
+gałąź <code>else</code> była tą wybieraną — wystarczy, że w zapytaniu <strong>jest jakikolwiek
+parser</strong>. Dlatego każde zapytanie dashboardu kończy się na:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a>| logfmt bpp_noop=&quot;__bpp_noop__&quot; | drop bpp_noop
+</code></pre></div>
+<p>Po kliknięciu Grafana wstawia filtr <strong>za</strong> parserem i wszystko działa:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a>… | logfmt bpp_noop=&quot;__bpp_noop__&quot; | modsec_client=`185.199.108.1` | drop bpp_noop
+</code></pre></div>
+<p>Zmierzone na stanowisku (loki 3.7.1 + grafana 12.4.2, 60 wpisów audytowych):
+<strong>bez</strong> parsera <code>60 → „No data"</code> i 11 pustych paneli, <strong>z</strong> parserem <code>60 → 20</code>.</p>
+<h4 id="dlaczego-akurat-taki-parser">Dlaczego akurat taki parser<a class="headerlink" href="#dlaczego-akurat-taki-parser" title="Permanent link">&para;</a></h4>
+<table>
+<thead>
+<tr>
+<th>Kandydat</th>
+<th>Wynik na prawdziwych liniach z <code>tests/fixtures/alloy-loglines.txt</code></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>\| pattern "&lt;_&gt;"</code></td>
+<td>Loki <strong>odrzuca</strong>: <code>at least one capture is required</code></td>
+</tr>
+<tr>
+<td><code>\| json</code></td>
+<td><code>__error__</code> na liniach <code>error.log</code> — to nie jest JSON</td>
+</tr>
+<tr>
+<td><code>\| logfmt</code> (gołe)</td>
+<td>przechodzi, ale <strong>wyciąga śmieci</strong>: <code>level</code>, <code>msg</code>, <code>ts</code>, <code>duration</code>, <code>___export</code>, <code>___plik</code></td>
+</tr>
+<tr>
+<td><code>\| logfmt bpp_noop="__bpp_noop__"</code></td>
+<td>wyciąga <strong>tylko</strong> pustą etykietę <code>bpp_noop</code></td>
+</tr>
+<tr>
+<td><code>… \| drop bpp_noop</code></td>
+<td>sprząta i ją</td>
+</tr>
+</tbody>
+</table>
+<p>Najgroźniejszy jest wariant trzeci: <code>level</code> konkurowałby z <code>detected_level</code>, którego
+jedynym źródłem ma być <code>config.alloy</code> (zamknięty słownik 7 wartości — patrz
+<a href="../../monitoring/logowanie/">Logowanie</a>). Jawna etykieta z klucza, który w żadnej
+linii nie wystąpi, nie wyciąga niczego; <code>drop</code> usuwa pustą etykietę, żeby nie
+zaśmiecała szczegółów linii w panelu logów.</p>
+<div class="admonition danger">
+<p class="admonition-title">Parser musi zostać OSTATNIM ogniwem potoku</p>
+<p>Wtedy miele wyłącznie linie, które przeszły już przez <code>modsec_src</code> i filtry
+zmiennych — a nie cały strumień webservera. Przesunięcie go wcześniej jest
+poprawne składniowo i niewidoczne w wyniku, za to kosztuje. Pilnuje tego osobna
+asercja w <code>tests/test_makefile.sh</code> (<code>test_waf_crossfilter</code>), niezależna od tej,
+która sprawdza samą obecność.</p>
+</div>
+<p>Własne filtry — zmienne u góry dashboardu i data linki na wierszach tabel
+(<a href="../../monitoring/dashboardy-grafany/#waf-modsecurity-owasp-crs">opis</a>) — zostają.
+Są wygodniejsze do wpisania wartości z ręki i przeżywają udostępnienie linku.</p>
+<div class="admonition note">
+<p class="admonition-title">Jedno ograniczenie klikania po ścieżce</p>
+<p>Data link po <code>modsec_uri</code> cytuje wartość literalnie (<code>\Q…\E</code>), żeby metaznaki
+regexa w ścieżkach skanerów (<code>?</code>, <code>+</code>, <code>.</code>) nie zmieniały znaczenia filtra.
+Ścieżka zawierająca <strong>literalny backslash</strong> (np. sonda ThinkPHP
+<code>…/\think\app/…</code>, jeśli trafi do logu w postaci niezakodowanej) wymagałaby
+podwojenia także jego — czego data link Grafany nie potrafi — i taki klik wróci
+pusty. Postać <code>%5C</code>, czyli ta realnie logowana przez ModSecurity, działa
+normalnie.</p>
+</div>
+<h2 id="sprawdzenie-czy-waf-dziala-make-test-waf">Sprawdzenie, czy WAF dziala — <code>make test-waf</code><a class="headerlink" href="#sprawdzenie-czy-waf-dziala-make-test-waf" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a>make<span class="w"> </span>test-waf
+</code></pre></div>
+<p>Stawia <strong>stack testowy</strong>: atrapę backendu, która na każde żądanie odpowiada
+<code>200 pass</code>, oraz webserver z <strong>prawdziwą</strong> konfiguracją z <code>defaults/webserver/</code>.
+Potem strzela baterią zapytań, gdzie każde ma z góry znany oczekiwany wynik —
+i wypisuje <code>OK</code> albo <code>FAIL</code> per przypadek. Kod wyjścia = liczba niezgodności.</p>
+<p>Nie wymaga <code>.env</code>, działającej instalacji ani sieci produkcyjnej; sprząta po
+sobie własne kontenery i sieć.</p>
+<p>Payloady ataku to <strong>prawdziwe próby z lipca 2026</strong> (sqlmap przeciwko
+<code>publikacje.up.lublin.pl</code>), nie wymyślone przykłady. Po stronie „ma przejść"
+siedzą realne wzorce ruchu BPP: eksporty raportów z sortowaniem, wyszukiwanie
+tekstem zawierającym angielskie <code>select … from</code>, DjangoQL, <code>dbtemplates</code>.</p>
+<p>Zmienne:</p>
+<ul>
+<li><code>WAF_TEST_PORT</code> — port na hoście (domyślnie <code>18443</code>),</li>
+<li><code>MODSEC_RULE_ENGINE</code> — ustaw <code>DetectionOnly</code>, żeby zobaczyć, co <strong>by</strong> zostało
+  zablokowane, bez faktycznego blokowania.</li>
+</ul>
+<p>Po tabelce przypadków leci jeszcze jedno, osobne sprawdzenie: <strong>inspekcja ciała
+odpowiedzi</strong>. Atrapa serwuje stronę z komunikatem błędu PHP, a test sprawdza,
+czy zapaliła się któraś reguła <code>95xxx</code>. Asercja idzie po <strong>audit logu</strong>, a nie
+po wyniku HTTP — bo <a href="#reguly-wychodzace">blokowanie wychodzące jest wyścigiem</a>
+i wynik HTTP migotał (1 na 5 przebiegów kończył się inaczej). Wykrycie jest
+deterministyczne, egzekucja nie.</p>
+<p>Trzecie to <strong>zapytanie LogQL z Grafany</strong> — para POST-ów z prawdziwym ciałem
+<code>/grafana/api/ds/query</code>, pilnująca reguły <a href="#grafana-poza-waf"><code>10006</code></a>.
+Sprawdzenia są <strong>dwa i oba są potrzebne</strong>:</p>
+<ol>
+<li>ten sam payload wystrzelony <strong>poza</strong> <code>/grafana/</code> musi zostać zablokowany,</li>
+<li>na <code>/grafana/api/ds/query</code> musi przejść.</li>
+</ol>
+<p>Bez pierwszego test przechodziłby tak samo po skasowaniu reguły 10006, a nawet
+po wyłączeniu całego CRS — wykluczenie, które niczego nie wyłącza, jest gorsze
+niż żadne. Sprawdzenie musi też iść <strong>POST-em z ciałem</strong>: cały problem siedzi
+w <code>ARGS:json.queries.array_0.expr</code>, więc tabelka <code>GET</code>-ów jest na niego ślepa.
+Rozstrzygnięcie sprawdza <strong>wprost kod 403</strong> — gdyby liczyło „dowolny kod HTTP =
+przeszło", jak tabelka wyżej, blokada ModSecurity zaliczyłaby się jako sukces.</p>
+<p>Czwarte osobne sprawdzenie to <strong>legalne <code>GET /</code> po HTTP/3</strong> — przypadek, dla
+którego powstała reguła <code>10005</code>. Klient QUIC chodzi z <strong>wnętrza</strong> sieci
+dockerowej, bo systemowy curl (także ten z obrazów <code>alpine</code> i
+<code>curlimages/curl</code>) jest budowany bez QUIC; stąd <code>--network-alias</code> z nazwą
+vhosta na kontenerze webservera. Wynik znów rozstrzyga <strong>access log</strong>, a nie
+kod wyjścia curla:</p>
+<ul>
+<li><code>444</code> przy <code>HTTP/3.0</code> w logu — realna blokada WAF-a, czyli <code>FAIL</code>,</li>
+<li>zero linii <code>HTTP/3.0</code> — klient zgubił handshake i żądanie w ogóle nie
+  dotarło, więc próba się powtarza (po czterech nieudanych: <code>POMIN</code>).</li>
+</ul>
+<p>Pod emulacją amd64 (host arm64) handshake gubi się mniej więcej raz na pięć
+prób. Bez tego rozróżnienia retry maskowałby regresję.</p>
+<div class="admonition note">
+<p class="admonition-title">Czego ten test NIE obejmuje</p>
+<p>Sprawdza wyłącznie warstwę brzegową. Sondy o pliki <code>*.php</code> (phpMyAdmin,
+WordPress) przechodzą tutaj, bo blokuje je dopiero
+<code>MaliciousRequestBlockingMiddleware</code> po stronie Django — a w tym stacku
+backend jest atrapą. To jest w teście oznaczone jako oczekiwany <code>PASS</code>.</p>
+<p><strong>Sama tabelka przypadków nie łapie błędów specyficznych dla HTTP/2 i /3</strong> —
+strzela <code>curl --http1.1</code>, czyli protokołem, w którym <code>Host:</code> istnieje.
+Dlatego h3 ma osobne sprawdzenie (opisane wyżej); dokładając nowy przypadek
+do tabelki, pamiętaj, że pokrywa on wyłącznie HTTP/1.1.</p>
+<p><strong>Nie weryfikuje samego wykluczenia <code>10004</code>.</strong> Lokalnie <code>auth_request</code>
+tłumi inspekcję <strong>odpowiedzi</strong> na lokacjach paneli — więc <code>/grafana/</code>
+przechodzi tam niezależnie od tego, czy reguła istnieje. Na produkcji tego
+tłumienia <strong>nie ma</strong> (audit log z 2026-08-03 pokazuje <code>953100</code> na
+<code>/grafana/</code>), ale przyczyna tej rozbieżności pozostaje niewyjaśniona.
+Przypadek testowy na regułach wychodzących byłby więc lokalnie zawsze
+zielony — czyli dawałby fałszywy spokój — i celowo go nie ma.</p>
+<p><strong>To zastrzeżenie nie dotyczy reguły <code>10006</code></strong>, mimo że też siedzi na
+<code>/grafana/</code>. Tamto tłumienie obejmuje wyłącznie reguły <strong>wychodzące</strong>;
+reguły przychodzące działają lokalnie normalnie i sprawdzenie opisane wyżej
+jest realne — zweryfikowane przez podmianę wzorca URI w regule na
+niepasujący: test wtedy czerwieni się dokładnie produkcyjnym objawem
+(<code>HTTP 403 od ModSecurity</code>). Nie usuwaj go, sugerując się akapitem powyżej.</p>
+</div>
+<h2 id="dlaczego-444-a-nie-403">Dlaczego 444, a nie 403<a class="headerlink" href="#dlaczego-444-a-nie-403" title="Permanent link">&para;</a></h2>
+<p>444 to niestandardowy kod nginksa: <strong>zamknij połączenie, nie wysyłając nic</strong>.
+Wbrew intuicji nie oznacza to, że klient wisi — połączenie jest zrywane
+natychmiast, po prostu bez odpowiedzi.</p>
+<p><code>_bpp-locations.conf</code> mapuje <code>error_page 403</code> na <code>return 444</code>. Trafiają tam
+<strong>wyłącznie 403 wygenerowane przez sam nginx</strong>: blokada ModSecurity oraz nasze
+własne <code>deny all</code> (pliki ukryte, kopie zapasowe, <code>/metrics</code>, wykonywalne
+w <code>/media/</code>).</p>
+<div class="admonition warning">
+<p class="admonition-title">Nie włączaj <code>proxy_intercept_errors</code></p>
+<p>403 zwracane przez <strong>Django</strong> (<code>PermissionDenied</code>) <strong>nie</strong> wpada w
+<code>error_page</code>, bo <code>proxy_intercept_errors</code> jest domyślnie wyłączone i
+celowo tego nie zmieniamy. Dzięki temu użytkownik bez uprawnień widzi
+normalną stronę „brak dostępu", a nie zerwane połączenie. Włączenie tej
+dyrektywy gdziekolwiek w konfiguracji zepsuje to natychmiast.</p>
+</div>
+<p>Cena 444: <strong>fałszywy alarm jest znacznie trudniejszy do zdiagnozowania</strong>.
+Użytkownik nie zobaczy komunikatu, tylko „połączenie przerwane" — i nie ma jak
+się domyślić, że zatrzymał go WAF. Dlatego dwie ścieżki, o których z góry
+wiadomo, że będą fałszywie alarmować, są wyjęte z blokowania.</p>
+<h2 id="zawezanie-wykluczen-po-baseline">Zawężanie wykluczeń po baseline<a class="headerlink" href="#zawezanie-wykluczen-po-baseline" title="Permanent link">&para;</a></h2>
+<p>Reguły 10002/10003 to tępe narzędzie — wyłączają blokowanie dla całej ścieżki.
+Docelowo zastąp je celowanymi wykluczeniami:</p>
+<ol>
+<li>Zostaw <code>DetectionOnly</code> i zbierz trafienia z audit logu ModSecurity
+   (leci na stdout w formacie JSON — widoczny w Dozzle i w Loki).</li>
+<li>Przejrzyj, które reguły zapaliły się na <strong>legalnym</strong> ruchu. Miejsca, w
+   których to niemal pewne:<ul>
+<li>panel admina <code>dbtemplates</code> — superuser POST-uje surowy HTML, co jest
+    kanonicznym fałszywym alarmem rodziny 941 (XSS),</li>
+<li><code>/api/v1/zapytanie/*</code> — składnia DjangoQL przypomina SQL, rodzina 942.</li>
+</ul>
+</li>
+<li>Dla każdego takiego przypadku dopisz wykluczenie w
+   <code>defaults/webserver/modsecurity-override.conf.template</code> — <strong>nigdy przez
+   edycję plików CRS</strong>, bo rozjedzie się przy aktualizacji obrazu. Pamiętaj o
+   ograniczeniu z sekcji <a href="#wykluczenia-regul">Wykluczenia reguł</a>: plik jest
+   includowany <strong>przed</strong> regułami CRS, więc użyj własnej reguły z akcją <code>ctl</code>
+   (np. <code>ctl:ruleRemoveTargetById</code>, <code>ctl:auditEngine=Off</code>), a nie
+   <code>SecRuleRemoveById</code>.</li>
+<li>
+<p>Dopiero wtedy ustaw w <code>.env</code>:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a><span class="nv">MODSEC_RULE_ENGINE</span><span class="o">=</span>On
+</code></pre></div>
+<p>i <code>make run</code>. Wdrażaj instalacja po instalacji, nie wszystkie naraz.</p>
+</li>
+</ol>
+<h2 id="rollback">Rollback<a class="headerlink" href="#rollback" title="Permanent link">&para;</a></h2>
+<p>Konfiguracja nginksa jest montowana wolumenami, więc powrót to jedna linia:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a><span class="c1"># docker-compose.infrastructure.yml</span>
+<a id="__codelineno-18-2" name="__codelineno-18-2" href="#__codelineno-18-2"></a><span class="nt">image</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">nginx:1.30.2</span>
+</code></pre></div>
+<p>…plus przywrócenie mountu <code>default.conf.template</code> prosto do
+<code>/etc/nginx/templates/</code> i <code>NGINX_ENVSUBST_FILTER: "DJANGO_BPP_"</code>. Wszystkie trzy
+zmiany muszą wrócić razem — patrz pułapki wyżej.</p>
+<h2 id="co-waf-pokrywa-a-czego-nie">Co WAF pokrywa, a czego nie<a class="headerlink" href="#co-waf-pokrywa-a-czego-nie" title="Permanent link">&para;</a></h2>
+<p>CRS obejmuje m.in. SQL injection (rodzina 942), path traversal i LFI (930),
+command injection (932), XSS (941), SSTI i SSRF (934), fingerprinty skanerów (913).</p>
+<p>Czego <strong>nie</strong> rozwiązuje: 404 generowanych przez legalne boty wyszukiwarek na
+martwych URL-ach. Te adresy wyglądają całkowicie normalnie i nginx nie wie z
+góry, że zapytanie skończy się 404 — to zadanie dla przekierowań 301 po stronie
+aplikacji, nie dla WAF-a.</p>
+<p>Czego też nie rozwiązuje: żądań, które <strong>nie są atakiem, tylko nie są nasze</strong> —
+sond o <code>*.php</code>, prefiksów obcych CMS-ów, niepodstawionych literałów szablonów.
+Dla CRS to zwykłe URL-e i przepuszcza je poprawnie; odcina je osobna, tańsza
+warstwa — <a href="../utwardzenie-brzegu/">Utwardzenie brzegu</a>.</p>
+<p>Pełne uzasadnienie decyzji i odrzucone warianty:
+<code>docs/superpowers/specs/2026-08-03-waf-owasp-crs-design.md</code>.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Powrót do góry
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+    <div class="md-copyright__highlight">
+      MIT · IPL Web
+    </div>
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.instant", "navigation.tracking", "navigation.tabs", "navigation.sections", "navigation.top", "navigation.indexes", "toc.follow", "search.suggest", "search.highlight", "content.code.copy", "content.action.edit"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Skopiowano do schowka", "clipboard.copy": "Kopiuj do schowka", "search.result.more.one": "1 wi\u0119cej na tej stronie", "search.result.more.other": "# wi\u0119cej na tej stronie", "search.result.none": "Brak wynik\u00f3w wyszukiwania", "search.result.one": "Wyniki wyszukiwania: 1", "search.result.other": "Wyniki wyszukiwania: #", "search.result.placeholder": "Zacznij pisa\u0107, aby szuka\u0107", "search.result.term.missing": "Brak", "select.version": "Wybierz wersj\u0119"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>
