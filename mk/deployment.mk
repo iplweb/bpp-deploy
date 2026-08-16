@@ -150,7 +150,8 @@ autoupdate:
 	@echo "Podglad z innego terminala: screen -r $(AUTOUPDATE_SCREEN_NAME)"
 	@while true; do \
 		bash scripts/autoupdate.sh || echo "autoupdate: cykl zakonczony bledem (kod $$?) — czekam do nastepnego."; \
-		echo "autoupdate: nastepny cykl za $(AUTOUPDATE_INTERVAL)s ($$(date '+%H:%M:%S'))."; \
+		next=$$(($$(date +%s) + $(AUTOUPDATE_INTERVAL))); \
+		echo "autoupdate: nastepny cykl za $(AUTOUPDATE_INTERVAL)s, okolo $$(date -d "@$$next" '+%H:%M:%S' 2>/dev/null || date -r "$$next" '+%H:%M:%S' 2>/dev/null || echo '?')."; \
 		sleep $(AUTOUPDATE_INTERVAL); \
 	done
 
