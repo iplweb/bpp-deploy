@@ -96,15 +96,27 @@ filtrów ad-hoc w [dashboardach Grafany](monitoring/dashboardy-grafany.md).
 **Symptom**: zapis rekordu w panelu admina kończy się błędem, a w logach kontenerów
 BPP **nie ma śladu tego żądania** — bo nigdy nie dotarło do Django.
 
-To WAF. Formularze admina przyjmują dowolny tekst naukowy, a reguła CRS `932130`
-czyta niektóre jego postacie jako wyrażenie powłoki — `p < (0,05)`, LaTeX
-`$(1-\alpha)$`, `${author}` z BibTeksa. Naprawia to reguła `10009`
-([Formularze admina](architektura/waf.md#formularze-admina)); jeśli instalacja
+To WAF. Formularze admina przyjmują dowolny tekst naukowy, a CRS na paranoi 1
+czyta jego postacie jako atak — `p < (0,05)` i LaTeX `$(1-\alpha)$` jako wyrażenie
+powłoki, `; type 1 diabetes` jako komendę Windows, `(PPEQ) (the Polish adaptation…)`
+jako wywołanie funkcji PHP, niedokończoną datę `..` jako path traversal.
+
+Naprawia to reguła `10009`, która od 2026-08-23 przełącza **całą** ścieżkę
+`^/admin/<app>/<model>/` w `DetectionOnly`
+([Formularze admina](architektura/waf.md#formularze-admina)). Jeśli instalacja
 jej nie ma, wystarczy `git pull && make up` — wykluczenia jadą w wersjonowanym
 bind-moucie, bez migracji `.env`.
 
-Jeśli objaw wraca na **innej** treści, znajdź regułę, która faktycznie strzeliła —
-wpis `949110` tylko sumuje i nie mówi nic o przyczynie:
+!!! warning "Jeśli blokada dotyczy `/admin/login/`, to prawdopodobnie nie fałszywy alarm"
+    Formularz logowania jest celowo **poza** wykluczeniem i to właśnie tam leci
+    realny ruch atakujący (338 blokad na 7 dni w pomiarze z 2026-08-23, głównie
+    SQLi). Zanim cokolwiek wyłączysz, sprawdź, czy zgłaszający na pewno próbował
+    się zalogować, a nie zapisać rekord.
+
+Jeśli objaw wraca na **innej** treści na formularzu modelu, sprawdź najpierw, czy
+`10009` na pewno działa (`grep 10009` w pliku wykluczeń) — cała ścieżka powinna
+być już przepuszczana. Jeśli blokada jest gdzie indziej, znajdź regułę, która
+faktycznie strzeliła — wpis `949110` tylko sumuje i nie mówi nic o przyczynie:
 
 ```bash
 docker compose logs webserver | grep '<unique_id z wpisu 949110>'

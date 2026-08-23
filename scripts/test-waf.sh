@@ -588,42 +588,61 @@ for para in "PASS|Accept-Charset przechodzi (falszywy alarm)|Accept-Charset: utf
 done
 
 # --------------------------------------------------------------------------
-# Regula 10009: formularze admina a 932130 (wyrazenie powloki w tekscie)
+# Regula 10009: formularze admina schodza w calosci do DetectionOnly
 # --------------------------------------------------------------------------
 # DLACZEGO OSOBNO: tabelka PRZYPADKI strzela GET-em, a tu cala tresc jedzie
 # w CIELE POST-a — i, co wazniejsze, tamta liczy KAZDY kod HTTP jako PASS, wiec
 # 403 od ModSecurity przeszloby tam jako sukces.
 #
-# ZGLOSZENIE 2026-08-12 (bpp.umlub.pl): redaktor nie mogl zapisac rekordu,
-# `POST /admin/bpp/wydawnictwo_ciagle/105013/change/` -> blokada, Total Score 5.
-# Zapalala 932130 ("Unix Shell Expression Found"), bo transformacja `t:cmdLine`
-# KASUJE SPACJE PRZED `(`: legalne "wynik istotny (p < (0,05))" widziane jest
-# przez silnik jako "wynik istotny(p <(0 05))", co pasuje do `[<>]\(.*\)`.
+# 2026-08-23 regula zostala rozszerzona z `ctl:ruleRemoveById=932130` na
+# `ctl:ruleEngine=DetectionOnly`, bo wyliczanka ID nie nadazala: w jedenascie
+# dni strzelily trzy kolejne reguly (932115, 933210, 930110) na dwoch modelach.
+# Uzasadnienie i pomiar produkcyjny — w komentarzu przy 10009 w
+# defaults/webserver/modsecurity-override.conf.template.
 #
-# SA DWIE GRUPY I OBIE SA POTRZEBNE. Same "PASS-y" nie dowodza niczego —
-# przeszlyby tak samo po wylaczeniu calego CRS. Kontrole pilnuja trzech granic
-# naraz:
+# SA TRZY GRUPY I KAZDA PILNUJE CZEGOS INNEGO:
 #
-#   1. `/admin/login/` MA dalej blokowac. To nie jest formalnosc: gdyby regula
-#      celowala w `REQUEST_URI` zamiast `REQUEST_FILENAME`, query string
-#      `?next=/admin/` domknalby wzorzec `^/admin/[^/]+/[^/]+/` na formularzu
-#      logowania — czyli na jedynym endpoincie admina osiagalnym anonimowo.
-#      Stad DWA przypadki logowania: goly i z `?next=`.
-#   2. Poza `/admin/` (`/bpp/szukaj/`) 932130 ma dzialac bez zmian.
-#   3. Zdjelismy JEDNA regule, nie ochrone przed RCE: realny payload
-#      `$(id)` z `cat /etc/passwd` ma dalej obrywac od reszty rodziny 932.
+#   1. FALSZYWE ALARMY — realne tresci z produkcji, ktore blokowaly redaktorom
+#      zapis. Musza przechodzic.
+#   2. CENA — realny RCE/SQLi/XSS na formularzu modelu. Te przypadki
+#      oczekuja PASS, i to jest ZAMIERZONE. DetectionOnly zdejmuje tam ochrone
+#      w calosci; zapisujemy to jako jawny kontrakt, zeby nikt nie odkryl tego
+#      przypadkiem i zeby odwrocenie tej decyzji od razu zapalilo sie na czerwono.
+#      Endpointy sa za `staff_member_required`, wiec napastnik musi byc juz
+#      zalogowanym redaktorem.
+#   3. KONTROLE — granica wykluczenia. Same PASS-y nie dowodza NICZEGO,
+#      przeszlyby tak samo po wylaczeniu calego CRS. Kontrole pilnuja dwoch
+#      rzeczy naraz:
+#        a) `/admin/login/` MA dalej blokowac, w obu postaciach (gola i z
+#           `?next=/admin/`). To nie formalnosc: gdyby regula celowala
+#           w `REQUEST_URI` zamiast `REQUEST_FILENAME`, query string domknalby
+#           wzorzec `^/admin/[^/]+/[^/]+/` na formularzu logowania — czyli
+#           zdjalby CALY CRS z jedynego anonimowo osiagalnego endpointu admina.
+#           Pomiar 2026-08-23: to wlasnie tam leci 338 realnych blokad na 7 dni.
+#        b) Poza `/admin/` wszystkie cztery reguly maja dzialac bez zmian.
 echo
-printf "%-6s %-46s %s\n" "WYNIK" "FORMULARZE ADMINA (932130)" "SZCZEGOLY"
+printf "%-6s %-46s %s\n" "WYNIK" "FORMULARZE ADMINA (DetectionOnly)" "SZCZEGOLY"
 printf "%s\n" "----------------------------------------------------------------------------------"
 ADMIN_CHANGE='admin/bpp/wydawnictwo_ciagle/105013/change/'
-for para in "PASS|streszczenie: 'p < (0,05)'|$ADMIN_CHANGE|streszczenie=wynik istotny (p < (0,05))" \
-            "PASS|streszczenie: LaTeX \$(1-\\alpha)\$|$ADMIN_CHANGE|streszczenie=przedzial \$(1-\\alpha)\$ dla n=30" \
-            "PASS|adnotacje: \${author} z BibTeksa|admin/bpp/wydawnictwo_ciagle/add/|adnotacje=import: \${author} \${year}" \
-            "PASS|changelist: zakres '<(1990-2020)'|admin/bpp/wydawnictwo_ciagle/|q=zakres <(1990-2020)" \
+ZWARTE_CHANGE='admin/bpp/wydawnictwo_zwarte/105013/change/'
+for para in "PASS|FP 932130: streszczenie 'p < (0,05)'|$ADMIN_CHANGE|streszczenie=wynik istotny (p < (0,05))" \
+            "PASS|FP 932130: LaTeX \$(1-\\alpha)\$|$ADMIN_CHANGE|streszczenie=przedzial \$(1-\\alpha)\$ dla n=30" \
+            "PASS|FP 932130: \${author} z BibTeksa|admin/bpp/wydawnictwo_ciagle/add/|adnotacje=import: \${author} \${year}" \
+            "PASS|FP 932130: changelist '<(1990-2020)'|admin/bpp/wydawnictwo_ciagle/|q=zakres <(1990-2020)" \
+            "PASS|FP 932115 prod: '; type 1 diabetes'|$ADMIN_CHANGE|streszczenia-0-streszczenie=; type 1 diabetes mellitus; air pollution; particulate matter" \
+            "PASS|FP 933210 prod: akronimy '(X) (Y)'|$ADMIN_CHANGE|streszczenia-0-streszczenie=(PPEQ) (the Polish adaptation of the CAHPS Child Hospital Survey (Child HCAHPS))" \
+            "PASS|FP 930110 prod: niedokonczona data '..'|$ADMIN_CHANGE|autorzy_set-7-data_oswiadczenia=.." \
+            "PASS|FP 942100 prod: SQLi-FP na zwartym|$ZWARTE_CHANGE|streszczenia-0-streszczenie=cohort of 1=1 matched controls; select group" \
+            "PASS|CENA: realne RCE \$(id) na formularzu|$ADMIN_CHANGE|streszczenie=x; cat /etc/passwd; echo \$(id)" \
+            "PASS|CENA: realne SQLi na formularzu|$ADMIN_CHANGE|streszczenie=' UNION ALL SELECT NULL,NULL-- a" \
+            "PASS|CENA: realny XSS na formularzu|$ADMIN_CHANGE|streszczenie=<script>alert(1)</script>" \
             "BLOK|kontrola: ten sam tekst na /admin/login/|admin/login/|username=wynik istotny (p < (0,05))" \
             "BLOK|kontrola: /admin/login/ z ?next=/admin/|admin/login/?next=/admin/|username=wynik istotny (p < (0,05))" \
-            "BLOK|kontrola: ten sam tekst na /bpp/szukaj/|bpp/szukaj/|q=wynik istotny (p < (0,05))" \
-            "BLOK|kontrola: realne RCE \$(id) na adminie|$ADMIN_CHANGE|streszczenie=x; cat /etc/passwd; echo \$(id)"; do
+            "BLOK|kontrola: realne SQLi na /admin/login/|admin/login/|username=admin' OR 1=1-- a" \
+            "BLOK|kontrola: realne RCE na /admin/login/|admin/login/|username=x; cat /etc/passwd; echo \$(id)" \
+            "BLOK|kontrola: 932130 poza adminem|bpp/szukaj/|q=wynik istotny (p < (0,05))" \
+            "BLOK|kontrola: 930110 poza adminem ('..')|bpp/szukaj/|q=.." \
+            "BLOK|kontrola: 932115 poza adminem ('; type')|bpp/szukaj/|q=; type 1 diabetes mellitus; air pollution"; do
     IFS='|' read -r oczek opis sciezka cialo <<< "$para"
     LACZNIE=$((LACZNIE + 1))
     kod=$(curl -sk --http1.1 -o /dev/null -w '%{http_code}' --max-time 8 \

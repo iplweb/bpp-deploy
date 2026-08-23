@@ -210,12 +210,12 @@ Obecnie jest ich dziesięć:
   `/bpp/rekord/`, czyli na poprawnym adresie istniejącego rekordu. Szczegóły:
   [Nagłówki zakazane polityką](#naglowki-zakazane).
 
-- **`id:10009` — `932130` („Unix Shell Expression Found") wyłączone na
-  formularzach admina.** Transformacja `t:cmdLine` kasuje spacje przed `(`, więc
-  legalne `wynik istotny (p < (0,05))` ze streszczenia silnik widzi jako
-  `wynik istotny(p <(0 05))` i czyta jako podstawienie procesu powłoki.
-  Zgłoszenie 2026-08-12: redaktor nie mógł zapisać rekordu. Szczegóły:
-  [Formularze admina](#formularze-admina).
+- **`id:10009` — formularze admina (`^/admin/<app>/<model>/`) w całości
+  w `DetectionOnly`.** Streszczenie naukowe to kilka tysięcy znaków wolnego
+  tekstu gęstego od średników, nawiasów i akronimów, więc CRS na PL1 zapala tam
+  regułę po regule: `932130` (2026-08-12), potem `932115`, `933210` i `930110`
+  (2026-08-23). Formularz logowania **nie** jest objęty — ma po `/admin/` tylko
+  jeden segment. Szczegóły, pomiar i cena: [Formularze admina](#formularze-admina).
 
 - **`id:10010` — `953110` („PHP source code leakage") zdjęta GLOBALNIE.**
   Jedyne wykluczenie bez warunku na ścieżkę, bo wyzwalaczem jest **wartość
@@ -649,6 +649,10 @@ plikiem i `git pull` by go nie zaktualizował.
 
 ## Formularze admina — reguła 10009 {#formularze-admina}
 
+Ścieżka `^/admin/<app>/<model>/` schodzi **w całości** do `DetectionOnly`.
+Reguła powstała 2026-08-12 jako wykluczenie **jednej** reguły (`932130`)
+i została rozszerzona 2026-08-23, bo wyliczanka ID nie nadążała za danymi.
+
 ### Objaw
 
 Redaktor nie może zapisać publikacji. `POST` na formularz zmiany rekordu kończy
@@ -660,15 +664,13 @@ się blokadą, w logu `Total Score: 5`:
 request: "POST /admin/bpp/wydawnictwo_ciagle/105013/change/ HTTP/2.0"
 ```
 
-Zgłoszenie 2026-08-12 (`bpp.umlub.pl`), powtarzalne na wielu rekordach.
-
 !!! warning "Wpis `949110` nie mówi, co zablokowało"
     `949110` to reguła **sumująca**, wykonywana na końcu fazy 2. Loguje samą
     siebie — stąd puste `[data ""]`. Reguła, która faktycznie się dopasowała,
     siedzi w **osobnym, wcześniejszym wpisie** o tym samym `unique_id`. To ona
     ma wypełnione `logdata` ze wskazaniem pola. Bez niej diagnoza jest zgadywaniem.
 
-### Przyczyna — winowajcą jest transformacja, nie treść
+### Pierwsze zgłoszenie (2026-08-12) — winowajcą była transformacja, nie treść
 
 `932130` szuka wyrażeń powłoki: `$(...)`, `$((...))`, `${...}` oraz `<(...)`
 i `>(...)` (podstawienie procesu). Działa jednak **po** `t:cmdLine`, która m.in.
@@ -681,57 +683,82 @@ po cmdLine:  wynik istotny(p <(0 05))
                             ^^^^^^^ pasuje do [<>]\(.*\)
 ```
 
-Audit log (zmierzone 2026-08-12 na `owasp/modsecurity-crs:nginx`, tym samym
-obrazie co produkcja):
-
 ```text
 Matched Data: <(0 05)) found within ARGS:streszczenie: wynik istotny(p <(0 05))
 ```
 
-Severity CRITICAL = 5 pkt przy progu 5, więc **jedno** trafienie blokuje.
-Zmierzone postacie — każda blokowana przez samą `932130`:
+Zdjęliśmy wtedy samą `932130`, z zapisem: „gdy któraś z pozostałych realnie
+strzeli — dopisać ją tutaj **po zmierzeniu**".
 
-| Pole i treść | Wynik |
-|---|---|
-| `streszczenie=wynik istotny (p < (0,05))` | BLOK `932130` |
-| `streszczenie=przedzial $(1-\alpha)$ dla n=30` (LaTeX) | BLOK `932130` |
-| `adnotacje=import: ${author} ${year}` (BibTeX) | BLOK `932130` |
-| `uwagi=grupa n > (30) osob` | BLOK `932130` |
-| `tytul=Wplyw kwasu foliowego` | przelot |
+### Drugie zgłoszenie (2026-08-23) — trzy kolejne reguły w jedenaście dni
 
-### Dlaczego tylko `932130`, a nie całe rodziny XSS i SQLi
+Ludzie znów nie mogli zapisywać prac. Pomiar na produkcji (`bpp.umlub.pl`,
+audit log z Loki, okno 7 dni) pokazał, że `/admin/` dzieli się na **dwie
+rozłączne populacje**, a granica biegnie dokładnie po liczbie segmentów ścieżki.
 
-Kuszące było wyłączyć od razu także `941` i `942` — „przecież redaktor wpisuje
-dowolny tekst naukowy". **Pomiar tego nie potwierdził.** Żaden z kandydatów się
-nie zapala:
+**Głębokie — `/admin/<app>/<model>/…` — 160 blokad, w 100% fałszywe alarmy:**
 
-| Treść bibliograficzna | Wynik |
-|---|---|
-| `Stezenie H<sub>2</sub>O<sub>2</sub> w tkance` | przelot |
-| `Badania <i>in vitro</i> na liniach komorkowych` | przelot |
-| `Crohn's disease -- przeglad literatury` | przelot |
-| `We select data from the national registry` | przelot |
-| `Union of datasets; a comparative study` | przelot |
-| `iloraz szans OR 1=1,25 (95% CI)` | przelot |
-| `doi: 10.1016/j.jhep.2020.03.004` | przelot |
+| Reguła | Trafień | Pole | Dopasowanie |
+|---|---|---|---|
+| `932115` Windows Command Injection | 60 | `streszczenia-0-streszczenie` | `; type 1 diabetes mellitus; air pollution; …` — `;` + `type` (komenda Windows) |
+| `933210` PHP Variable Function Call | 50 | `streszczenia-0-streszczenie` | `(PPEQ) (the Polish adaptation of the CAHPS Child Hospital Survey (Child HCAHPS))` — wzorzec `(…)(…)` |
+| `930110` Path Traversal (`/../`) | 30 | `autorzy_set-7-data_oswiadczenia` | `..` — niedokończona data z widżetu `dd.mm.rrrr` |
+| `942100` SQLi via libinjection | 20 | — | `/admin/bpp/wydawnictwo_zwarte/` |
 
-Poszerzenie byłoby więc zdjęciem ochrony bez ani jednego przypadku, który by to
-uzasadniał — dokładnie ten nawyk, który ta konfiguracja stara się trzymać
-w ryzach (patrz [Zawężanie wykluczeń po baseline](#zawezanie-wykluczen-po-baseline)).
+**Płytkie — `/admin/login/`, `/admin/.env` — 343 blokady, w 100% realne ataki:**
 
-### Zdjęcie `932130` nie otwiera admina na wstrzyknięcie poleceń
+| Reguła | Trafień | Ścieżka |
+|---|---|---|
+| `942100` ×129, `942190` ×115, `920220` ×66, `942140` ×27, `942230` ×1 | 338 | `/admin/login/` |
+| `930130` Restricted File Access | 5 | `/admin/.env` |
 
-`932130` to jedna z kilkunastu reguł rodziny 932 i akurat ta o najszerszym,
-czysto składniowym wzorcu. Realny payload zapala pozostałe — zmierzone **już
-z włączoną 10009**, na tej samej ścieżce:
+### Dlaczego `DetectionOnly`, a nie kolejne ID na liście
 
-| Payload w `streszczenie` | Wynik |
-|---|---|
-| `x; cat /etc/passwd; echo $(id)` | BLOK — `930120` + `932100` + `932110` + `932160` |
-| `<script>alert(1)</script>` | BLOK — `941100` + `941110` + `941160` |
-| `' UNION ALL SELECT NULL,NULL-- a` | BLOK — `942100` + `942190` + `942360` |
+Wyzwalaczem nie jest żaden konkretny wzorzec, tylko **sama natura danych**.
+Anglojęzyczne streszczenie naukowe to kilka tysięcy znaków wolnego tekstu,
+gęstego od średników, nawiasów, akronimów i notacji statystycznej. CRS na PL1
+skanuje to dziesiątkami reguł składniowych, z których każda ma severity
+CRITICAL = 5 pkt przy progu 5 — **jedno** trafienie blokuje, zapasu nie ma.
+Kolejne streszczenie znajdzie kolejną regułę, a `type 1 diabetes` nie da się
+przewidzieć z wyprzedzeniem.
 
-Wykluczenie zdejmuje fałszywe alarmy, a nie ochronę.
+To ten sam argument, który uzasadnia `10006` dla `/grafana/`: LogQL jest z natury
+gęsty od metaznaków, więc wykluczanie pojedynczych reguł byłoby grą w kreta.
+
+!!! info "Wniosek z 2026-08-12 został obalony przez dane, nie przez opinię"
+    Jedenaście dni wcześniej ta strona argumentowała, że poszerzenie wykluczenia
+    poza `932130` „byłoby zdjęciem ochrony bez ani jednego przypadku, który by to
+    uzasadniał" — bo żaden z siedmiu testowanych łańcuchów bibliograficznych
+    (`Stezenie H<sub>2</sub>O<sub>2</sub>`, `Union of datasets; a comparative
+    study`, `iloraz szans OR 1=1,25 (95% CI)`, …) się nie zapalał.
+
+    To był poprawny wniosek z **wymyślonych** payloadów i błędny wniosek
+    o rzeczywistości: prawdziwe streszczenia z produkcji zapaliły trzy reguły,
+    których nikt na tej liście nie przewidział. Lekcja nie brzmi „nie mierzyć",
+    tylko **mierzyć na realnym ruchu, nie na wyobrażeniu o nim**.
+
+### Cena, wprost
+
+Na `^/admin/<app>/<model>/` realny payload RCE, SQLi czy XSS **nie jest już
+blokowany**. Nie jest to efekt uboczny — `make test-waf` zapisuje to jako
+oczekiwany `PASS` w trzech przypadkach oznaczonych `CENA:`, żeby nikt nie odkrył
+tego przypadkiem i żeby cofnięcie decyzji od razu zapaliło się na czerwono.
+
+Dlaczego to akceptowalne:
+
+1. Każdy z tych endpointów wymaga konta ze `staff_member_required` — kto tam
+   POST-uje, jest już uwierzytelnionym redaktorem.
+2. Django parametryzuje SQL przez ORM, a szablony auto-escapują HTML; ochrona
+   składniowa CRS jest tu w dużej mierze zdublowaniem.
+3. Jedyny anonimowo osiągalny endpoint admina to formularz logowania i on
+   **zostaje chroniony w pełni**. Pomiar wyżej pokazuje, że to właśnie tam leci
+   cały realny ruch atakujący: 338 z 343 płytkich blokad.
+
+### Dlaczego `DetectionOnly`, a nie `Off`
+
+Trafienia dalej idą do audit logu, więc widać je na dashboardzie WAF-a jako
+`detected` (zmienna **Akcja**). Przy `Off` ślad znika całkowicie i nie dowiemy
+się, że coś nowego zaczęło strzelać. Ta sama konwencja co `10002` i `10003`.
 
 ### `REQUEST_FILENAME`, nie `REQUEST_URI` — to nie jest kosmetyka {#request-filename}
 
@@ -744,14 +771,19 @@ query string — który potrafi go domknąć na cudzej ścieżce:
       [^/]+       [^/]+/      ← "?next=" i "/admin/" domykają wzorzec
 ```
 
-Wykluczenie objęłoby więc **formularz logowania** — jedyny endpoint admina
-osiągalny anonimowo, czyli ten, który ochrony potrzebuje najbardziej.
-`REQUEST_FILENAME` to sama ścieżka bez query stringa, więc `/admin/login/`,
-`/admin/password_change/` i `/admin/jsi18n/` mają po `/admin/` tylko jeden
-segment i **nie** pasują.
+**Po rozszerzeniu do `DetectionOnly` ta pomyłka waży nieporównanie więcej.**
+Wcześniej kosztowałaby zdjęcie *jednej* reguły z formularza logowania. Teraz
+kosztowałaby zdjęcie **całego CRS-a** z jedynego anonimowo osiągalnego endpointu
+admina — czyli dokładnie z tego miejsca, w które leci 338 blokad na 7 dni.
 
-Pilnują tego dwie asercje kontrolne w `make test-waf` — goły `/admin/login/`
-i wariant z `?next=/admin/`.
+`REQUEST_FILENAME` to sama ścieżka bez query stringa, więc `/admin/login/`,
+`/admin/password_change/`, `/admin/logout/` i `/admin/jsi18n/` mają po `/admin/`
+tylko jeden segment i **nie** pasują.
+
+Pilnują tego cztery asercje kontrolne w `make test-waf`: goły `/admin/login/`,
+wariant z `?next=/admin/` oraz realne SQLi i RCE na formularzu logowania.
+Dodatkowe trzy sprawdzają, że poza `/admin/` reguły `932130`, `930110`
+i `932115` działają bez zmian.
 
 ### Zasięg
 
@@ -766,9 +798,16 @@ i wariant z `?next=/admin/`.
 | `/admin/bpp/autor/autocomplete/` | AJAX select2 |
 
 !!! note "Reguła 10002 zostaje nietknięta"
-    `/admin/dbtemplates/` nadal schodzi do `DetectionOnly`. Jest dla tego
-    prefiksu nadmiarowa, ale dotyczy **innej** klasy problemu (surowy HTML
-    z JavaScriptem, rodzina 941) i węższa 10009 jej nie zastępuje.
+    `/admin/dbtemplates/` nadal schodzi do `DetectionOnly` osobną regułą. Jest
+    dla swojego prefiksu nadmiarowa, ale obejmuje także `/admin/dbtemplates/`
+    bez drugiego segmentu, którego `10009` nie łapie.
+
+!!! tip "Te reguły nie strzelają nigdzie poza `/admin/`"
+    Zmierzone 2026-08-23: `930110`, `932115`, `933210` i `932130` nie zapaliły
+    się w oknie 7 dni **ani razu** poza `/admin/`, więc osobne wykluczenie
+    globalne byłoby martwym kodem. Wyjątkiem jest `942100`, które strzela
+    273× na `/bpp/autorzy` — ale to inny problem, z własnym wyzwalaczem,
+    i nie załatwia go wykluczenie dla `/admin/`.
 
 ## Logi WAF-a w Grafanie
 
