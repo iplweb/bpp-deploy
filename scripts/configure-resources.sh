@@ -129,7 +129,7 @@ FIXED_MEM=(
     "celerybeat:480"
     "denorm-queue:320"
     "alloy:192"
-    "loki:192"
+    "loki:512"
     "grafana:192"
     "flower:128"
     "webserver:256"

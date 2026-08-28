@@ -1521,7 +1521,7 @@ test_configure_resources() {
 
     assert_file_contains "redis cap 1g"      "REDIS_MEM_LIMIT=1024m"  "$cfg/.env"
     assert_file_contains "alloy cap 192m"    "ALLOY_MEM_LIMIT=192m"   "$cfg/.env"
-    assert_file_contains "loki cap 192m"     "LOKI_MEM_LIMIT=192m"    "$cfg/.env"
+    assert_file_contains "loki cap 512m"     "LOKI_MEM_LIMIT=512m"    "$cfg/.env"
     assert_file_contains "flower cap 128m"   "FLOWER_MEM_LIMIT=128m"  "$cfg/.env"
     assert_file_contains "netdata cap 320m"  "NETDATA_MEM_LIMIT=320m" "$cfg/.env"
     assert_file_contains "grafana cap 192m"  "GRAFANA_MEM_LIMIT=192m" "$cfg/.env"

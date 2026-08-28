@@ -73,7 +73,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: ${LOKI_MEM_LIMIT:-192m}
+          memory: ${LOKI_MEM_LIMIT:-512m}
           cpus: "${LOKI_CPU_LIMIT:-0.5}"
 
   grafana:

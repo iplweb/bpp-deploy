@@ -60,7 +60,7 @@ dla 6 usług (3 zmienne + `redis`/`loki`/`netdata`); pozostałe korzystają z CP
 | `celerybeat` | 480m | scheduler — pojedynczy proces; podniesione z 320m (Django + broker potrafiły dobić do twardego capu → OOM) |
 | `denorm-queue` | 320m | most PG `LISTEN` → Celery, pojedynczy proces |
 | `alloy` | 192m | kolektor logów; podniesione z 128m (spike przy dużym wolumenie) |
-| `loki` | 192m | magazyn logów; podniesione z 128m (spike przy zapytaniach) |
+| `loki` | 512m | magazyn logów; podniesione z 192m — zmierzone 2026-08-24 na produkcji: `anon-rss` 180 MB, OOM-kill jądra (`CONSTRAINT_MEMCG`), 8 restartów |
 | `grafana` | 192m | |
 | `flower` | 128m | historia zadań w RAM ograniczona `FLOWER_MAX_TASKS=10000` |
 | `webserver` | 256m | nginx; proxy_buffers + HTTP/3 QUIC |
@@ -68,7 +68,7 @@ dla 6 usług (3 zmienne + `redis`/`loki`/`netdata`); pozostałe korzystają z CP
 | `ofelia` | 64m | scheduler cron (Go) |
 | `autoheal` | 32m | restart kontenerów po unhealthy |
 
-Razem ≈ **3,3 GB**. Capy te są odejmowane od budżetu, a reszta trafia do usług zmiennych.
+Razem ≈ **3,8 GB**. Capy te są odejmowane od budżetu, a reszta trafia do usług zmiennych.
 
 ## Usługi zmienne (dzielą pulę)
 
