@@ -135,25 +135,26 @@ Więcej: [dokumentacja → Instalacja → macOS](https://iplweb.github.io/bpp-de
 
 ### Windows
 
-Pobierz i zainstaluj:
-
-- [Git for Windows](https://gitforwindows.org/) — dostarcza **Git Bash**
-- [Docker Desktop for Windows](https://docs.docker.com/desktop/install/windows-install/) — uruchom i poczekaj, aż ikona w zasobniku przestanie się animować
-
-W **PowerShell jako Administrator** zainstaluj GNU Make ([Chocolatey](https://chocolatey.org/install) lub [Scoop](https://scoop.sh/)):
+W **PowerShell** (zwykłym — instalator Dockera sam poprosi o uprawnienia administratora) zainstaluj komplet narzędzi:
 
 ```powershell
-choco install make
+winget install -e --id Git.Git
+winget install -e --id Docker.DockerDesktop
+winget install -e --id ezwinports.make
 ```
 
-Otwórz **Git Bash** i sklonuj repozytorium:
+Dostajesz **Git Bash** z narzędziami Unix (`bash`, `sed`, `openssl`, `envsubst`), **Docker Engine z Docker Compose** oraz **GNU Make 4.4** — bez Chocolatey i Scoopa. `winget` jest wbudowany w Windows 11 i w Windows 10 od wersji 1809 (build 17763); sprawdź `winget --version`, a jeśli go brak — doinstaluj [Instalator aplikacji](https://apps.microsoft.com/detail/9nblggh4nns1) ze Sklepu Microsoft albo użyj [instalacji ręcznej](https://iplweb.github.io/bpp-deploy/instalacja/windows/#instalacja-bez-wingeta).
+
+Uruchom **Docker Desktop** i poczekaj, aż ikona w zasobniku przestanie się animować (pierwszy start może włączyć WSL2 i poprosić o restart).
+
+Otwórz **nowe** okno **Git Bash** i sklonuj repozytorium:
 
 ```bash
 git clone https://github.com/iplweb/bpp-deploy.git
 cd bpp-deploy
 ```
 
-> **Ważne:** Od tego momentu wszystkie komendy `make` uruchamiaj w **Git Bash**, nie w CMD ani PowerShell.
+> **Ważne:** Od tego momentu wszystkie komendy `make` uruchamiaj w **Git Bash**, nie w CMD ani PowerShell. Musi to być okno otwarte **po** instalacji — dopiero nowo uruchomiony terminal widzi `make` dopisany do PATH przez winget.
 
 Więcej: [dokumentacja → Instalacja → Windows](https://iplweb.github.io/bpp-deploy/instalacja/windows/).
 
@@ -167,7 +168,7 @@ Poniższe kroki wykonujesz po zakończeniu instrukcji właściwych dla Twojego s
 make
 ```
 
-Przy pierwszym uruchomieniu `make` zapyta o ścieżkę do **katalogu konfiguracyjnego** (musi znajdować się poza repozytorium — jego nazwa stanie się nazwą projektu Docker Compose) i automatycznie: utworzy strukturę katalogów, skopiuje szablony z `defaults/`, wygeneruje losowe hasła i utworzy plik `.env`.
+Przy pierwszym uruchomieniu `make` zapyta o ścieżkę do **katalogu konfiguracyjnego** (musi znajdować się poza repozytorium — jego nazwa stanie się nazwą projektu Docker Compose; pod Windows możesz podać ścieżkę windowsową, np. `C:\dane\bpp`) i automatycznie: utworzy strukturę katalogów, skopiuje szablony z `defaults/`, wygeneruje losowe hasła i utworzy plik `.env`.
 
 ### 2. Sprawdź i dostosuj konfigurację
 
