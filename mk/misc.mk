@@ -1,4 +1,4 @@
-.PHONY: clean wait debug-show-current-settings test-docker-versions test-waf test-alloy
+.PHONY: clean wait debug-show-current-settings test-docker-versions test-config-path test-grafana-datasources test-waf test-alloy
 
 clean:
 	-find . -name '*~' -o -name '\#*' -o -name '.*~' | xargs rm -f
@@ -11,6 +11,17 @@ debug-show-current-settings:
 
 test-docker-versions:
 	@bash scripts/test-docker-versions.sh
+
+# Unit-testy normalizacji sciezki katalogu konfiguracyjnego (Windows C:\...,
+# cudzyslowy, katalogi-rodzenstwo o wspolnym prefiksie). Windows symulowany
+# atrapami cygpath/uname w PATH — bez sieci, dockera i .env.
+test-config-path:
+	@bash scripts/test-config-path.sh
+
+# Render datasource'ow Grafany. Kluczowa asercja: dziala z PATH-em BEZ
+# `envsubst` (Windows nie ma gettexta). Bez sieci, dockera i .env.
+test-grafana-datasources:
+	@bash scripts/test-grafana-datasources.sh
 
 # Stack testowy WAF-a (ModSecurity + OWASP CRS). Stawia atrape backendu i
 # webserver z PRAWDZIWA konfiguracja z defaults/webserver/, po czym strzela

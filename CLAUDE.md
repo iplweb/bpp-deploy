@@ -103,6 +103,53 @@ Leaving a config on `copy_if_missing` freezes it **at install time forever** —
 
 User uploads land in the `media` volume mounted at `/mediaroot` in every Django container. **`DJANGO_BPP_MEDIA_ROOT=/mediaroot` in `.env` is required** — without it Django falls back to its built-in default (`~/bpp-media` = `/root/bpp-media` in the container), which is **not** on the volume: uploads vanish on recreate and are excluded from backups (`backup-cycle.sh` tars `/mediaroot`). Set in two places (sibling of `STATIC_ROOT`): the fresh-`.env` heredoc + `ensure_env_var` in `scripts/init-configs.sh`, and an append-only self-heal (`_ensure_var`) in `scripts/ensure-config-files.sh` so `git pull && make up` fixes old `.env` files with no manual step. Don't add a new media path without keeping all three in sync. Detail: `docs/konfiguracja/architektura.md`.
 
+### Host-side template rendering has NO gettext dependency
+
+`scripts/generate-grafana-datasources.sh` renders `datasources.yaml.tpl` with
+`render_template` from `scripts/lib-render-template.sh` (whitelist substitution of
+`${VAR}`/`$VAR`, byte-identical to `envsubst '<whitelist>'`), **not** with `envsubst`.
+The other three host-rendered templates (`netdata/go.d/postgres.conf.tpl`,
+`netdata.conf.tpl`, `loki/local-config.yaml.tpl`) use plain `sed` in
+`ensure-config-files.sh`. The nginx image's own `envsubst` (`defaults/webserver/*`) runs
+**inside the container** and is unrelated.
+
+**Symptom if it comes back:** `envsubst: command not found` / exit 127 on Windows —
+Git Bash and MSYS2 don't ship it and winget has no usable gettext package. And it is
+not just install: this script hangs off `update-configs`, a prerequisite of `make up`,
+so **every** deploy dies, not only the first one.
+
+**Anti-fixes — do NOT:** re-introduce `envsubst` "because it's shorter" (guarded by
+`make test-grafana-datasources`, which runs the real script with `envsubst` stripped
+from `PATH`); or swap `render_template` for `sed` — the values are **passwords**, and
+`&`, `\` and `/` are sed metacharacters (that is why the `sed`-based renders in
+`ensure-config-files.sh` need their `_esc` helper). Don't add `gettext` back to the
+install docs either.
+
+### Config dir path handling — `scripts/lib-config-path.sh`
+
+Everything `init-configs` does with the path the operator types (whitespace/CR trim,
+stripping pasted quotes, native-Windows → POSIX, tilde, absolutization, the
+inside-the-repo guard) lives in `scripts/lib-config-path.sh`; tests are
+`make test-config-path` plus `test_init_configs_path_validation` in
+`tests/test_makefile.sh`.
+
+**Symptom that puts you here:** on Windows/Git Bash *every* path the user gives is
+rejected with `nie moze byc wewnatrz repozytorium`, and only `..` gets through.
+`C:\dane\bpp` doesn't match `/*`, so it was treated as **relative** and appended to
+`$(pwd)` — i.e. to the repo — and the guard then fired correctly on a path the user
+never typed. `..` passed only because it exists and went down the `cd && pwd` branch.
+
+**Anti-fixes — do NOT:** (1) restore a plain `case "$INPUT_DIR" in /*)` absolute-path
+test as the only one — it is blind to `C:\…`, `C:/…` and UNC; (2) match the repo with
+`"$REPO_DIR"*` — without the slash it also rejects **siblings** sharing a name prefix
+(`bpp-deploy-config` next to `bpp-deploy`); (3) translate `C:/…` unconditionally — on
+Linux that is a legal *relative* dir, so the conversion is gated on Windows
+(`cygpath` present, or `uname -s` = MINGW/MSYS/CYGWIN).
+
+`make test-config-path` fakes Windows with `cygpath`/`uname` stubs in `PATH`, so the
+regression is caught on Linux and macOS too — don't "simplify" it into a
+Windows-only skip, that is exactly how this shipped unnoticed.
+
 ### PostgreSQL version vars
 
 `dbserver` uses the **stock official** `postgres:${DJANGO_BPP_POSTGRESQL_VERSION}` image (Debian, **not** `-alpine` — the entrypoint needs `bash`) with the autotune scripts in **`dbserver/`** **bind-mounted** read-only on top. The old `iplweb/bpp_dbserver` image is **discontinued** — autotune was its only delta. Those scripts are versioned code delivered by `git pull` — **not** force-synced into `$BPP_CONFIGS_DIR`.

@@ -5,17 +5,22 @@
 # Makefile eksportuje .env w czasie PARSOWANIA, zanim odpali sie jakikolwiek
 # recipe. Sekret swiezo dopisany przez ensure-config-files.sh w tym samym
 # `make up` (np. DJANGO_BPP_PG_MONITOR_PASSWORD na starym .env) nie bylby
-# wtedy widoczny dla envsubst i haslo wyrenderowaloby sie PUSTE -> Grafana
+# wtedy widoczny przy renderze i haslo wyrenderowaloby sie PUSTE -> Grafana
 # 'password authentication failed'. Czytajac .env z dysku zawsze widzimy
 # aktualny stan (ensure-config-files leci jako prerequisite przed tym krokiem).
 #
-# Renderujemy whitelista zmiennych (envsubst nie tknie innych ${...}, np.
-# literalnego $ w customowym datasource). Lista pokrywa zarowno NOWY szablon
+# Renderujemy whitelista zmiennych (render_template nie tknie innych ${...},
+# np. literalnego $ w customowym datasource). Lista pokrywa zarowno NOWY szablon
 # (user: bpp_monitor + ${DJANGO_BPP_PG_MONITOR_PASSWORD}) jak i STARY z czasow
 # Prometheusa (user/haslo aplikacji) - na wypadek `make restart`/`update-configs`
 # uruchomionych zanim ensure-config-files force-syncuje nowy .tpl.
 
 set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# Podstawianie zmiennych bez `envsubst` (gettext) — patrz naglowek biblioteki.
+# shellcheck source=scripts/lib-render-template.sh
+. "$SCRIPT_DIR/lib-render-template.sh"
 
 : "${BPP_CONFIGS_DIR:?BPP_CONFIGS_DIR nie jest ustawione. Uruchom: make init-configs}"
 
@@ -69,9 +74,9 @@ _tmp="${OUT}.tmp.$$"
 trap 'rm -f "$_tmp"' EXIT
 # sed: zdejmij ewentualne cudzyslowy wokol wartosci (zachowanie z czasow
 # Makefile-owego targetu - niektore .env-y maja wartosci w cudzyslowiu).
-# shellcheck disable=SC2016  # single-quote CELOWO: envsubst potrzebuje literalnych nazw $VAR (whitelista), nie ich wartosci
-envsubst '$DJANGO_BPP_DB_HOST $DJANGO_BPP_DB_PORT $DJANGO_BPP_DB_NAME $DJANGO_BPP_DB_USER $DJANGO_BPP_DB_PASSWORD $DJANGO_BPP_PG_MONITOR_PASSWORD' \
-    < "$TPL" \
+render_template "$TPL" \
+    DJANGO_BPP_DB_HOST DJANGO_BPP_DB_PORT DJANGO_BPP_DB_NAME \
+    DJANGO_BPP_DB_USER DJANGO_BPP_DB_PASSWORD DJANGO_BPP_PG_MONITOR_PASSWORD \
     | sed 's/"\([^"]*\)"/\1/g' \
     > "$_tmp"
 mv "$_tmp" "$OUT"

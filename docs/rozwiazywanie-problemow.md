@@ -122,6 +122,26 @@ faktycznie strzeliła — wpis `949110` tylko sumuje i nie mówi nic o przyczyni
 docker compose logs webserver | grep '<unique_id z wpisu 949110>'
 ```
 
+## Windows: „katalog musi znajdować się POZA repozytorium" mimo poprawnej ścieżki
+
+**Symptom**: przy pierwszym `make` w Git Bash *każda* podana ścieżka jest odrzucana
+komunikatem `BLAD: Katalog konfiguracyjny nie moze byc wewnatrz repozytorium!`.
+Przechodzi wyłącznie `..`.
+
+**Przyczyna**: ścieżka windowsowa (`C:\dane\bpp`) nie zaczyna się od `/`, więc bash
+traktował ją jak **względną** i doklejał do katalogu roboczego, czyli do repozytorium —
+walidacja słusznie odrzucała powstałą w ten sposób ścieżkę. `..` działało, bo ten
+katalog istnieje i był rozwijany przez `cd`.
+
+**Rozwiązanie**: `git pull` — po poprawce z sierpnia 2026 ścieżki windowsowe (`C:\dane\bpp`,
+`C:/dane/bpp`, wklejone w cudzysłowach) są przeliczane na postać `/c/dane/bpp`.
+Na starszym checkoucie obejściem jest podanie ścieżki od razu w tej postaci:
+`/c/dane/bpp`.
+
+Ten sam błąd potrafił też odrzucić katalog **obok** repozytorium o podobnej nazwie
+(`bpp-deploy-config` przy repo `bpp-deploy`) — na dowolnym systemie. Lekarstwo to
+również `git pull`.
+
 ## Po `git pull` coś się rozjechało
 
 **Symptom**: nowe usługi się nie pojawiają, obrazy są stare, `.env` nie ma nowych zmiennych.

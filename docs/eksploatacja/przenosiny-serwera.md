@@ -43,7 +43,7 @@ rsync -avzP ~/backups/                 nowy-host:~/backups/
 ### 3. Zainstaluj zależności hosta
 
 Zgodnie z sekcją [Instalacja](../instalacja/index.md) — Docker Engine, `make`, `git`,
-`gettext`, dodanie użytkownika do grupy `docker`.
+dodanie użytkownika do grupy `docker`.
 
 !!! danger "Nie uruchamiaj `make init-configs`"
     Masz już skopiowaną konfigurację — świeży `init-configs` rozjedzie hasła z dumpem.

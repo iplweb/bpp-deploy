@@ -34,6 +34,8 @@ endif
 # ciche pokrycie: lokalnie zielone, na PR-ze nieuruchamiane.
 .PHONY: test
 test:
+	@bash scripts/test-config-path.sh
+	@bash scripts/test-grafana-datasources.sh
 	@./scripts/test-alloy.sh
 	@bash tests/test_makefile.sh
 	@./scripts/test-waf.sh
@@ -191,6 +193,8 @@ help:
 	@echo "    fix-env-quotes       - Auto-strip cudzyslowy z .env (z backupem .bak.<ts>)"
 	@echo "    zaspawaj-wersje      - Przypnij DOCKER_VERSION do wersji dzialajacego appservera (lub TAG=...)"
 	@echo "    test-docker-versions - Unit-testy logiki wersji obrazow (mock curl/docker, no network)"
+	@echo "    test-config-path     - Unit-testy sciezki katalogu konfiguracyjnego (Windows C:\\..., no network)"
+	@echo "    test-grafana-datasources - Render datasources.yaml bez gettexta (no network)"
 	@echo ""
 	@echo "  Host management:"
 	@echo "    base-host-update-upgrade - Update system packages"

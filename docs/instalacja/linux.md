@@ -10,7 +10,7 @@ Wybierz swoją dystrybucję:
 
     ```bash
     sudo apt update
-    sudo apt install -y git make openssl gettext
+    sudo apt install -y git make openssl
     ```
 
     Zainstaluj Docker Engine — oficjalna instrukcja dla
@@ -24,7 +24,7 @@ Wybierz swoją dystrybucję:
 === "Fedora"
 
     ```bash
-    sudo dnf install -y git make openssl gettext
+    sudo dnf install -y git make openssl
     ```
 
     Zainstaluj Docker Engine —
@@ -34,7 +34,7 @@ Wybierz swoją dystrybucję:
 === "Arch Linux"
 
     ```bash
-    sudo pacman -Sy --noconfirm git make openssl gettext
+    sudo pacman -Sy --noconfirm git make openssl
     ```
 
     Zainstaluj Docker Engine:
@@ -50,7 +50,7 @@ Wybierz swoją dystrybucję:
 === "openSUSE"
 
     ```bash
-    sudo zypper install -y git make openssl gettext-runtime
+    sudo zypper install -y git make openssl
     ```
 
     Zainstaluj Docker Engine —

@@ -20,16 +20,7 @@ pobierz ze strony (wybierz wariant zgodny z Twoim Makiem: **Apple Silicon** dla 
 lub **Intel** dla starszych modeli), otwórz plik `.dmg` i przeciągnij Docker do folderu
 Programy. Uruchom Docker Desktop i poczekaj, aż ikona w pasku menu przestanie się animować.
 
-## 3. `envsubst` (gettext)
-
-Potrzebny do generowania konfiguracji. Jeśli nie masz jeszcze [Homebrew](https://brew.sh/),
-najpierw go zainstaluj, a potem:
-
-```bash
-brew install gettext
-```
-
-## 4. Sklonuj repozytorium
+## 3. Sklonuj repozytorium
 
 ```bash
 git clone https://github.com/iplweb/bpp-deploy.git

@@ -31,6 +31,17 @@ jobs:
       - name: Wdrozenie z ostrzezeniem (mocki)
         run: ./scripts/test-deploy-with-warning.sh
 
+      # Normalizacja sciezki katalogu konfiguracyjnego (Windows symulowany
+      # atrapami cygpath/uname w PATH) - regresja jest wiec lapana tutaj, a
+      # nie dopiero w wolniejszym jobie test-windows.
+      - name: Sciezka katalogu konfiguracyjnego (mocki)
+        run: ./scripts/test-config-path.sh
+
+      # Render datasource'ow Grafany bez `envsubst` w PATH - czyli w warunkach
+      # Windows, ktory nie ma gettexta.
+      - name: Render datasources.yaml bez gettexta
+        run: ./scripts/test-grafana-datasources.sh
+
   pre-commit:
     name: Pre-commit hooks
     runs-on: ubuntu-latest

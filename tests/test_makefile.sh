@@ -1785,6 +1785,81 @@ test_ensure_config_files_altcha_selfheal() {
 }
 
 # ============================================================
+# TEST: walidacja sciezki katalogu konfiguracyjnego
+#
+# Trzy regresje z jednego miejsca (scripts/lib-config-path.sh):
+#  1. katalog-rodzenstwo o wspolnym prefiksie nazwy byl odrzucany jako
+#     "wewnatrz repozytorium" — wzorzec "$REPO_DIR"* bez ukosnika,
+#  2. pod Windows KAZDA sciezka natywna (C:\dane\bpp) nie pasowala do wzorca
+#     /*, byla wiec doklejana do $(pwd) — czyli do repozytorium — i odrzucana;
+#     przechodzilo wylacznie ".." (istnieje, obsluguje je galaz `cd && pwd`),
+#  3. kontrola: katalog naprawde wewnatrz repo ma byc NADAL odrzucany.
+#
+# Punkt 2 wykonuje sie realnie na runnerze Windows (job test-windows w CI);
+# poza nim to samo pokrywa scripts/test-config-path.sh na atrapie cygpath.
+# ============================================================
+
+test_init_configs_path_validation() {
+    yellow "=== Test: walidacja sciezki katalogu konfiguracyjnego ==="
+
+    setup_temp
+
+    # 1. Rodzenstwo o wspolnym prefiksie: <work>/bpp-deploy-configs lezy OBOK
+    #    repozytorium <work>/bpp-deploy, nie w nim.
+    #
+    #    `pwd -P` jest konieczne, inaczej test jest PUSTY na macOS: init-configs
+    #    liczy REPO_DIR z getcwd() (/private/var/...), a $WORK_DIR z mktemp to
+    #    /var/... — prefiksy nie maja szans sie pokryc i nawet zepsuta walidacja
+    #    przechodzi.
+    local work_phys
+    work_phys="$(cd "$WORK_DIR" && pwd -P)"
+    local sibling="$work_phys/bpp-deploy-configs"
+    local out="$WORK_DIR/sibling.log"
+    if make -C "$REPO_COPY" init-configs BPP_CONFIGS_DIR="$sibling" >"$out" 2>&1 </dev/null; then
+        assert_file_contains "katalog obok repo zapisany w .env" \
+            "BPP_CONFIGS_DIR=$sibling" "$REPO_COPY/.env"
+    else
+        fail "katalog obok repo (wspolny prefiks nazwy) odrzucony: $(tail -3 "$out" | tr '\n' ' ')"
+    fi
+
+    # 2. Kontrola: katalog wewnatrz repozytorium nadal odrzucany. Bez tego
+    #    asercja z punktu 1 przechodzilaby takze po skasowaniu calej walidacji.
+    #
+    #    Sciezka WZGLEDNA ("configs") swiadomie — to realna pomylka usera, a
+    #    przy okazji jedyna postac odporna na symlinki w $TMPDIR: init-configs
+    #    absolutyzuje ja wzgledem wlasnego CWD, wiec obie strony porownania
+    #    powstaja tak samo (na macOS /var vs /private/var rozjechaloby sie).
+    rm -f "$REPO_COPY/.env"
+    out="$WORK_DIR/inside.log"
+    if make -C "$REPO_COPY" init-configs BPP_CONFIGS_DIR=configs >"$out" 2>&1 </dev/null; then
+        fail "katalog WEWNATRZ repozytorium zostal przyjety"
+    else
+        assert_file_contains "katalog wewnatrz repo odrzucony" "wewnatrz repozytorium" "$out"
+        if [ -f "$REPO_COPY/.env" ]; then
+            fail ".env nie powinien powstac po odrzuceniu sciezki"
+        else
+            pass ".env nie powstal po odrzuceniu sciezki"
+        fi
+    fi
+
+    # 3. Sciezka w postaci natywnej Windows, podana na stdin jak przez usera.
+    rm -f "$REPO_COPY/.env"
+    if command -v cygpath >/dev/null 2>&1; then
+        local win_cfg
+        win_cfg="$(cygpath -w "$WORK_DIR")\\win-instance"
+        out="$WORK_DIR/windows.log"
+        printf '%s\n' "$win_cfg" | make -C "$REPO_COPY" init-configs >"$out" 2>&1 || true
+        assert_file_not_contains "natywna sciezka Windows nie jest brana za wnetrze repo" \
+            "wewnatrz repozytorium" "$out"
+        assert_dir_exists "katalog z natywnej sciezki Windows utworzony" "$WORK_DIR/win-instance"
+    else
+        skip "natywna sciezka Windows (C:\\...) — wymaga Git Bash/MSYS2"
+    fi
+
+    cleanup_temp
+}
+
+# ============================================================
 # Run
 # ============================================================
 
@@ -1821,6 +1896,7 @@ test_configure_resources_worker_consolidation
 test_init_configs_generates_altcha
 test_loki_retention_migration
 test_ensure_config_files_altcha_selfheal
+test_init_configs_path_validation
 
 echo ""
 echo "========================================"

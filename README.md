@@ -49,7 +49,7 @@ Otwórz **Terminal** (zazwyczaj skrót `Ctrl+Alt+T` lub znajdziesz go w menu apl
 
 ```bash
 sudo apt update
-sudo apt install -y git make openssl gettext
+sudo apt install -y git make openssl
 ```
 
 Zainstaluj Docker Engine — oficjalna instrukcja dla [Debian](https://docs.docker.com/engine/install/debian/) lub [Ubuntu](https://docs.docker.com/engine/install/ubuntu/) (zawiera Docker Compose).
@@ -62,7 +62,7 @@ Zainstaluj Docker Engine — oficjalna instrukcja dla [Debian](https://docs.dock
 <summary><b>Fedora</b></summary>
 
 ```bash
-sudo dnf install -y git make openssl gettext
+sudo dnf install -y git make openssl
 ```
 
 Zainstaluj Docker Engine — [oficjalna instrukcja dla Fedory](https://docs.docker.com/engine/install/fedora/) (zawiera Docker Compose).
@@ -73,7 +73,7 @@ Zainstaluj Docker Engine — [oficjalna instrukcja dla Fedory](https://docs.dock
 <summary><b>Arch Linux</b></summary>
 
 ```bash
-sudo pacman -Sy --noconfirm git make openssl gettext
+sudo pacman -Sy --noconfirm git make openssl
 sudo pacman -Sy --noconfirm docker docker-compose
 sudo systemctl enable --now docker
 sudo usermod -aG docker $USER
@@ -87,7 +87,7 @@ Wyloguj się i zaloguj ponownie, aby uprawnienia do Dockera zaczęły działać.
 <summary><b>openSUSE</b></summary>
 
 ```bash
-sudo zypper install -y git make openssl gettext-runtime
+sudo zypper install -y git make openssl
 ```
 
 Zainstaluj Docker Engine — [oficjalna instrukcja dla SLES/openSUSE](https://docs.docker.com/engine/install/sles/) (zawiera Docker Compose).
@@ -119,7 +119,6 @@ Otwórz **Terminal** (Spotlight: `Cmd+Spacja`, wpisz „Terminal").
 
 ```bash
 xcode-select --install      # git + make (potwierdź w oknie dialogowym)
-brew install gettext        # envsubst (wymaga Homebrew: https://brew.sh/)
 ```
 
 Zainstaluj [Docker Desktop dla macOS](https://docs.docker.com/desktop/install/mac-install/) (wybierz **Apple Silicon** dla M1/M2/M3/M4 lub **Intel**), uruchom i poczekaj, aż ikona w pasku menu przestanie się animować.
@@ -143,7 +142,7 @@ winget install -e --id Docker.DockerDesktop
 winget install -e --id ezwinports.make
 ```
 
-Dostajesz **Git Bash** z narzędziami Unix (`bash`, `sed`, `openssl`, `envsubst`), **Docker Engine z Docker Compose** oraz **GNU Make 4.4** — bez Chocolatey i Scoopa. `winget` jest wbudowany w Windows 11 i w Windows 10 od wersji 1809 (build 17763); sprawdź `winget --version`, a jeśli go brak — doinstaluj [Instalator aplikacji](https://apps.microsoft.com/detail/9nblggh4nns1) ze Sklepu Microsoft albo użyj [instalacji ręcznej](https://iplweb.github.io/bpp-deploy/instalacja/windows/#instalacja-bez-wingeta).
+Dostajesz **Git Bash** z narzędziami Unix (`bash`, `sed`, `openssl`), **Docker Engine z Docker Compose** oraz **GNU Make 4.4** — bez Chocolatey i Scoopa. `winget` jest wbudowany w Windows 11 i w Windows 10 od wersji 1809 (build 17763); sprawdź `winget --version`, a jeśli go brak — doinstaluj [Instalator aplikacji](https://apps.microsoft.com/detail/9nblggh4nns1) ze Sklepu Microsoft albo użyj [instalacji ręcznej](https://iplweb.github.io/bpp-deploy/instalacja/windows/#instalacja-bez-wingeta).
 
 Uruchom **Docker Desktop** i poczekaj, aż ikona w zasobniku przestanie się animować (pierwszy start może włączyć WSL2 i poprosić o restart).
 

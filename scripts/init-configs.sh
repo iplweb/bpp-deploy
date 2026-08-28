@@ -14,6 +14,9 @@ BPP_CONFIGS_DIR="${1:-}"
 USER_HOME="${2:-$HOME}"
 REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 
+# shellcheck source=scripts/lib-config-path.sh
+. "$REPO_DIR/scripts/lib-config-path.sh"
+
 # --- 1. Oblicz domyślną ścieżkę ---
 
 if [ -n "$BPP_CONFIGS_DIR" ]; then
@@ -28,39 +31,26 @@ fi
 echo ""
 echo "Podaj sciezke do katalogu konfiguracyjnego instancji BPP."
 echo "Katalog musi znajdowac sie POZA repozytorium."
+if is_windows_shell; then
+    printf 'Mozesz podac sciezke w postaci windowsowej, np. C:\\dane\\bpp\n'
+    echo "(takze wklejona w cudzyslowach przez \"Kopiuj jako sciezke\")."
+fi
 echo ""
 printf "Sciezka [%s]: " "$DEFAULT_CONFIG_DIR"
 read -r INPUT_DIR || true
 INPUT_DIR="${INPUT_DIR:-$DEFAULT_CONFIG_DIR}"
 
-# Expand tilde (bez eval - wklejona sciezka z backtickami/`$()` nie moze
-# sie wykonac jako kod)
-# shellcheck disable=SC2088  # wzorce case dopasowuja LITERALNA tylde z inputu usera
-case "$INPUT_DIR" in
-    "~")   INPUT_DIR="$HOME" ;;
-    "~/"*) INPUT_DIR="$HOME/${INPUT_DIR#\~/}" ;;
-esac
+# Normalizacja (biale znaki, cudzyslowy, sciezki natywne Windows C:\..., tylda),
+# absolutyzacja i walidacja — patrz scripts/lib-config-path.sh.
+INPUT_DIR="$(normalize_config_path "$INPUT_DIR")"
+ABS_CONFIG="$(absolutize_config_path "$INPUT_DIR")"
 
-# Absolutna ścieżka. Jesli katalog istnieje - uzyj `cd && pwd` (najbardziej
-# niezawodne). Jesli nie istnieje - zrob absolutyzacje recznie, bo dirname
-# na sciezce wzglednej (np. "./foo") daje "." i psuje obliczanie
-# DEFAULT_BACKUP_DIR ponizej.
-if [ -d "$INPUT_DIR" ]; then
-    ABS_CONFIG="$(cd "$INPUT_DIR" && pwd)"
-else
-    case "$INPUT_DIR" in
-        /*) ABS_CONFIG="$INPUT_DIR" ;;
-        *)  ABS_CONFIG="$(pwd)/$INPUT_DIR" ;;
-    esac
+if config_path_inside_repo "$ABS_CONFIG" "$REPO_DIR"; then
+    echo "BLAD: Katalog konfiguracyjny nie moze byc wewnatrz repozytorium!"
+    echo "      podany katalog: $ABS_CONFIG"
+    echo "      repozytorium:   $REPO_DIR"
+    exit 1
 fi
-
-# Walidacja: nie wewnątrz repozytorium
-case "$ABS_CONFIG" in
-    "$REPO_DIR"*)
-        echo "BLAD: Katalog konfiguracyjny nie moze byc wewnatrz repozytorium!"
-        exit 1
-        ;;
-esac
 
 # --- 3. Zapisz do .env w repo ---
 

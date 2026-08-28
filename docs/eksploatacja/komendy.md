@@ -140,7 +140,7 @@ make denorm-flush         # Flush denorm
 ## Konfiguracja
 
 ```bash
-make update-configs           # Regeneruj datasources.yaml (envsubst)
+make update-configs           # Regeneruj datasources.yaml z szablonu
 make update-ssl-certs         # Przeładuj nginx po zmianie certyfikatów
 make init-configs             # Uzupełnij brakujące pliki/zmienne (idempotentne)
 make configure-resources      # Dostrój limity RAM/CPU
@@ -186,6 +186,8 @@ flush całej bazy wylogowywałby wszystkich przy każdym deployu.
 make test-waf                # Czy WAF blokuje ataki i przepuszcza legalny ruch BPP
 make test-alloy              # Czy pipeline logów nadaje poprawny poziom i pola modsec_*
 make test-docker-versions    # Logika mapowania digest ↔ CalVer
+make test-config-path        # Normalizacja ścieżki katalogu konfiguracyjnego
+make test-grafana-datasources # Render datasources.yaml (działa bez gettexta)
 make test-upgrade            # Próba generalna migracji na kopii produkcyjnej bazy
 make test-deploy-with-warning # Sesja wdrożenia z ostrzeżeniem (mocki, bez Dockera)
 ```
@@ -198,6 +200,16 @@ niezgodności, więc nadają się do CI.
   z `defaults/webserver/`, po czym strzela baterią zapytań o znanym z góry wyniku.
   Payloady ataku to prawdziwe próby sqlmap z lipca 2026. Szczegóły:
   [WAF](../architektura/waf.md#sprawdzenie-czy-waf-dziala-make-test-waf).
+- **`make test-config-path`** sprawdza `scripts/lib-config-path.sh` — czyli to, co
+  `make init-configs` robi ze ścieżką podaną przez użytkownika: ścieżki windowsowe
+  (`C:\dane\bpp`, także wklejone w cudzysłowach), tyldę, białe znaki i wykrywanie
+  katalogu wewnątrz repozytorium. Windows symulowany atrapami `cygpath`/`uname`
+  w `PATH`, więc test jest wiarygodny również na Linuksie i macOS. Bez sieci
+  i Dockera, trwa ułamek sekundy.
+- **`make test-grafana-datasources`** renderuje `datasources.yaml` z *prawdziwego*
+  szablonu, mając **`envsubst` wycięty z `PATH`** — czyli w warunkach Windows, który
+  nie ma gettexta. Sprawdza też, że hasła z metaznakami (`&`, `\`, `/`) przechodzą
+  dosłownie i że pusty sekret `bpp_monitor` nadal jest odrzucany.
 - **`make test-alloy`** przepuszcza *prawdziwy* `defaults/alloy/config.alloy` przez
   zestaw prawdziwych linii logu, podmieniając wyłącznie źródło (plik zamiast Dockera)
   i ujście (`loki.echo` zamiast zapisu do Loki). Sprawdza `detected_level` oraz pola

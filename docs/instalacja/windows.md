@@ -14,7 +14,7 @@ winget install -e --id ezwinports.make
 To komplet wymaganych narzędzi:
 
 - **Git for Windows** — dostarcza **Git Bash**, czyli terminal z narzędziami Unix
-  (`bash`, `grep`, `sed`, `openssl`, `envsubst` — `make` korzysta z nich wszystkich)
+  (`bash`, `grep`, `sed`, `openssl` — `make` korzysta z nich wszystkich)
 - **Docker Desktop for Windows** — Docker Engine razem z Docker Compose
 - **GNU Make 4.4** (pakiet `ezwinports.make`) — instalacja *portable*, winget sam
   dopisuje `make` do PATH
