@@ -137,10 +137,12 @@ Więcej: [dokumentacja → Instalacja → macOS](https://iplweb.github.io/bpp-de
 W **PowerShell** (zwykłym — instalator Dockera sam poprosi o uprawnienia administratora) zainstaluj komplet narzędzi:
 
 ```powershell
-winget install -e --id Git.Git
-winget install -e --id Docker.DockerDesktop
-winget install -e --id ezwinports.make
+winget install -e --id Git.Git --source winget
+winget install -e --id Docker.DockerDesktop --source winget
+winget install -e --id ezwinports.make --source winget
 ```
+
+Przełącznik `--source winget` jest istotny: bez niego winget szuka pakietu również w Sklepie Microsoft i zamiast instalować, pyta o wybór źródła albo o akceptację regulaminu Sklepu.
 
 Dostajesz **Git Bash** z narzędziami Unix (`bash`, `sed`, `openssl`), **Docker Engine z Docker Compose** oraz **GNU Make 4.4**. `winget` jest wbudowany w Windows 11 i w Windows 10 od wersji 1809 (build 17763); sprawdź `winget --version`, a jeśli go brak — doinstaluj [Instalator aplikacji](https://apps.microsoft.com/detail/9nblggh4nns1) ze Sklepu Microsoft.
 
@@ -149,7 +151,7 @@ Dostajesz **Git Bash** z narzędziami Unix (`bash`, `sed`, `openssl`), **Docker 
 
 Pobierz i zainstaluj ręcznie [Git for Windows](https://gitforwindows.org/) oraz [Docker Desktop for Windows](https://www.docker.com/products/docker-desktop/).
 
-GNU Make nie wymaga menedżera pakietów — to pojedynczy, samowystarczalny plik. Pobierz [make-4.4.1-without-guile-w32-bin.zip](https://downloads.sourceforge.net/project/ezwinports/make-4.4.1-without-guile-w32-bin.zip) (392 KB, projekt [ezwinports](https://sourceforge.net/projects/ezwinports/files/) — ten sam plik, który instaluje `winget install ezwinports.make`), rozpakuj i skopiuj `bin\make.exe` do `C:\Program Files\Git\usr\bin\` (Windows poprosi o potwierdzenie administratora). Ten katalog jest już w PATH Git Basha, a `make.exe` importuje wyłącznie systemowe biblioteki Windows, więc wystarczy ten jeden plik.
+GNU Make nie wymaga menedżera pakietów — to pojedynczy, samowystarczalny plik. Pobierz [make-4.4.1-without-guile-w32-bin.zip](https://downloads.sourceforge.net/project/ezwinports/make-4.4.1-without-guile-w32-bin.zip) (392 KB, projekt [ezwinports](https://sourceforge.net/projects/ezwinports/files/) — ten sam plik, który instaluje `winget install ezwinports.make --source winget`), rozpakuj i skopiuj `bin\make.exe` do `C:\Program Files\Git\usr\bin\` (Windows poprosi o potwierdzenie administratora). Ten katalog jest już w PATH Git Basha, a `make.exe` importuje wyłącznie systemowe biblioteki Windows, więc wystarczy ten jeden plik.
 
 Jeśli i tak masz już [Chocolatey](https://chocolatey.org/install) albo [Scoop](https://scoop.sh/) — wystarczy `choco install make` (PowerShell jako Administrator) lub `scoop install make`.
 

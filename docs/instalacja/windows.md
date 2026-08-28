@@ -6,9 +6,9 @@ Otwórz **PowerShell** (zwykły — instalator Dockera sam poprosi o uprawnienia
 administratora) i wklej:
 
 ```powershell
-winget install -e --id Git.Git
-winget install -e --id Docker.DockerDesktop
-winget install -e --id ezwinports.make
+winget install -e --id Git.Git --source winget
+winget install -e --id Docker.DockerDesktop --source winget
+winget install -e --id ezwinports.make --source winget
 ```
 
 To komplet wymaganych narzędzi:
@@ -18,6 +18,11 @@ To komplet wymaganych narzędzi:
 - **Docker Desktop for Windows** — Docker Engine razem z Docker Compose
 - **GNU Make 4.4** (pakiet `ezwinports.make`) — instalacja *portable*, winget sam
   dopisuje `make` do PATH
+
+!!! warning "Po co `--source winget`"
+    Bez tego przełącznika winget przeszukuje również Sklep Microsoft (źródło
+    `msstore`) i zamiast instalować, przerywa pytaniem o wybór źródła albo
+    o akceptację regulaminu Sklepu.
 
 !!! info "Skąd wziąć winget"
     `winget` jest wbudowany w Windows 11 oraz w Windows 10 od wersji 1809
@@ -34,7 +39,7 @@ To komplet wymaganych narzędzi:
 
     1. Pobierz [make-4.4.1-without-guile-w32-bin.zip](https://downloads.sourceforge.net/project/ezwinports/make-4.4.1-without-guile-w32-bin.zip)
        (392 KB, projekt [ezwinports](https://sourceforge.net/projects/ezwinports/files/)
-       — dokładnie ten sam plik, który instaluje `winget install ezwinports.make`).
+       — dokładnie ten sam plik, który instaluje `winget install ezwinports.make --source winget`).
     2. Rozpakuj archiwum (w Eksploratorze: prawy przycisk > „Wyodrębnij wszystkie…").
     3. Skopiuj `bin\make.exe` do `C:\Program Files\Git\usr\bin\` — Windows poprosi
        o potwierdzenie administratora.
