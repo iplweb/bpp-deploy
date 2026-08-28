@@ -134,7 +134,43 @@ Więcej: [dokumentacja → Instalacja → macOS](https://iplweb.github.io/bpp-de
 
 ### Windows
 
-W **PowerShell** (zwykłym — instalator Dockera sam poprosi o uprawnienia administratora) zainstaluj komplet narzędzi:
+**Najprościej: przez WSL2.** To wbudowany w Windows podsystem Linuksa — Docker Desktop i tak z niego korzysta, więc nic dodatkowego nie instalujesz. Pracując po stronie Ubuntu omijasz wszystkie windowsowe wyjątki: doinstalowywanie GNU Make, przeliczanie ścieżek `C:\dane` → `/c/dane` i pilnowanie, w którym terminalu uruchamiasz `make`.
+
+**1. Włącz WSL2.** Kliknij prawym przyciskiem na przycisk Start, wybierz **Terminal (Administrator)** (na Windows 10: **Windows PowerShell (Administrator)**), wpisz `wsl --install` i zrestartuj komputer. Komenda włącza WSL2 i instaluje Ubuntu; jeśli WSL jest już włączony, po prostu to zgłosi. Wymagany jest Windows 11 albo Windows 10 w wersji 2004 (build 19041) lub nowszej, z włączoną wirtualizacją w BIOS/UEFI — dokładnie te same wymagania, co Docker Desktop.
+
+**2. Zainstaluj Docker Desktop.** Otwórz **PowerShell** — naciśnij klawisz Windows, zacznij pisać **powershell** i kliknij aplikację **Windows PowerShell**:
+
+<img src="docs/assets/powershell-icon.png" width="48" alt="Ikona Windows PowerShell">
+
+```powershell
+winget install -e --id Docker.DockerDesktop --source winget
+```
+
+Uruchom Docker Desktop i poczekaj, aż ikona wieloryba w zasobniku przestanie się animować. Następnie w **Settings → Resources → WSL Integration** włącz suwak przy dystrybucji **Ubuntu** — dzięki temu `docker` i `docker compose` zadziałają wprost w Ubuntu, korzystając z tego samego silnika.
+
+**3. Otwórz Ubuntu.** Kliknij w pasek wyszukiwania obok przycisku Start (albo naciśnij klawisz Windows), wpisz **ubuntu** i kliknij aplikację:
+
+<img src="docs/assets/ubuntu-icon.svg" width="48" alt="Ikona Ubuntu">
+
+Przy pierwszym uruchomieniu Ubuntu poprosi o nazwę użytkownika i hasło — to konto wewnątrz Linuksa, niezależne od konta Windows.
+
+**4. Zainstaluj narzędzia i sklonuj repozytorium.** Od tego momentu instalacja przebiega dokładnie tak, jak na Linuksie — bo to jest Linux:
+
+```bash
+sudo apt update && sudo apt install -y git make openssl
+cd ~
+git clone https://github.com/iplweb/bpp-deploy.git
+cd bpp-deploy
+```
+
+> **Ważne:** trzymaj repozytorium w systemie plików Linuksa. Nie klonuj go do `/mnt/c/…`, czyli na dysk C:, pulpit ani do Dokumentów — na granicy systemów plików Windows i Linuksa kontenery działają bardzo wolno, a uprawnienia plików nie przenoszą się poprawnie. Do plików zajrzysz z Eksploratora: wpisz w Ubuntu `explorer.exe .` albo otwórz ścieżkę `\\wsl$\Ubuntu\home`.
+
+<details>
+<summary><b>Wolę zostać po stronie Windows</b> — instalacja przez Git Bash</summary>
+
+Ta ścieżka **nie omija WSL2** — Docker Desktop wymaga go tak czy inaczej, więc krok 1 powyżej wykonaj również tutaj. Różnica polega na tym, że `make` uruchamiasz w Git Bashu po stronie Windows, a nie w Ubuntu. Wymaga to doinstalowania GNU Make i pilnowania kilku windowsowych wyjątków.
+
+Otwórz **PowerShell** (klawisz Windows → „powershell") i zainstaluj komplet narzędzi:
 
 ```powershell
 winget install -e --id Git.Git --source winget
@@ -144,27 +180,29 @@ winget install -e --id ezwinports.make --source winget
 
 Dostajesz **Git Bash** z narzędziami Unix (`bash`, `sed`, `openssl`), **Docker Engine z Docker Compose** oraz **GNU Make 4.4**. `winget` jest wbudowany w Windows 11 i w Windows 10 od wersji 1809 (build 17763); sprawdź `winget --version`, a jeśli go brak — doinstaluj [Instalator aplikacji](https://apps.microsoft.com/detail/9nblggh4nns1) ze Sklepu Microsoft.
 
-<details>
-<summary><b>Nie masz wingeta?</b> — Windows 10 starszy niż 1809, zablokowany Sklep</summary>
+> **Podpowiedź:** Jeśli masz już Gita i `make`, a brakuje tylko Dockera — po sklonowaniu repo uruchom w Git Bash `make install-docker`. Zainstaluje Docker Desktop przez winget, a jeśli wingeta nie ma — odeśle do [Instalatora aplikacji](https://apps.microsoft.com/detail/9nblggh4nns1?hl=pl-PL&gl=PL) w Sklepie Microsoft.
 
-Pobierz i zainstaluj ręcznie [Git for Windows](https://gitforwindows.org/) oraz [Docker Desktop for Windows](https://www.docker.com/products/docker-desktop/).
+Bez wingeta (Windows 10 starszy niż 1809, zablokowany Sklep): pobierz i zainstaluj ręcznie [Git for Windows](https://gitforwindows.org/) oraz [Docker Desktop for Windows](https://www.docker.com/products/docker-desktop/). GNU Make nie wymaga menedżera pakietów — to pojedynczy, samowystarczalny plik. Pobierz [make-4.4.1-without-guile-w32-bin.zip](https://downloads.sourceforge.net/project/ezwinports/make-4.4.1-without-guile-w32-bin.zip) (392 KB, projekt [ezwinports](https://sourceforge.net/projects/ezwinports/files/) — ten sam plik, który instaluje winget), rozpakuj i skopiuj `bin\make.exe` do `C:\Program Files\Git\usr\bin\` (Windows poprosi o potwierdzenie administratora). Ten katalog jest już w PATH Git Basha, a `make.exe` importuje wyłącznie systemowe biblioteki Windows, więc wystarczy ten jeden plik. Jeśli i tak masz już [Chocolatey](https://chocolatey.org/install) albo [Scoop](https://scoop.sh/) — wystarczy `choco install make` (PowerShell jako Administrator) lub `scoop install make`.
 
-GNU Make nie wymaga menedżera pakietów — to pojedynczy, samowystarczalny plik. Pobierz [make-4.4.1-without-guile-w32-bin.zip](https://downloads.sourceforge.net/project/ezwinports/make-4.4.1-without-guile-w32-bin.zip) (392 KB, projekt [ezwinports](https://sourceforge.net/projects/ezwinports/files/) — ten sam plik, który instaluje `winget install ezwinports.make --source winget`), rozpakuj i skopiuj `bin\make.exe` do `C:\Program Files\Git\usr\bin\` (Windows poprosi o potwierdzenie administratora). Ten katalog jest już w PATH Git Basha, a `make.exe` importuje wyłącznie systemowe biblioteki Windows, więc wystarczy ten jeden plik.
+Uruchom **Docker Desktop** i poczekaj, aż ikona wieloryba w zasobniku przestanie się animować.
 
-Jeśli i tak masz już [Chocolatey](https://chocolatey.org/install) albo [Scoop](https://scoop.sh/) — wystarczy `choco install make` (PowerShell jako Administrator) lub `scoop install make`.
+Otwórz **nowe** okno **Git Bash** — kliknij w pasek wyszukiwania obok przycisku Start (albo naciśnij klawisz Windows), wpisz **git bash** i kliknij aplikację, którą poznasz po kolorowym rombie:
 
-</details>
+<img src="docs/assets/git-bash-icon.png" width="48" alt="Ikona Git Bash">
 
-Uruchom **Docker Desktop** i poczekaj, aż ikona w zasobniku przestanie się animować (pierwszy start może włączyć WSL2 i poprosić o restart).
-
-Otwórz **nowe** okno **Git Bash** i sklonuj repozytorium:
+Git Bash startuje w katalogu domowym użytkownika, więc sklonuj repozytorium na pulpit — dzięki temu katalog `bpp-deploy` będziesz mieć zawsze pod ręką:
 
 ```bash
+cd Desktop
 git clone https://github.com/iplweb/bpp-deploy.git
 cd bpp-deploy
 ```
 
+Na dysku katalog pulpitu nazywa się `Desktop` także w polskiej wersji Windows. Jeśli `cd Desktop` zgłosi brak katalogu, pulpit przejął OneDrive — wpisz wtedy `cd OneDrive/Desktop` albo `cd OneDrive/Pulpit`.
+
 > **Ważne:** Od tego momentu wszystkie komendy `make` uruchamiaj w **Git Bash**, nie w CMD ani PowerShell. Musi to być okno otwarte **po** instalacji — dopiero nowo uruchomiony terminal widzi `make` dopisany do PATH przez winget.
+
+</details>
 
 Więcej: [dokumentacja → Instalacja → Windows](https://iplweb.github.io/bpp-deploy/instalacja/windows/).
 

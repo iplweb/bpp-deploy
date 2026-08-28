@@ -25,7 +25,11 @@ Sciezka: /home/deploy/moja-instancja
 ```
 
 !!! tip "Windows"
-    W Git Bash ścieżkę możesz podać po windowsowemu (`C:\dane\bpp`, `C:/dane/bpp`,
+    Pod WSL2 (zalecana ścieżka instalacji) podajesz zwykłą ścieżkę linuksową, np.
+    `/home/twoj-uzytkownik/bpp-config` — trzymaj ją w systemie plików Ubuntu, nie
+    w `/mnt/c/…`.
+
+    W Git Bashu ścieżkę możesz podać po windowsowemu (`C:\dane\bpp`, `C:/dane/bpp`,
     także w cudzysłowach z „Kopiuj jako ścieżkę") — `make` przeliczy ją na postać
     `/c/dane/bpp`.
 
