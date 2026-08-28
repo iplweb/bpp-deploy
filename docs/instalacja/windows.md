@@ -19,14 +19,34 @@ To komplet wymaganych narzędzi:
 - **GNU Make 4.4** (pakiet `ezwinports.make`) — instalacja *portable*, winget sam
   dopisuje `make` do PATH
 
-Nie musisz instalować Chocolatey ani Scoopa.
-
 !!! info "Skąd wziąć winget"
     `winget` jest wbudowany w Windows 11 oraz w Windows 10 od wersji 1809
     (build 17763), gdzie dostarcza go „Instalator aplikacji”. Sprawdź go komendą
     `winget --version`. Jeśli nie zadziała — zainstaluj lub zaktualizuj
     [Instalator aplikacji](https://apps.microsoft.com/detail/9nblggh4nns1)
-    ze Sklepu Microsoft albo skorzystaj z [instalacji ręcznej](#instalacja-bez-wingeta).
+    ze Sklepu Microsoft albo rozwiń sekcję poniżej.
+
+??? note "Nie masz wingeta? (Windows 10 starszy niż 1809, zablokowany Sklep)"
+    Pobierz i zainstaluj ręcznie [Git for Windows](https://gitforwindows.org/) oraz
+    [Docker Desktop for Windows](https://www.docker.com/products/docker-desktop/).
+
+    GNU Make nie wymaga menedżera pakietów — to pojedynczy, samowystarczalny plik:
+
+    1. Pobierz [make-4.4.1-without-guile-w32-bin.zip](https://downloads.sourceforge.net/project/ezwinports/make-4.4.1-without-guile-w32-bin.zip)
+       (392 KB, projekt [ezwinports](https://sourceforge.net/projects/ezwinports/files/)
+       — dokładnie ten sam plik, który instaluje `winget install ezwinports.make`).
+    2. Rozpakuj archiwum (w Eksploratorze: prawy przycisk > „Wyodrębnij wszystkie…").
+    3. Skopiuj `bin\make.exe` do `C:\Program Files\Git\usr\bin\` — Windows poprosi
+       o potwierdzenie administratora.
+
+    Katalog `usr\bin` z instalacji Gita jest już w PATH Git Basha, więc nic więcej nie
+    trzeba ustawiać, a `make.exe` importuje wyłącznie systemowe biblioteki Windows, więc
+    wystarczy ten jeden plik. Ponowna instalacja Git for Windows może go usunąć — wtedy
+    powtórz krok 3.
+
+    Jeśli i tak masz już [Chocolatey](https://chocolatey.org/install) albo
+    [Scoop](https://scoop.sh/), szybciej będzie `choco install make` (PowerShell jako
+    Administrator) lub `scoop install make`.
 
 ## 2. Uruchom Docker Desktop
 
@@ -57,29 +77,3 @@ cd bpp-deploy
     `/c/dane/bpp`, czyli zapis używany przez Git Bash.
 
 ➡️ Przejdź do **[Pierwszego uruchomienia](pierwsze-uruchomienie.md)**.
-
----
-
-## Instalacja bez wingeta
-
-Dotyczy Windows 10 starszego niż 1809 albo stacji z zablokowanym Sklepem Microsoft.
-Pobierz i zainstaluj ręcznie (klikając „Dalej" w instalatorach):
-
-- [Git for Windows](https://gitforwindows.org/)
-- [Docker Desktop for Windows](https://docs.docker.com/desktop/install/windows-install/)
-
-GNU Make zainstaluj w **PowerShellu jako Administrator** (kliknij prawym przyciskiem
-na menu Start > „Terminal (Administrator)" lub „Windows PowerShell (Administrator)")
-przez [Chocolatey](https://chocolatey.org/install):
-
-```powershell
-choco install make
-```
-
-…albo przez [Scoop](https://scoop.sh/):
-
-```powershell
-scoop install make
-```
-
-Dalej wróć do [kroku 2](#2-uruchom-docker-desktop).
