@@ -107,6 +107,25 @@ jobs:
         shell: bash
         run: ./tests/test_makefile.sh
 
+  # Identyfikatory pakietow winget uzyte w instrukcji dla Windows. Runner Windows
+  # NIE weryfikuje samej instalacji: runnery GitHuba nie maja wirtualizacji
+  # zagniezdzonej (brak WSL2 i Docker Desktopa), a winget jest tam praktycznie
+  # nieuzywalny (konto uslugowe bez sesji interaktywnej) — dlatego job
+  # test-windows instaluje make przez choco, mimo ze dokumentacja mowi `winget`.
+  # Ten job domyka przynajmniej to, co domknac sie da: czy ID pakietow nadal
+  # istnieja w microsoft/winget-pkgs. Leci na ubuntu, bo to zwykly HTTP.
+  winget-ids:
+    name: Identyfikatory pakietow winget (dokumentacja Windows)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Sprawdz ID pakietow w microsoft/winget-pkgs
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: ./scripts/test-winget-ids.sh
+
   test-macos:
     name: Testy Makefile (macOS)
     runs-on: macos-latest

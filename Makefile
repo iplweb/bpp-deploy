@@ -195,6 +195,7 @@ help:
 	@echo "    test-docker-versions - Unit-testy logiki wersji obrazow (mock curl/docker, no network)"
 	@echo "    test-config-path     - Unit-testy sciezki katalogu konfiguracyjnego (Windows C:\\..., no network)"
 	@echo "    test-grafana-datasources - Render datasources.yaml bez gettexta (no network)"
+	@echo "    test-winget-ids      - Czy ID pakietow winget z instrukcji Windows nadal istnieja (siec)"
 	@echo ""
 	@echo "  Host management:"
 	@echo "    base-host-update-upgrade - Update system packages"

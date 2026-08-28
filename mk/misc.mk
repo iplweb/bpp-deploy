@@ -1,4 +1,4 @@
-.PHONY: clean wait debug-show-current-settings test-docker-versions test-config-path test-grafana-datasources test-waf test-alloy
+.PHONY: clean wait debug-show-current-settings test-docker-versions test-config-path test-grafana-datasources test-winget-ids test-waf test-alloy
 
 clean:
 	-find . -name '*~' -o -name '\#*' -o -name '.*~' | xargs rm -f
@@ -22,6 +22,13 @@ test-config-path:
 # `envsubst` (Windows nie ma gettexta). Bez sieci, dockera i .env.
 test-grafana-datasources:
 	@bash scripts/test-grafana-datasources.sh
+
+# Czy identyfikatory pakietow winget z instrukcji dla Windows nadal istnieja
+# w microsoft/winget-pkgs. WYMAGA SIECI, wiec swiadomie nie wchodzi do `make
+# test` (ta petla ma dzialac offline) — w CI ma wlasny job `winget-ids`.
+# Ustaw GITHUB_TOKEN, zeby nie wpasc w limit 60 zapytan/h dla anonimowych.
+test-winget-ids:
+	@bash scripts/test-winget-ids.sh
 
 # Stack testowy WAF-a (ModSecurity + OWASP CRS). Stawia atrape backendu i
 # webserver z PRAWDZIWA konfiguracja z defaults/webserver/, po czym strzela
