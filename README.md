@@ -142,8 +142,6 @@ winget install -e --id Docker.DockerDesktop --source winget
 winget install -e --id ezwinports.make --source winget
 ```
 
-Przełącznik `--source winget` jest istotny: bez niego winget szuka pakietu również w Sklepie Microsoft i zamiast instalować, pyta o wybór źródła albo o akceptację regulaminu Sklepu.
-
 Dostajesz **Git Bash** z narzędziami Unix (`bash`, `sed`, `openssl`), **Docker Engine z Docker Compose** oraz **GNU Make 4.4**. `winget` jest wbudowany w Windows 11 i w Windows 10 od wersji 1809 (build 17763); sprawdź `winget --version`, a jeśli go brak — doinstaluj [Instalator aplikacji](https://apps.microsoft.com/detail/9nblggh4nns1) ze Sklepu Microsoft.
 
 <details>

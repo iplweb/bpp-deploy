@@ -19,11 +19,6 @@ To komplet wymaganych narzędzi:
 - **GNU Make 4.4** (pakiet `ezwinports.make`) — instalacja *portable*, winget sam
   dopisuje `make` do PATH
 
-!!! warning "Po co `--source winget`"
-    Bez tego przełącznika winget przeszukuje również Sklep Microsoft (źródło
-    `msstore`) i zamiast instalować, przerywa pytaniem o wybór źródła albo
-    o akceptację regulaminu Sklepu.
-
 !!! info "Skąd wziąć winget"
     `winget` jest wbudowany w Windows 11 oraz w Windows 10 od wersji 1809
     (build 17763), gdzie dostarcza go „Instalator aplikacji”. Sprawdź go komendą
