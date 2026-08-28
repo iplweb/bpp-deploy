@@ -6,5 +6,8 @@ base-host-update-upgrade:
 base-host-reboot:
 	sudo reboot
 
+# Bez sudo: skrypt sam podbija uprawnienia na Linuksie. Pod Git Bash sudo
+# nie istnieje, a Docker Desktop instaluje sie przez winget (UAC), wiec
+# sudo w tym miejscu wywracalo target na Windows przed startem skryptu.
 install-docker:
-	sudo bash scripts/install-docker.sh
+	@bash scripts/install-docker.sh

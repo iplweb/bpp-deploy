@@ -238,6 +238,18 @@ make base-host-reboot          # Restart hosta
 make install-docker            # Instalacja Dockera na hoście
 ```
 
+`make install-docker` rozpoznaje system samodzielnie:
+
+- **Linux (Debian/Ubuntu)** — `docker-ce` z oficjalnego repozytorium apt Dockera;
+  skrypt sam podbija uprawnienia przez `sudo`.
+- **Windows (Git Bash)** — Docker Desktop przez
+  `winget install -e --id Docker.DockerDesktop --source winget`. Gdy wingeta brak,
+  komenda odsyła do [Instalatora aplikacji](https://apps.microsoft.com/detail/9nblggh4nns1?hl=pl-PL&gl=PL)
+  ze Sklepu Microsoft. Po instalacji uruchom Docker Desktop z menu Start.
+
+Inne dystrybucje Linuksa (Fedora, Arch, openSUSE) i macOS — patrz
+[Instalacja](../instalacja/index.md).
+
 ## Aktualizacje i wersje obrazów
 
 ```bash

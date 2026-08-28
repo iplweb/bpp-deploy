@@ -1860,6 +1860,85 @@ test_init_configs_path_validation() {
 }
 
 # ============================================================
+# TEST: install-docker pod Windows (Git Bash) idzie przez wingeta
+# ============================================================
+#
+# Windows jest udawany stubem `cygpath` w PATH (ta sama konwencja co
+# scripts/test-config-path.sh), dzieki czemu regresja jest lapana takze na
+# Linuksie i macOS — a tam wlasnie chodzi CI.
+#
+# Sedno kontraktu: galaz windowsowa MUSI wykonac sie PRZED sprawdzeniem
+# roota. Test biegnie jako zwykly user, wiec gdyby ktos ja przestawil nizej,
+# skrypt skonczylby sie komunikatem o sudo i asercje pojda na czerwono.
+test_install_docker_windows() {
+    yellow "=== Test: install-docker pod Windows (winget) ==="
+
+    setup_temp
+
+    local stub_bin="$WORK_DIR/stub-bin"
+    mkdir -p "$stub_bin"
+
+    cat > "$stub_bin/cygpath" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' "${@: -1}"
+EOF
+
+    # Stub wingeta loguje argumenty, zeby dalo sie zweryfikowac cala komende
+    # (w tym --source winget, bez ktorego winget pyta o wybor zrodla).
+    cat > "$stub_bin/winget" <<EOF
+#!/usr/bin/env bash
+printf '%s\n' "\$*" >> "$WORK_DIR/winget-args.log"
+exit 0
+EOF
+    # Stub sudo to bezpiecznik, nie asercja: gdyby ktos przestawil galaz
+    # windowsowa PO sprawdzeniu roota, skrypt poszedlby w `exec sudo` i na
+    # runnerze CI (passwordless sudo) NAPRAWDE zainstalowalby dockera z apt.
+    cat > "$stub_bin/sudo" <<'EOF'
+#!/usr/bin/env bash
+echo "STUB-SUDO: galaz linuksowa nie powinna sie tu wykonac" >&2
+exit 1
+EOF
+    chmod +x "$stub_bin/cygpath" "$stub_bin/winget" "$stub_bin/sudo"
+
+    # PATH bez katalogow systemu operacyjnego poza /usr/bin i /bin — na
+    # prawdziwym runnerze Windows odcina to PRAWDZIWEGO wingeta z
+    # %LOCALAPPDATA%\Microsoft\WindowsApps, wiec przypadek "brak wingeta"
+    # nizej testuje to, co ma testowac, a nie lokalna instalacje.
+    local win_path="$stub_bin:/usr/bin:/bin"
+    local out="$WORK_DIR/install-docker-win.log"
+
+    if PATH="$win_path" bash "$REPO_COPY/scripts/install-docker.sh" >"$out" 2>&1 </dev/null; then
+        pass "install-docker konczy sie sukcesem pod Windows bez roota"
+    else
+        fail "install-docker pod Windows zwrocil blad: $(tail -3 "$out" | tr '\n' ' ')"
+    fi
+
+    assert_file_exists "winget zostal wywolany" "$WORK_DIR/winget-args.log"
+    assert_file_contains "winget instaluje Docker.DockerDesktop z -e --source winget" \
+        "^install -e --id Docker.DockerDesktop --source winget$" "$WORK_DIR/winget-args.log"
+
+    # Kontrola: galaz linuksowa nie mogla sie zaczac. Gdyby windowsowa stala
+    # PO sprawdzeniu roota, dostalibysmy komunikat o sudo zamiast instalacji.
+    assert_file_not_contains "pod Windows nie ma proby podbicia uprawnien" "STUB-SUDO" "$out"
+    assert_file_not_contains "pod Windows nie rusza apt" "Instaluje Docker dla" "$out"
+
+    # --- Brak wingeta: odsylamy do Instalatora aplikacji w Sklepie ---
+    rm -f "$stub_bin/winget"
+    out="$WORK_DIR/install-docker-no-winget.log"
+
+    if PATH="$win_path" bash "$REPO_COPY/scripts/install-docker.sh" >"$out" 2>&1 </dev/null; then
+        fail "brak wingeta powinien konczyc sie bledem, a skrypt zwrocil sukces"
+    else
+        pass "brak wingeta konczy sie bledem"
+    fi
+    assert_file_contains "brak wingeta odsyla do Instalatora aplikacji" \
+        "apps.microsoft.com/detail/9nblggh4nns1" "$out"
+
+    cleanup_temp
+}
+
+
+# ============================================================
 # Run
 # ============================================================
 
@@ -1897,6 +1976,7 @@ test_init_configs_generates_altcha
 test_loki_retention_migration
 test_ensure_config_files_altcha_selfheal
 test_init_configs_path_validation
+test_install_docker_windows
 
 echo ""
 echo "========================================"
