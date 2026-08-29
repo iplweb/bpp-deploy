@@ -134,7 +134,7 @@ Więcej: [dokumentacja → Instalacja → macOS](https://iplweb.github.io/bpp-de
 
 ### Windows
 
-**Najprościej: przez WSL2.** To wbudowany w Windows podsystem Linuksa — Docker Desktop i tak z niego korzysta, więc nic dodatkowego nie instalujesz. Pracując po stronie Ubuntu omijasz wszystkie windowsowe wyjątki: doinstalowywanie GNU Make, przeliczanie ścieżek `C:\dane` → `/c/dane` i pilnowanie, w którym terminalu uruchamiasz `make`.
+**Najprościej: przez WSL2.** To wbudowany w Windows podsystem Linuksa. Aby uruchomić BPP na Windows, potrzebujesz zainstalować Docker Desktop, który i tak z niego korzysta.
 
 **1. Włącz WSL2.** Kliknij prawym przyciskiem na przycisk Start, wybierz **Terminal (Administrator)** (na Windows 10: **Windows PowerShell (Administrator)**), wpisz `wsl --install` i zrestartuj komputer. Komenda włącza WSL2 i instaluje Ubuntu; jeśli WSL jest już włączony, po prostu to zgłosi. Wymagany jest Windows 11 albo Windows 10 w wersji 2004 (build 19041) lub nowszej, z włączoną wirtualizacją w BIOS/UEFI — dokładnie te same wymagania, co Docker Desktop.
 
@@ -168,7 +168,7 @@ cd bpp-deploy
 <details>
 <summary><b>Wolę zostać po stronie Windows</b> — instalacja przez Git Bash</summary>
 
-Ta ścieżka **nie omija WSL2** — Docker Desktop wymaga go tak czy inaczej, więc krok 1 powyżej wykonaj również tutaj. Różnica polega na tym, że `make` uruchamiasz w Git Bashu po stronie Windows, a nie w Ubuntu. Wymaga to doinstalowania GNU Make i pilnowania kilku windowsowych wyjątków.
+Ta ścieżka **też wymaga WSL2** — Docker Desktop bez niego nie działa, więc krok 1 powyżej wykonaj również tutaj. Różnica polega na tym, że `make` uruchamiasz w Git Bashu po stronie Windows, a nie w Ubuntu.
 
 Otwórz **PowerShell** (klawisz Windows → „powershell") i zainstaluj komplet narzędzi:
 

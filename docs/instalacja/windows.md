@@ -1,10 +1,8 @@
 # Instalacja — Windows
 
 !!! tip "Najprościej: przez WSL2"
-    WSL2 to wbudowany w Windows podsystem Linuksa. Docker Desktop i tak z niego
-    korzysta, więc nic dodatkowego nie instalujesz — a pracując po stronie Ubuntu
-    omijasz wszystkie windowsowe wyjątki: doinstalowywanie GNU Make, przeliczanie
-    ścieżek `C:\dane` → `/c/dane` i pilnowanie, w którym terminalu uruchamiasz `make`.
+    WSL2 to wbudowany w Windows podsystem Linuksa. Aby uruchomić BPP na Windows,
+    potrzebujesz zainstalować Docker Desktop, który i tak z niego korzysta.
 
     Wolisz zostać po stronie Windows? Instrukcja dla Git Basha jest
     [na dole strony](#instalacja-przez-git-bash).
@@ -99,10 +97,9 @@ cd bpp-deploy
 
 ## Instalacja przez Git Bash
 
-Ta ścieżka **nie omija WSL2** — Docker Desktop wymaga go tak czy inaczej, więc krok 1
+Ta ścieżka **też wymaga WSL2** — Docker Desktop bez niego nie działa, więc krok 1
 powyżej wykonaj również tutaj. Różnica polega na tym, że `make` uruchamiasz w Git Bashu
-po stronie Windows, a nie w Ubuntu. Wymaga to doinstalowania GNU Make i pilnowania
-kilku windowsowych wyjątków.
+po stronie Windows, a nie w Ubuntu.
 
 ### 1. Komplet narzędzi jedną komendą (winget)
 
