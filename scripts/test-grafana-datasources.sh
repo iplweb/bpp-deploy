@@ -47,19 +47,57 @@ assert_file_not_contains() {
         fail "$name ('$needle' obecne w $file)"; else pass "$name"; fi
 }
 
-# PATH bez zadnego katalogu zawierajacego envsubst — symulacja Git Basha.
-path_without_envsubst() {
-    local out="" p
+# PATH bez envsubsta — symulacja Git Basha, czyli kompletu narzedzi Unix BEZ
+# gettexta.
+#
+# Nie wolno tego robic przez wyrzucanie z PATH katalogow zawierajacych envsubsta
+# (tak bylo do 2026-08-29 i wywracalo CI): na Ubuntu envsubst z gettext-base
+# siedzi w /usr/bin, czyli tam gdzie sed, grep, mv i dirname. Wyrzucenie tego
+# katalogu zabieralo testowanemu skryptowi WSZYSTKIE narzedzia i konczylo sie
+# kodem 127 — test "dziala bez envsubsta" wywalal sie w rzeczywistosci na "nie
+# ma seda". Na macOS przechodzil przypadkiem, bo envsubst z Homebrew lezy w
+# katalogu bez coreutils.
+#
+# Zamiast tego budujemy katalog z dowiazaniami do wszystkich komend z PATH,
+# pomijajac wylacznie envsubsta. Pierwszy katalog w PATH wygrywa, jak przy
+# prawdziwym wyszukiwaniu komendy.
+build_path_without_envsubst() {
+    local sandbox="$TEST_ROOT/no-gettext-bin"
+    mkdir -p "$sandbox"
+    local p f name
     local IFS=:
     for p in $PATH; do
         [ -n "$p" ] || continue
-        [ -x "$p/envsubst" ] && continue
-        [ -x "$p/envsubst.exe" ] && continue
-        out="${out:+$out:}$p"
+        [ -d "$p" ] || continue
+        for f in "$p"/*; do
+            [ -f "$f" ] || continue
+            [ -x "$f" ] || continue
+            name="${f##*/}"
+            case "$name" in envsubst | envsubst.exe) continue ;; esac
+            [ -e "$sandbox/$name" ] || ln -s "$f" "$sandbox/$name"
+        done
     done
-    printf '%s\n' "$out"
+    printf '%s\n' "$sandbox"
 }
-NO_GETTEXT_PATH="$(path_without_envsubst)"
+NO_GETTEXT_PATH="$(build_path_without_envsubst)"
+
+# Kontrola samego srodowiska testowego. Bez tego zepsuty sandbox udaje regresje
+# w kodzie produkcyjnym: asercje ponizej wywalaja sie na 127, a komunikat sugeruje
+# problem z renderem. Dokladnie ta pomylka kosztowala jeden dzien czerwonego CI.
+echo ""
+echo "== sandbox PATH bez gettexta =="
+for tool in sed grep mv rm dirname env; do
+    if PATH="$NO_GETTEXT_PATH" command -v "$tool" >/dev/null 2>&1; then
+        pass "sandbox ma $tool"
+    else
+        fail "sandbox NIE ma $tool — atrapa PATH jest zepsuta, a nie kod produkcyjny"
+    fi
+done
+if PATH="$NO_GETTEXT_PATH" command -v envsubst >/dev/null 2>&1; then
+    fail "sandbox WIDZI envsubsta — atrapa PATH nie symuluje Git Basha"
+else
+    pass "sandbox nie widzi envsubsta"
+fi
 
 # shellcheck source=scripts/lib-render-template.sh
 . "$LIB"
