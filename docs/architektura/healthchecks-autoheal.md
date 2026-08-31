@@ -7,6 +7,12 @@
 - `authserver` — HTTP `/health/`
 - `redis` — `redis-cli ping`
 - `grafana` — HTTP `/api/health`
+- `backup-runner` — obecność `rclone`/`curl`/`pg_dump`/`jq` **oraz** niepustego
+  `/etc/ssl/certs/ca-certificates.crt`. Narzędzia są doinstalowywane w runtime,
+  więc healthcheck pilnuje, czy instalacja się udała. Bundle CA jest sprawdzany
+  na równi z binarkami, bo jego brak nie objawia się niczym aż do nocnego cyklu
+  o 02:30 — wtedy pada każde HTTPS
+  ([awaria TLS](../eksploatacja/backup-i-rclone.md#awaria-tls-certificate-signed-by-unknown-authority)).
 - `celerybeat` — świeżość pliku-heartbeatu `/tmp/celerybeat-heartbeat`
   (`HeartbeatScheduler` dotyka go co tick); sonda tylko sprawdza `mtime` — bez
   importu Django i bez sprawdzania redisa (redis ma własny healthcheck). `test:`

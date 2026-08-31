@@ -337,6 +337,24 @@ błąd i `trap ERR` wywraca cały backup (ta sama pułapka co `grep -q` w sondzi
 wsparcia); (3) liczyć progu przez `date -d "-N months"` — busybox w wariancie
 alpine `backup-runnera` tego nie umie.
 
+**CRITICAL: `ca-certificates` musi zostać na liście pakietów doinstalowywanych
+w `command:` `backup-runnera`** (obie gałęzie: `apt-get` i `apk`). Oficjalny obraz
+`postgres` (Debian) purge'uje `ca-certificates` na końcu builda, debianowy `rclone`
+zależy wyłącznie od `libc6` (nie ma ich nawet w *Recommends*), a my instalujemy
+z `--no-install-recommends` — bez jawnej instalacji kontener nie ma **żadnego**
+roota CA. **Symptom: `x509: certificate signed by unknown authority` poprzedzone
+mylącym `couldn't fetch token - maybe it has expired?`** — czyli wygląda na wygasły
+token OAuth, a jest pusty magazyn CA. Awaria jest niema: `notify_rollbar` też idzie
+przez `curl` po HTTPS, więc alert o `exit 3` dostaje `http=000`. **Anti-fixes — do
+NOT:** (1) „naprawiać" tego przez `rclone config reconnect` ani rotację tokenu —
+token jest zdrowy; (2) dokładać `--no-check-certificate`/`--insecure-skip-verify`;
+(3) usuwać sprawdzenia `/etc/ssl/certs/ca-certificates.crt` z healthchecku — brak CA
+nie objawia się niczym aż do cyklu o 02:30. Do czerwca 2026 `backup-runner` stał na
+`postgres:*-alpine` (bundle CA w bazowym obrazie), więc regresja weszła cicho przy
+przejściu na obraz współdzielony z `dbserverem`. Zmiana siedzi w `command:`, czyli
+w konfiguracji kontenera — **sam `git pull` jej nie wdraża, potrzebny `make up`**
+(inaczej niż reszta tej sekcji, jadąca na bind-mouncie `scripts/`).
+
 `BPP_BACKUP_DIR`/`BPP_MEDIA_DIR`/`BPP_RCLONE_CONFIG`/`BPP_BACKUP_LOG` w
 `backup-cycle.sh` istnieją **wyłącznie** po to, by `scripts/test-rclone.sh` mógł
 uruchomić prawdziwy skrypt na hoście — asercja „copy, nie sync" musi odpalać kod,

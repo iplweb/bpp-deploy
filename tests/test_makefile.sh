@@ -1657,6 +1657,30 @@ test_rclone_single_source_of_truth() {
         'test-rclone.sh' "$REPO_DIR/.github/workflows/ci.yml"
 }
 
+test_backup_runner_ca_certificates() {
+    yellow "=== Test: backup-runner ma magazyn CA ==="
+
+    # Oficjalny obraz postgres (Debian) purge'uje ca-certificates na koncu
+    # builda, a debianowy rclone zalezy tylko od libc6 - wiec bez jawnej
+    # instalacji kontener nie ma ZADNEGO roota CA. Objaw jest odlegly od
+    # przyczyny: "x509: certificate signed by unknown authority" przy
+    # odswiezaniu tokenu OAuth remote'a, a rownoczesnie curl nie dowozi
+    # notyfikacji do Rollbara (http=000), wiec awaria backupu jest cicha.
+    # Do f676fba (2026-06-18) backup-runner stal na postgres:*-alpine, ktory
+    # ma bundle CA w bazowym obrazie - stad regresja przeszla niezauwazona.
+    local yml="$REPO_DIR/docker-compose.backup.yml"
+
+    assert_file_contains "apk instaluje ca-certificates" \
+        'apk add --no-cache ca-certificates' "$yml"
+    assert_file_contains "apt-get instaluje ca-certificates" \
+        'no-install-recommends ca-certificates' "$yml"
+
+    # Healthcheck musi patrzec na sam bundle, nie tylko na binarki: brak CA
+    # nie objawia sie niczym az do nocnego cyklu o 2:30.
+    assert_file_contains "healthcheck sprawdza bundle CA" \
+        'ca-certificates.crt' "$yml"
+}
+
 test_loki_retention_migration() {
     yellow "=== Test: retencja Loki — migracja do .env + render ==="
 
@@ -2014,6 +2038,7 @@ test_ensure_config_files_altcha_selfheal
 test_init_configs_path_validation
 test_install_docker_windows
 test_rclone_single_source_of_truth
+test_backup_runner_ca_certificates
 
 echo ""
 echo "========================================"

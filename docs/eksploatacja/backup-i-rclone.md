@@ -21,8 +21,10 @@ przez rclone i raportuje do Rollbara.
     (`postgres:${DJANGO_BPP_POSTGRESQL_VERSION}`, wariant Debian) — dzięki temu
     współdzieli z nim 100% warstw i nie zajmuje dodatkowego miejsca na dysku
     (osobny `-alpine` nie dzieli warstw z Debianem i kosztowałby ~350 MB więcej).
-    `pg_dump` trafia dokładnie w wersję serwera. `rclone`, `curl`, `jq` są
-    doinstalowane w runtime (`apt-get`). W trybie **zewnętrznej bazy** `dbserver`
+    `pg_dump` trafia dokładnie w wersję serwera. `rclone`, `curl`, `jq`
+    **i `ca-certificates`** są doinstalowane w runtime (`apt-get`) — bez tego
+    ostatniego kontener nie ma żadnego roota CA i **każde** połączenie HTTPS
+    pada (patrz [Awaria TLS](#awaria-tls-certificate-signed-by-unknown-authority)). W trybie **zewnętrznej bazy** `dbserver`
     to lekki sentinel `postgres:<major>-alpine`; tam `init-configs` ustawia
     `BPP_BACKUP_PG_IMAGE=postgres:<major>-alpine`, by `backup-runner` współdzielił
     warstwy z sentinelem (na starych instalacjach dopisuje to `ensure-config-files`
@@ -118,6 +120,64 @@ Bezpieczniki, każdy celowy:
 
 Retencja **lokalna** (`DJANGO_BPP_BACKUP_KEEP_LAST`, domyślnie 7 kopii) jest od
 niej niezależna i działa jak dotąd.
+
+## Awaria TLS: `certificate signed by unknown authority`
+
+**Symptom** — `rclone` nie dogaduje się ze zdalnym, a komunikat sugeruje wygasły token:
+
+```
+ERROR : : error listing: Post "https://api.dropboxapi.com/2/files/list_folder":
+couldn't fetch token - maybe it has expired? - refresh with "rclone config reconnect backup:":
+Post "https://api.dropboxapi.com/1/oauth2/token":
+tls: failed to verify certificate: x509: certificate signed by unknown authority
+```
+
+Pierwsza połowa komunikatu myli. Token jest w porządku — **kontener nie ma magazynu
+certyfikatów CA**, więc padnie *każde* połączenie HTTPS, nie tylko do Dropboksa.
+
+**Przyczyna.** Oficjalny obraz `postgres` (wariant Debian) instaluje `ca-certificates`
+wyłącznie na czas ściągnięcia `gosu`, po czym robi `apt-get purge --auto-remove` —
+finalny obraz nie zawiera `/etc/ssl/certs/ca-certificates.crt`. Debianowy pakiet
+`rclone` zależy tylko od `libc6` (`ca-certificates` nie ma nawet w *Recommends*),
+a instalacja runtime'owa idzie z `--no-install-recommends`, więc nic tej luki nie
+łatało. Dopóki `backup-runner` stał na `postgres:*-alpine` (do czerwca 2026),
+problemu nie było — alpine ma bundle CA w obrazie bazowym. Przeniesienie
+`backup-runnera` na obraz współdzielony z `dbserverem` zabrało go po cichu.
+
+!!! danger "Awaria backupu była niema"
+    `notify_rollbar` też strzela `curl`-em po HTTPS. Bez CA nocny cykl kończył się
+    na `exit 3` (rclone copy failed), a powiadomienie o tym dostawało `http=000` —
+    czyli **alert o nieudanym backupie zdalnym nigdy nie docierał**. Lokalne kopie
+    w `$DJANGO_BPP_HOST_BACKUP_DIR` powstawały normalnie; brakowało wyłącznie
+    wysyłki na zdalny.
+
+**Diagnoza:**
+
+```bash
+docker compose exec backup-runner ls -l /etc/ssl/certs/ca-certificates.crt
+# brak pliku  -> to ta usterka
+docker compose logs ofelia | grep -i backup_cycle | tail -20
+# "rclone-copy (exit=3)" wskazuje, od kiedy wysyłka nie działa
+```
+
+**Rozwiązanie** — `git pull && make up`. Tu **nie wystarczy sam `git pull`**:
+inaczej niż przy [retencji zdalnej](#retencja-zdalna-django_bpp_rclone_keep_months),
+lista instalowanych pakietów siedzi w `command:` w `docker-compose.backup.yml`, czyli
+w konfiguracji kontenera — musi się on odtworzyć.
+
+Doraźnie, bez odtwarzania kontenera (ginie przy najbliższym `make up`):
+
+```bash
+docker compose exec backup-runner sh -c \
+    'apt-get update && apt-get install -y --no-install-recommends ca-certificates'
+docker compose exec backup-runner rclone --config /config/rclone/rclone.conf ls backup:
+```
+
+Po naprawie zaległe kopie uzupełnią się same przy najbliższym cyklu: na zdalny
+wysyłany jest **cały** `$DJANGO_BPP_HOST_BACKUP_DIR`, a nie tylko dzisiejsze pliki.
+
+Nawrót usterki wyłapuje healthcheck `backup-runnera`, który sprawdza bundle CA na
+równi z binarkami — bez tego brak CA nie objawia się niczym aż do 02:30 w nocy.
 
 ## `make backup` / `make restore` — para baza + media
 

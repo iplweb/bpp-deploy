@@ -142,6 +142,20 @@ Ten sam błąd potrafił też odrzucić katalog **obok** repozytorium o podobnej
 (`bpp-deploy-config` przy repo `bpp-deploy`) — na dowolnym systemie. Lekarstwo to
 również `git pull`.
 
+## Backup zdalny: `certificate signed by unknown authority`
+
+**Symptom**: `rclone` w `backup-runnerze` zwraca `couldn't fetch token - maybe it has
+expired?`, a niżej `tls: failed to verify certificate: x509: certificate signed by
+unknown authority`. Lokalne kopie powstają, na zdalny nic nie leci, a alert o tym
+nie przychodzi.
+
+**Przyczyna**: kontener nie ma magazynu CA — obraz `postgres` (Debian) purge'uje
+`ca-certificates` na końcu builda.
+
+**Rozwiązanie**: `git pull && make up` (sam `git pull` nie wystarczy — zmiana jest
+w `command:`, kontener musi się odtworzyć). Pełny opis, diagnoza i obejście bez
+restartu: [Awaria TLS w backupie](eksploatacja/backup-i-rclone.md#awaria-tls-certificate-signed-by-unknown-authority).
+
 ## Po `git pull` coś się rozjechało
 
 **Symptom**: nowe usługi się nie pojawiają, obrazy są stare, `.env` nie ma nowych zmiennych.
