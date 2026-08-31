@@ -42,6 +42,9 @@ jobs:
       - name: Render datasources.yaml bez gettexta
         run: ./scripts/test-grafana-datasources.sh
 
+      - name: Uklad zdalnego backupu + retencja (mocki)
+        run: ./scripts/test-rclone.sh
+
   pre-commit:
     name: Pre-commit hooks
     runs-on: ubuntu-latest

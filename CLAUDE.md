@@ -51,6 +51,7 @@ Operator topics and their canonical pages:
 | `defaults/alloy/config.alloy` | `docs/rozwoj/pulapki-alloy.md` |
 | `scripts/autoupdate.sh`, `scripts/deploy-with-warning.sh`, `scripts/site-down-warning.sh`, `mk/deployment.mk` | `docs/rozwoj/pulapki-wdrozenia.md` |
 | `defaults/webserver/*` | `docs/architektura/waf.md` + `docs/architektura/utwardzenie-brzegu.md` |
+| `scripts/backup-cycle.sh`, `scripts/lib-rclone.sh`, `mk/rclone.mk` | `docs/eksploatacja/backup-i-rclone.md` |
 | kompresja (`gzip_*`, brotli, zstd) w `_bpp-locations.conf` | `docs/rozwoj/pulapki-kompresji.md` |
 
 ## Configuration Architecture (essentials)
@@ -290,6 +291,57 @@ Compose interpolates `$VAR` **before** the string reaches the container and cann
 ### Scheduled jobs / nightly restarts (Ofelia)
 
 Daily maintenance, SSL renew, log rotation, and staggered 05:00–05:25 nightly restarts (`kill 1` via read-only `docker.sock`) are Ofelia labels in the compose files. Full schedule: `docs/architektura/zadania-ofelia.md`.
+
+### Backup zdalny (rclone) — katalog MIESIĘCZNY i `copy`, nigdy `sync`
+
+Zdalne ma **jeden katalog na miesiąc** (`REMOTE:YYYY-MM/`), a wysyłką jest
+`rclone copy` całego lokalnego katalogu backupów. Ścieżkę liczy wyłącznie
+`rclone_month_dir` z `scripts/lib-rclone.sh` — jedno źródło dla
+`backup-cycle.sh` i `rclone-sync.sh`.
+
+**CRITICAL: nigdy `sync` do katalogu miesięcznego.** Cel jest teraz stały przez
+cały miesiąc, więc `sync` skasowałby z niego wszystko poza bieżącym oknem
+7 lokalnych kopii. **Symptom: archiwum po cichu kurczy się do ostatnich 7 dni,
+a cykl raportuje sukces — zero śladu w logach.** Do sierpnia 2026 było
+`sync .../YYYY-MM/DD/` do świeżego, pustego katalogu dziennego: rclone nie miał
+czego pominąć i codziennie wysyłał całe okno, czyli 14 plików zamiast 2 i 7×
+narzutu miejsca.
+
+**Anti-fixes — do NOT:** (1) wrócić do `sync` „bo czyściej"; (2) wysyłać tylko
+dwa dzisiejsze pliki — cały `$BACKUP_DIR` jest oferowany celowo, dzięki temu
+dzień, w którym rclone padł, uzupełnia się sam następnej nocy; (3) wpisywać
+ścieżkę docelową z powrotem do `mk/rclone.mk` — była tam zdublowana i nic nie
+pilnowało zgodności z `backup-cycle.sh`.
+
+**Retencja zdalna `DJANGO_BPP_RCLONE_KEEP_MONTHS` jest domyślnie WŁĄCZONA (12).**
+To świadome odstępstwo od kontraktu backwards-compat, i ostrzejsze, niż wygląda:
+`scripts/` jest bind-mountem, a Ofelia woła `/scripts/backup-cycle.sh` w
+**działającym** kontenerze, więc **sam `git pull` wystarcza** — bez `make up`,
+bez restartu. Kasowanie rusza przy najbliższym cyklu o 02:30, a `purge` zdejmuje
+katalog miesiąca **wraz z podkatalogami `DD/`**, czyli zjada też stary układ
+dzienny. Zmienna celowo **nie** jest
+dopisywana do `.env` ani do `init-configs` — brak zmiennej to już właściwy
+default, więc migracji nie ma. **Czytaj ją przez `${VAR-12}`, nie `${VAR:-12}`**:
+dokumentacja obiecuje, że pusta wartość wyłącza retencję, a z dwukropkiem pusty
+string jest nieodróżnialny od braku zmiennej i wpada na 12 — operator wyłączający
+kasowanie dostawałby je włączone. Cztery bezpieczniki, każdy nośny (mutacje na nich
+zapala `make test-rclone`): maksymalnie **jeden** katalog na cykl, nigdy bieżący
+miesiąc, wyłącznie katalogi pasujące dokładnie do `^[0-9]{4}-[0-9]{2}$` (`99` czy
+`2026-08-01` przechodzą dalsze filtry i zostałyby policzone jako starożytne),
+błąd retencji to ostrzeżenie a nie `fail`.
+
+**Anti-fixes — do NOT:** (1) zdejmować limitu jednego katalogu na cykl — to on
+zamienia nieodwracalne zdarzenie w dobę na reakcję; (2) brać najstarszego przez
+`| head -1` — pod `set -o pipefail` producent dostaje SIGPIPE, pipeline zwraca
+błąd i `trap ERR` wywraca cały backup (ta sama pułapka co `grep -q` w sondzie
+wsparcia); (3) liczyć progu przez `date -d "-N months"` — busybox w wariancie
+alpine `backup-runnera` tego nie umie.
+
+`BPP_BACKUP_DIR`/`BPP_MEDIA_DIR`/`BPP_RCLONE_CONFIG`/`BPP_BACKUP_LOG` w
+`backup-cycle.sh` istnieją **wyłącznie** po to, by `scripts/test-rclone.sh` mógł
+uruchomić prawdziwy skrypt na hoście — asercja „copy, nie sync" musi odpalać kod,
+bo grep po źródle nie widzi tego, co naprawdę poleci do rclone. Operator doc:
+`docs/eksploatacja/backup-i-rclone.md`.
 
 ### Planned downtime — `make run-with-warning`
 

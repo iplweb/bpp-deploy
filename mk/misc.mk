@@ -1,4 +1,4 @@
-.PHONY: clean wait debug-show-current-settings test-docker-versions test-config-path test-grafana-datasources test-winget-ids test-waf test-alloy
+.PHONY: clean wait debug-show-current-settings test-docker-versions test-config-path test-grafana-datasources test-rclone test-winget-ids test-waf test-alloy
 
 clean:
 	-find . -name '*~' -o -name '\#*' -o -name '.*~' | xargs rm -f
@@ -22,6 +22,13 @@ test-config-path:
 # `envsubst` (Windows nie ma gettexta). Bez sieci, dockera i .env.
 test-grafana-datasources:
 	@bash scripts/test-grafana-datasources.sh
+
+# Uklad zdalnego backupu i retencja zdalna. Kluczowa asercja jest MUTACYJNA:
+# do katalogu miesiecznego leci `rclone copy`, nigdy `sync` — sync skasowalby
+# archiwum i zaraportowal sukces. Uruchamia PRAWDZIWY backup-cycle.sh z
+# atrapami w PATH, bo grep po zrodle tego nie widzi. Bez sieci, dockera i .env.
+test-rclone:
+	@bash scripts/test-rclone.sh
 
 # Czy identyfikatory pakietow winget z instrukcji dla Windows nadal istnieja
 # w microsoft/winget-pkgs. WYMAGA SIECI, wiec swiadomie nie wchodzi do `make

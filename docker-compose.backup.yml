@@ -10,7 +10,9 @@ services:
   #   1. pg_dump bazy -> /backup/db-backup-TS.tar.gz
   #   2. tar volumenu media -> /backup/media-backup-TS.tar.gz
   #   3. lokalna rotacja (KEEP_LAST)
-  #   4. rclone sync -> zdalny serwer (struktura YYYY-MM/DD/)
+  #   4. rclone copy -> zdalny serwer (JEDEN katalog na miesiac: YYYY-MM/)
+#      CRITICAL: copy, nigdy sync - patrz scripts/lib-rclone.sh
+#   4b. retencja zdalna (DJANGO_BPP_RCLONE_KEEP_MONTHS, domyslnie 12 mies.)
   #   5. notyfikacja do Rollbara (level=info/error)
   #
   # Wszystko w jednym kontenerze, wolany raz dziennie przez Ofelie.

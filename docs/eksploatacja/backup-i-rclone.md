@@ -4,9 +4,9 @@
 
 ```bash
 make db-backup        # Pojedynczy pg_dump (równoległy, tar.gz)
-make backup-cycle     # Pełen cykl: pg_dump + tar mediów + rclone + powiadomienia
+make backup-cycle     # Pełen cykl: pg_dump + tar mediów + rclone copy + retencja zdalna
 make rclone-config    # Konfiguracja zdalnego backupu (Google Drive, S3, ...)
-make rclone-sync      # Wymuszona synchronizacja z chmurą
+make rclone-sync      # Wymuszona wysyłka do chmury (ten sam układ co cykl nocny)
 make rclone-check     # Sprawdzenie spójności kopii zdalnej
 ```
 
@@ -29,6 +29,95 @@ przez rclone i raportuje do Rollbara.
     przy zwykłym `make up`).
 
 `make backup-cycle` uruchamia ten sam cykl ręcznie.
+
+## Układ katalogów na zdalnym
+
+Kopie lądują w **jednym katalogu na miesiąc**:
+
+```
+backup_enc:
+  2026-07/
+    db-backup-20260701-023000.tar.gz
+    media-backup-20260701-023000.tar.gz
+    ...                                  (2 pliki na dzień)
+  2026-08/
+    ...
+```
+
+Wysyłka to `rclone copy` całego lokalnego katalogu backupów. Ponieważ nazwy
+niosą timestamp, a katalog docelowy jest **stały przez cały miesiąc**, `copy`
+wysyła tylko to, czego na zdalnym jeszcze nie ma — czyli 2 pliki dziennie.
+Jednocześnie co noc „pokazuje" zdalnemu całe lokalne okno 7 kopii, więc dzień,
+w którym rclone padł, uzupełnia się sam następnej nocy.
+
+!!! danger "Do katalogu miesięcznego wolno wysyłać wyłącznie `rclone copy`"
+    `rclone sync` skasowałby z katalogu miesiąca wszystko, czego nie ma
+    lokalnie — czyli **całe archiwum poza ostatnimi 7 dniami** — i zakończyłby
+    się sukcesem, bez śladu w logach. Broni tego asercja mutacyjna w
+    `make test-rclone`.
+
+!!! info "Skąd ta zmiana (do sierpnia 2026 było inaczej)"
+    Wcześniej cykl robił `rclone sync /backup/ REMOTE:YYYY-MM/DD/` — do
+    **świeżego, pustego** katalogu na każdy dzień. Skoro cel był za każdym
+    razem pusty, rclone nie miał czego pominąć i wysyłał całe lokalne okno
+    7 kopii: **14 plików dziennie zamiast 2**, a każdy plik lądował na zdalnym
+    w 7 egzemplarzach. Siedmiokrotny narzut na transferze i na miejscu.
+
+    Katalogi dzienne z tamtego okresu zostają tam, gdzie były — sama wysyłka
+    ich nie rusza. Scalenie do katalogów miesięcznych to jednorazowa, ręczna
+    operacja po stronie backendu (`rclone moveto` + `rclone purge` dopiero po
+    weryfikacji, że komplet plików jest już w katalogu miesiąca).
+
+    **Ale retencja zdalna owszem je usunie** — `rclone purge` kasuje katalog
+    miesiąca **razem z jego podkatalogami `DD/`**. Przy domyślnych 12
+    miesiącach wszystko starsze zniknie po jednym katalogu na dobę,
+    niezależnie od tego, czy zdążyłeś je scalić. Jeśli zależy Ci na tych
+    danych, scal je **zanim** retencja do nich dojdzie, albo najpierw ustaw
+    `DJANGO_BPP_RCLONE_KEEP_MONTHS=0`.
+
+## Retencja zdalna — `DJANGO_BPP_RCLONE_KEEP_MONTHS`
+
+**Domyślnie włączona: 12 miesięcy.** Po udanej wysyłce cykl usuwa najstarsze
+katalogi miesięczne, zostawiając `DJANGO_BPP_RCLONE_KEEP_MONTHS` najnowszych,
+licząc z bieżącym.
+
+!!! warning "Aktywuje się na sam `git pull`, bez `make up`"
+    `backup-runner` ma katalog `./scripts` podmontowany na żywo
+    (`./scripts:/scripts:ro`), a Ofelia woła `/scripts/backup-cycle.sh` w
+    **działającym** kontenerze. Nowy kod wchodzi więc do gry przy najbliższym
+    przebiegu o 02:30 — bez przebudowy, bez restartu, bez `make up`. Jeśli
+    chcesz najpierw zobaczyć, co by zniknęło: `make rclone-check` i ustaw
+    `DJANGO_BPP_RCLONE_KEEP_MONTHS=0` **zanim** wykonasz `git pull`.
+
+```bash
+# w $BPP_CONFIGS_DIR/.env
+DJANGO_BPP_RCLONE_KEEP_MONTHS=24   # trzymaj 2 lata
+DJANGO_BPP_RCLONE_KEEP_MONTHS=0    # wyłącz retencję zdalną całkowicie
+DJANGO_BPP_RCLONE_KEEP_MONTHS=     # to samo — pusta wartość też wyłącza
+```
+
+Każda wartość niebędąca dodatnią liczbą całkowitą (`0`, puste, śmieci) znaczy
+**wyłączone** — nigdy błąd i nigdy kasowanie na chybił trafił.
+
+Bezpieczniki, każdy celowy:
+
+- **Maksymalnie jeden katalog miesięczny na cykl.** W normalnej pracy i tak co
+  miesiąc wypada dokładnie jeden, więc różnicy nie widać — ale instalacja z
+  wieloletnią historią nie traci kilkudziesięciu miesięcy jednej nocy, tylko po
+  jednym na dobę. Każde usunięcie ma osobny wpis w logu i w komunikacie do
+  Rollbara, więc jest doba na reakcję zamiast pojedynczego nieodwracalnego
+  zdarzenia.
+- **Bieżący miesiąc nie zostanie usunięty nigdy.**
+- **Ruszane są wyłącznie katalogi pasujące dokładnie do `YYYY-MM`.** Cokolwiek
+  innego w remote — twoje własne katalogi, stare katalogi dzienne wyniesione na
+  górny poziom, nazwy typu `2026-08-01` czy `99` — jest nietykalne.
+- **Błąd retencji nigdy nie wywraca backupu.** Nieudany `purge` czy nieudane
+  listowanie zdalnego to ostrzeżenie w logu i adnotacja w komunikacie sukcesu;
+  kod wyjścia cyklu się nie zmienia. Sprzątanie nie ma prawa zamienić udanego
+  backupu w alert.
+
+Retencja **lokalna** (`DJANGO_BPP_BACKUP_KEEP_LAST`, domyślnie 7 kopii) jest od
+niej niezależna i działa jak dotąd.
 
 ## `make backup` / `make restore` — para baza + media
 

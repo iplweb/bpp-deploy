@@ -1621,6 +1621,42 @@ test_init_configs_generates_altcha() {
 # z repo po cichu przestawiloby operatorowi retencje przy `git pull && make up`.
 # ============================================================
 
+test_rclone_single_source_of_truth() {
+    yellow "=== Test: uklad zdalnego backupu ma JEDNO zrodlo prawdy ==="
+
+    # Zachowanie (copy-nie-sync, retencja) pokrywa scripts/test-rclone.sh,
+    # ktory odpala prawdziwy backup-cycle.sh z atrapami. Tutaj pilnujemy
+    # wylacznie tego, czego uruchomienie skryptu nie widzi: zeby sciezka
+    # docelowa nie wrocila do Makefile'a. Do sierpnia 2026 ta sama sklejka
+    # "$(date +%Y-%m)/$(date +%d)/" byla wpisana w dwoch miejscach naraz
+    # (mk/rclone.mk i backup-cycle.sh) i nic nie pilnowalo ich zgodnosci.
+    assert_file_not_contains "mk/rclone.mk nie sklada wlasnej sciezki dziennej" \
+        'date +%d' "$REPO_DIR/mk/rclone.mk"
+    assert_file_not_contains "mk/rclone.mk nie wola rclone sync" \
+        'sync /backup' "$REPO_DIR/mk/rclone.mk"
+    assert_file_contains "mk/rclone.mk deleguje do scripts/rclone-sync.sh" \
+        'rclone-sync.sh' "$REPO_DIR/mk/rclone.mk"
+
+    assert_file_exists "scripts/lib-rclone.sh istnieje" "$REPO_DIR/scripts/lib-rclone.sh"
+    assert_file_exists "scripts/rclone-sync.sh istnieje" "$REPO_DIR/scripts/rclone-sync.sh"
+
+    # Oba miejsca wysylajace na zdalny musza brac katalog z tej samej funkcji.
+    local f
+    for f in scripts/backup-cycle.sh scripts/rclone-sync.sh; do
+        assert_file_contains "$f zrodluje lib-rclone.sh" \
+            'lib-rclone.sh' "$REPO_DIR/$f"
+        assert_file_contains "$f liczy katalog przez rclone_month_dir" \
+            'rclone_month_dir' "$REPO_DIR/$f"
+    done
+
+    # scripts/test-rclone.sh musi byc w petli `make test` ORAZ w CI — inaczej
+    # pokrycie rozjezdza sie po cichu (ostrzezenie nad targetem `test`).
+    assert_file_contains "make test wola test-rclone.sh" \
+        'test-rclone.sh' "$REPO_DIR/Makefile"
+    assert_file_contains "CI wola test-rclone.sh" \
+        'test-rclone.sh' "$REPO_DIR/.github/workflows/ci.yml"
+}
+
 test_loki_retention_migration() {
     yellow "=== Test: retencja Loki — migracja do .env + render ==="
 
@@ -1977,6 +2013,7 @@ test_loki_retention_migration
 test_ensure_config_files_altcha_selfheal
 test_init_configs_path_validation
 test_install_docker_windows
+test_rclone_single_source_of_truth
 
 echo ""
 echo "========================================"

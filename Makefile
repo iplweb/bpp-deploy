@@ -36,6 +36,7 @@ endif
 test:
 	@bash scripts/test-config-path.sh
 	@bash scripts/test-grafana-datasources.sh
+	@bash scripts/test-rclone.sh
 	@./scripts/test-alloy.sh
 	@bash tests/test_makefile.sh
 	@./scripts/test-waf.sh
@@ -195,6 +196,7 @@ help:
 	@echo "    test-docker-versions - Unit-testy logiki wersji obrazow (mock curl/docker, no network)"
 	@echo "    test-config-path     - Unit-testy sciezki katalogu konfiguracyjnego (Windows C:\\..., no network)"
 	@echo "    test-grafana-datasources - Render datasources.yaml bez gettexta (no network)"
+	@echo "    test-rclone          - Uklad zdalnego backupu + retencja: copy-nie-sync (no network)"
 	@echo "    test-winget-ids      - Czy ID pakietow winget z instrukcji Windows nadal istnieja (siec)"
 	@echo ""
 	@echo "  Host management:"
