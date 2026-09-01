@@ -6,94 +6,68 @@ x-logging: &default-logging
 
 services:
 
-  # Zunifikowany backup worker - obsluguje CALY cykl backupu:
-  #   1. pg_dump bazy -> /backup/db-backup-TS.tar.gz
-  #   2. tar volumenu media -> /backup/media-backup-TS.tar.gz
+  # Orkiestrator cyklu backupu - obraz docker:cli, ktory SAM NIE MA pg_dump,
+  # rclone, curl ani jq. Zamiast doinstalowywac je w runtime (jak do tej
+  # wersji), ciezkie kroki wykonuje przez `docker exec` w kontenerach, ktore
+  # i tak istnieja i maja wlasciwe narzedzie:
+  #   1. pg_dump              -> docker exec w serwisie dbserver (haslo
+  #                              czytane TAM, z DJANGO_BPP_DB_PASSWORD -
+  #                              nie przechodzi przez -e)
+  #   2. tar dumpu i mediow   -> lokalnie (busybox tar; /backup i media
+  #                              zamontowane tez tutaj)
   #   3. lokalna rotacja (KEEP_LAST)
-  #   4. rclone copy -> zdalny serwer (JEDEN katalog na miesiac: YYYY-MM/)
-#      CRITICAL: copy, nigdy sync - patrz scripts/lib-rclone.sh
-#   4b. retencja zdalna (DJANGO_BPP_RCLONE_KEEP_MONTHS, domyslnie 12 mies.)
+  #   4. rclone copy/lsf/purge -> docker exec w serwisie rclone (patrz shim
+  #                              `rclone()` w scripts/backup-cycle.sh)
   #   5. notyfikacja do Rollbara (level=info/error)
   #
-  # Wszystko w jednym kontenerze, wolany raz dziennie przez Ofelie.
-  # Obraz: domyslnie TEN SAM pelny obraz co dbserver (postgres:<MAJOR.MINOR>,
-  # Debian) -> backup-runner wspoldzieli z nim 100% warstw, czyli ~0 MB netto
-  # na dysku (alpine NIE dzieli warstw z Debianem - byly osobne +~350 MB).
-  # pg_dump trafia dokladnie w wersje serwera. rclone, curl, jq doinstalowane
-  # w runtime (apt-get na Debianie / apk na alpine - patrz command nizej).
-  # CRITICAL: ca-certificates musi byc na liscie instalowanych pakietow.
-  # Oficjalny obraz postgres (Debian) instaluje ca-certificates tylko na czas
-  # sciagniecia gosu i PURGE'uje je przed koncem builda - final image nie ma
-  # ZADNEGO magazynu CA. Debianowy rclone zalezy wylacznie od libc6 (nie ma
-  # ca-certificates nawet w Recommends), a my i tak instalujemy
-  # z --no-install-recommends. Bez tego pakietu KAZDE polaczenie HTTPS
-  # z kontenera pada na "x509: certificate signed by unknown authority":
-  # rclone nie odswiezy tokenu OAuth (backup zdalny = exit 3), a curl nie
-  # dowiezie notyfikacji do Rollbara (http=000), wiec o awarii nikt sie nie
-  # dowie. Dopoki backup-runner stal na postgres:*-alpine (do f676fba,
-  # 2026-06-18) problemu nie bylo - alpine ma bundle CA w bazowym obrazie.
-  # Tryb external: dbserver to lekki sentinel postgres:<major>-alpine, wiec
-  # init-configs/ensure-config-files ustawiaja BPP_BACKUP_PG_IMAGE=
-  # postgres:<major>-alpine, by backup-runner wspoldzielil warstwy z sentinelem
-  # (a nie sciagal osobnego Debiana).
+  # Kontenery adresowane po labelach compose (scripts/lib-container.sh),
+  # NIGDY po nazwie - compose generuje `<projekt>-<usluga>-<n>`, a ten plik
+  # nie ustawia `container_name:`.
+  #
+  # UWAGA na przyszlosc: docker:cli dziala jako uid 0 i dlatego otwiera
+  # /var/run/docker.sock niezaleznie od grupy - dodanie `user:` do tego
+  # serwisu to zepsuje (socket przestanie byc czytelny).
+  #
+  # Mount configu rclone jest :ro, chociaz ten serwis rclone'a nie uruchamia:
+  # scripts/backup-cycle.sh sprawdza `[ ! -f "$RCLONE_CONFIG" ]` PRZED
+  # wysylka (krok 4) - bez tego mountu warunek bylby prawdziwy ZAWSZE i cykl
+  # padalby co noc na `fail rclone-config-missing 3`. Zapis do configu
+  # (kreator, odswiezanie tokenu OAuth) robi wylacznie serwis `rclone` ponizej,
+  # ktory ma go RW.
   backup-runner:
-    # BPP_BACKUP_PG_IMAGE: override obrazu (ustawiany TYLKO w trybie external).
-    # Nieustawiony -> ten sam tag co dbserver: DJANGO_BPP_POSTGRESQL_VERSION
-    # (MAJOR.MINOR) z dwuwarstwowym fallbackiem (stara nazwa DBSERVER_PG_VERSION,
-    # default 16.13) - identyczne wyrazenie jak w docker-compose.database.yml,
-    # wiec tag rozwiazuje sie do tego samego obrazu (realne wspoldzielenie warstw).
-    image: ${BPP_BACKUP_PG_IMAGE:-postgres:${DJANGO_BPP_POSTGRESQL_VERSION:-${DJANGO_BPP_DBSERVER_PG_VERSION:-16.13}}}
+    # BPP_ORCHESTRATOR_IMAGE: override obrazu orkiestratora (np. do testu pod
+    # innym tagiem docker:cli). Nieustawiony -> docker:28-cli.
+    image: ${BPP_ORCHESTRATOR_IMAGE:-docker:28-cli}
     restart: always
     logging: *default-logging
+    # KRYTYCZNE, nie kosmetyka: bez tego cykl czyta same defaulty ze skryptu.
+    # Operator z udokumentowanym wylacznikiem `DJANGO_BPP_RCLONE_KEEP_MONTHS=`
+    # w .env dostalby po tej zmianie WLACZONE kasowanie zdalnych kopii.
     env_file: ${BPP_CONFIGS_DIR}/.env
     environment:
-      PGPASSWORD: ${DJANGO_BPP_DB_PASSWORD}
+      COMPOSE_PROJECT_NAME: ${COMPOSE_PROJECT_NAME}
     volumes:
+      # Do `docker exec` w dbserverze/rclonie - jedyny sposob, w jaki ten
+      # kontener cokolwiek "robi". Patrz uwaga o `user:` wyzej.
+      - /var/run/docker.sock:/var/run/docker.sock
       - ${DJANGO_BPP_HOST_BACKUP_DIR}:/backup
       - media:/mediaroot:ro
-      # CRITICAL: read-WRITE, nigdy :ro. rclone tego katalogu nie tylko czyta.
-      # 1) `rclone config` (czyli `make rclone-config`) zapisuje rclone.conf
-      #    przez temp-plik + rename W TYM katalogu. Przy :ro kazda odpowiedz
-      #    w kreatorze konczy sie "Failed to save config after 10 tries: ...
-      #    read-only file system", ale kreator brnie dalej - operator
-      #    przeklikuje calosc i dopiero potem odkrywa, ze konfiguracja nie
-      #    powstala. Mount byl :ro od pierwszego commita (6514c1a), wiec
-      #    udokumentowany `make rclone-config` nie zadzialal ani razu.
-      # 2) Po kazdym wygasnieciu access-tokenu OAuth rclone zapisuje tu
-      #    odswiezony token - dokumentacja rclone (opcja --config) stawia to
-      #    wprost: "When token-based authentication are used, the
-      #    configuration file must be writable, because rclone needs to
-      #    update the tokens inside it". Tam, gdzie refresh-token jest
-      #    JEDNORAZOWY (Box: "Each refresh_token is valid for one use in
-      #    60 days"), brak zapisu rozwala autoryzacje NA TRWALE - pierwsze
-      #    odswiezenie zuzywa stary token, nowy nie ma gdzie wyladowac.
-      # :ro nic tu nie chronilo: to ten sam kontener, ktory ma rw na /backup
-      # i dostaje PGPASSWORD.
-      - ${BPP_CONFIGS_DIR}/rclone:/config/rclone
+      # :ro - patrz komentarz nad serwisem. Zapis robi wylacznie serwis `rclone`.
+      - ${BPP_CONFIGS_DIR}/rclone:/config/rclone:ro
       - ./scripts:/scripts:ro
     entrypoint: ["/bin/sh", "-c"]
-    # Ten sam blok dziala na OBU obrazach: Debian (default, apt-get) i alpine
-    # (tryb external, apk). Bash i coreutils sa juz w Debianie - doinstalowujemy
-    # tylko rclone/curl/jq; na alpine dobieramy tez bash i coreutils.
-    command:
-      - |
-        if command -v apk >/dev/null 2>&1; then
-          apk add --no-cache ca-certificates rclone curl jq bash coreutils >/dev/null 2>&1 || exit 1
-        else
-          apt-get update >/dev/null 2>&1 \
-            && apt-get install -y --no-install-recommends ca-certificates rclone curl jq >/dev/null 2>&1 || exit 1
-        fi
-        exec sleep infinity
+    command: ["exec sleep infinity"]
     healthcheck:
-      # Magazyn CA jest sprawdzany na rowni z binarkami: jego brak nie objawia
-      # sie niczym, dopoki o 2:30 nie padnie wysylka na zdalny. Sciezka jest ta
-      # sama na Debianie (pakiet ca-certificates) i na alpine
-      # (ca-certificates-bundle).
-      test: ["CMD-SHELL", "command -v rclone >/dev/null && command -v curl >/dev/null && command -v pg_dump >/dev/null && command -v jq >/dev/null && [ -s /etc/ssl/certs/ca-certificates.crt ]"]
+      # Sonduje to, co realnie moze pasc: dostep do socketu i powloke z
+      # pipefail (niekompatybilny BPP_ORCHESTRATOR_IMAGE ma byc unhealthy
+      # przy `make up`, a nie odkryty o 2:30). Binarek (pg_dump/rclone/curl/jq)
+      # nie sprawdzamy - ten kontener ich nie ma, wykonuje je przez
+      # `docker exec` gdzie indziej.
+      test: ["CMD-SHELL", "docker version --format '{{.Server.Version}}' >/dev/null && (set -o pipefail)"]
       interval: 30s
-      timeout: 5s
+      timeout: 10s
       retries: 5
-      start_period: 60s
+      start_period: 15s
     labels:
       ofelia.enabled: "true"
       # Codzienny cykl backupu o 2:30 - po denorm_rebuild (22:00) i przed

@@ -170,6 +170,36 @@ for d in /bin/date /usr/bin/date; do [ -x "$d" ] && exec "$d" "$@"; done
 exit 127
 MOCK
 
+# docker: backup-cycle.sh nie wola juz pg_dump/rclone lokalnie - adresuje
+# kontenery po labelach (bpp_container -> `docker ps --filter label=...`) i
+# wykonuje ciezkie kroki przez `docker exec`. Ta atrapa odgrywa role samego
+# dockera: `ps` zwraca fikcyjne ID wyliczone z filtra usługi, `exec` zdejmuje
+# "exec", flagi (-e VAR, -i/-t/-it) i ID kontenera, po czym `exec`-uje reszte
+# LOKALNIE - dzieki temu istniejace atrapy pg_dump/rclone wyzej w PATH nadal
+# dostaja wywolanie i dotychczasowe asercje ("copy, nie sync" itp.) dzialaja
+# na tej samej sciezce bez zmian.
+cat > "$BIN/docker" <<'MOCK'
+#!/usr/bin/env bash
+echo "docker $*" >> "$MOCK_RECORD"
+case "$1" in
+    ps) printf 'cid-%s\n' "$(echo "$*" | sed -n 's/.*service=\([a-z-]*\).*/\1/p')"; exit 0 ;;
+    exec)
+        shift
+        while [ $# -gt 0 ]; do
+            case "$1" in
+                -e) shift 2 ;;
+                -i|-t|-it) shift ;;
+                cid-*) shift; break ;;
+                *) shift ;;
+            esac
+        done
+        if [ $# -gt 0 ]; then exec "$@"; fi
+        exit 0
+        ;;
+    *) exit 1 ;;
+esac
+MOCK
+
 chmod +x "$BIN"/*
 
 # Uruchamia prawdziwy backup-cycle.sh z atrapami. Zwraca exit code w $CYCLE_RC,
@@ -206,6 +236,8 @@ run_cycle() {
         BPP_BACKUP_LOG="$work/backup-cycle.log" \
         DJANGO_BPP_DB_HOST=db DJANGO_BPP_DB_PORT=5432 \
         DJANGO_BPP_DB_USER=u DJANGO_BPP_DB_NAME=n \
+        DJANGO_BPP_DB_PASSWORD=p \
+        COMPOSE_PROJECT_NAME=testproj \
         DJANGO_BPP_HOSTNAME=test.example \
         DJANGO_BPP_RCLONE_REMOTE="backup_enc:" \
         ROLLBAR_ACCESS_TOKEN="" \
@@ -263,6 +295,15 @@ assert_not_contains "$UPLOAD" "sync " \
 UPLOAD_DEST="$(awk '{ print $3 }' <<< "$UPLOAD")"
 assert_eq "backup_enc:2026-08/" "$UPLOAD_DEST" \
     "MUTACYJNY: cel to DOKLADNIE backup_enc:2026-08/ (zaden podkatalog dzienny)"
+
+# Orkiestrator (docker:cli) nie ma juz lokalnie pg_dump ani rclone - oba kroki
+# MUSZA isc przez `docker exec` w kontenerach, ktore te narzedzia maja.
+assert_contains "$(cat "$RECORD")" "docker exec" \
+    "krok pg_dump idzie przez docker exec"
+assert_not_contains "$(cat "$RECORD")" "docker run" \
+    "cykl nie uzywa docker run (sciezki hosta!)"
+assert_contains "$(cat "$RECORD")" "service=rclone" \
+    "wysylka celuje w serwis rclone"
 
 MOCK_YM=2026-08 MOCK_LSF_DIRS="" KEEP_MONTHS_ENV=__unset__ MOCK_FAIL_ON=copy run_cycle
 assert_eq "3" "$CYCLE_RC" "nieudany copy -> exit 3 (jak dotad przy sync)"
@@ -545,6 +586,42 @@ MOCK
     for t in curl jq; do
         printf '#!/bin/sh\nexit 0\n' > "$ash_bin/$t"
     done
+    # docker: backup-cycle.sh adresuje dbserver/rclone po labelach compose
+    # (bpp_container -> `docker ps --filter label=...`) i wykonuje pg_dump
+    # oraz rclone przez `docker exec` - w tym kontenerze testowym nie ma
+    # dockera-w-dockerze, wiec atrapa udaje oba wywolania: `ps` zwraca
+    # fikcyjne ID z filtra usługi, `exec` zdejmuje "exec"/flagi/ID kontenera
+    # i uruchamia reszte LOKALNIE (trafiajac w atrapy pg_dump/rclone wyzej).
+    # UWAGA: domyslna galaz (nierozpoznany subcommand) MUSI dac `exit 1`, nie
+    # `exit 0`. Entrypoint obrazu docker:cli (docker-entrypoint.sh) robi
+    # `if docker help "$1" >/dev/null 2>&1; then set -- docker "$@"; fi` -
+    # przy atrapie zwracajacej wszedzie 0 ten test zawsze wychodzi prawdziwy,
+    # entrypoint doklada "docker" przed CMD (`docker sh -c ...` zamiast
+    # `sh -c ...`), a to trafia z powrotem w ta sama atrape z $1=sh, ktora
+    # znow cicho konczy sie exit 0 - kontener wychodzi natychmiast, BEZ
+    # jakiegokolwiek stdout, i asercje nizej dostaja pusty log przy rc=0.
+    # Zweryfikowane bezposrednio na tym hoscie (docker inspect pokazywal
+    # exited/exit=0/brak logow).
+    cat > "$ash_bin/docker" <<'MOCK'
+#!/bin/sh
+case "$1" in
+    ps) printf 'cid-%s\n' "$(echo "$*" | sed -n 's/.*service=\([a-z-]*\).*/\1/p')"; exit 0 ;;
+    exec)
+        shift
+        while [ $# -gt 0 ]; do
+            case "$1" in
+                -e) shift 2 ;;
+                -i|-t|-it) shift ;;
+                cid-*) shift; break ;;
+                *) shift ;;
+            esac
+        done
+        if [ $# -gt 0 ]; then exec "$@"; fi
+        exit 0
+        ;;
+    *) exit 1 ;;
+esac
+MOCK
     chmod +x "$ash_bin"/*
     # tar i date NIE dostaja atrap: prawdziwy busybox 1.37 w docker:cli ma
     # oba applety i obsluguje tu potrzebne opcje (tar czf -C, date +%Y-%m,
@@ -577,6 +654,8 @@ MOCK
         -e BPP_BACKUP_LOG=/work/backup-cycle.log \
         -e DJANGO_BPP_DB_HOST=db -e DJANGO_BPP_DB_PORT=5432 \
         -e DJANGO_BPP_DB_USER=u -e DJANGO_BPP_DB_NAME=n \
+        -e DJANGO_BPP_DB_PASSWORD=p \
+        -e COMPOSE_PROJECT_NAME=testash \
         -e DJANGO_BPP_RCLONE_KEEP_MONTHS=0 \
         "$ASH_IMAGE" /scripts/backup-cycle.sh 2>&1)" && ash_rc=0 || ash_rc=$?
     assert_eq "0" "$ash_rc" "backup-cycle.sh dochodzi do konca pod busybox ash"
@@ -623,6 +702,48 @@ MOCK
     assert_eq "0" "$cfg_rc" "rclone-config.sh dochodzi do konca pod busybox ash"
     show_ash_output_on_fail "$cfg_rc" "$cfg_out" "rclone-config.sh"
 fi
+
+# ==========================================================================
+# 7. bpp_container - adresowanie kontenerow po labelach compose
+# ==========================================================================
+echo
+echo "7. bpp_container"
+
+# Kontenery adresujemy po labelach, NIE po nazwie: compose generuje nazwy
+# (`<projekt>-<usluga>-1`), a `container_name:` w tym repo nie jest ustawiany,
+# wiec `docker exec dbserver` po prostu nie zadziala.
+. "$REPO_DIR/scripts/lib-container.sh"
+
+cont_bin="$TEST_ROOT/cont-bin"
+mkdir -p "$cont_bin"
+export DOCKER_LOG="$TEST_ROOT/docker-calls.log"
+cat > "$cont_bin/docker" <<'SH'
+#!/bin/sh
+echo "docker $*" >> "$DOCKER_LOG"
+case "$1" in
+    ps) [ "${MOCK_NO_CONTAINER:-0}" = "1" ] || printf 'abc123\n' ;;
+esac
+exit 0
+SH
+chmod +x "$cont_bin/docker"
+
+OLD_PATH="$PATH"; PATH="$cont_bin:$PATH"
+export COMPOSE_PROJECT_NAME=testproj
+
+: > "$DOCKER_LOG"
+got="$(bpp_container dbserver)"
+assert_eq "abc123" "$got" "bpp_container zwraca ID kontenera"
+assert_contains "$(cat "$DOCKER_LOG")" \
+    "label=com.docker.compose.project=testproj" "filtruje po projekcie"
+assert_contains "$(cat "$DOCKER_LOG")" \
+    "label=com.docker.compose.service=dbserver" "filtruje po usludze"
+assert_not_contains "$(cat "$DOCKER_LOG")" "head -1" "nie uzywa head (SIGPIPE)"
+
+: > "$DOCKER_LOG"
+rc=0; MOCK_NO_CONTAINER=1 bpp_container dbserver >/dev/null || rc=$?
+assert_eq "1" "$rc" "brak kontenera -> status 1, nie cichy sukces"
+
+PATH="$OLD_PATH"; unset MOCK_NO_CONTAINER COMPOSE_PROJECT_NAME
 
 echo
 echo "=================================="

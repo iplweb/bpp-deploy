@@ -61,6 +61,28 @@ set -o pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=scripts/lib-rclone.sh
 . "$SCRIPT_DIR/lib-rclone.sh"
+# shellcheck source=scripts/lib-container.sh
+. "$SCRIPT_DIR/lib-container.sh"
+
+# Shim: lib-rclone.sh wola `rclone` z PATH i jest sourcowana TAKZE przez
+# rclone-sync.sh dzialajacy WEWNATRZ kontenera rclone (gdzie nie ma dockera).
+# Dlatego biblioteka zostaje czysta, a przekierowanie na docker exec robimy
+# tutaj, tylko dla backup-cycle.sh.
+#
+# NIE wolno tu wolac `fail`: rclone_list_month_dirs wola `rclone lsf ...`
+# WEWNATRZ `$( )` (raw="$(rclone lsf ...)"), a `fail` w podpowloce konczy
+# TYLKO podpowloke - `exit` nie wraca do rodzica, guard BPP_INTENDED_EXIT nie
+# jest ustawiany w wywolujacym procesie i on_exit odpalilby sie DRUGI raz
+# (podwojna notyfikacja). Zamiast tego logujemy i zwracamy 3 - obsluge
+# zostawiamy guardom wywolujacym (`if ! rclone copy ...; then fail ...; fi`
+# na top-levelu w tym skrypcie, `|| return 1` w rclone_list_month_dirs).
+rclone() {
+    _rc_cid="$(bpp_container rclone)" || {
+        log "BLAD: brak dzialajacego kontenera serwisu rclone"
+        return 3
+    }
+    docker exec "$_rc_cid" rclone "$@"
+}
 
 # Sciezki kontenerowe. Nadpisywalne WYLACZNIE po to, by scripts/test-rclone.sh
 # mogl uruchomic ten skrypt na hoscie z atrapami w PATH - produkcja nie ustawia
@@ -169,12 +191,21 @@ trap on_exit EXIT
 # ktory `set -e` skieruje do on_exit.
 trap '' PIPE
 
-# --- 1. pg_dump bazy do katalogu backupow (bind-mount hosta) ---
+# --- 1. pg_dump bazy - WEWNATRZ dbservera (docker exec), nie lokalnie ---
+#
+# Ten orkiestrator (docker:cli) nie ma pg_dump. Haslo tez celowo NIE
+# przechodzi przez `-e`/`docker exec -e`: lokalny dbserver ma wylacznie
+# POSTGRES_PASSWORD (PGPASSWORD to sentinel wylacznie w trybie external),
+# wiec czytamy je WEWNATRZ kontenera z DJANGO_BPP_DB_PASSWORD. `$DB_DIR`
+# rozwiazuje sie w obu kontenerach do tego samego bind-mountu hosta
+# (${DJANGO_BPP_HOST_BACKUP_DIR}:/backup w obu compose plikach).
 log "pg_dump $DJANGO_BPP_DB_NAME from $DJANGO_BPP_DB_HOST:$DJANGO_BPP_DB_PORT..."
-if ! pg_dump -Fd -j "$PARALLEL_JOBS" \
-        -h "$DJANGO_BPP_DB_HOST" -p "$DJANGO_BPP_DB_PORT" \
-        -U "$DJANGO_BPP_DB_USER" "$DJANGO_BPP_DB_NAME" \
-        -f "$DB_DIR"; then
+DB_CID="$(bpp_container dbserver)" || fail "dbserver-container-missing" 1
+if ! docker exec "$DB_CID" sh -c '
+        PGPASSWORD="$DJANGO_BPP_DB_PASSWORD" exec pg_dump -Fd -j "$1" \
+            -h "$DJANGO_BPP_DB_HOST" -p "$DJANGO_BPP_DB_PORT" \
+            -U "$DJANGO_BPP_DB_USER" "$DJANGO_BPP_DB_NAME" -f "$2"
+    ' _ "$PARALLEL_JOBS" "$DB_DIR"; then
     fail "pg_dump" 1
 fi
 log "tar db dump..."

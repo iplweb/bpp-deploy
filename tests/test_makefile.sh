@@ -1670,28 +1670,34 @@ test_rclone_single_source_of_truth() {
         'rclone_fix_config_owner' "$REPO_DIR/scripts/rclone-config.sh"
 }
 
-test_backup_runner_ca_certificates() {
-    yellow "=== Test: backup-runner ma magazyn CA ==="
+test_backup_runner_is_orchestrator() {
+    yellow "=== Test: backup-runner jest orkiestratorem, nie kombajnem ==="
 
-    # Oficjalny obraz postgres (Debian) purge'uje ca-certificates na koncu
-    # builda, a debianowy rclone zalezy tylko od libc6 - wiec bez jawnej
-    # instalacji kontener nie ma ZADNEGO roota CA. Objaw jest odlegly od
-    # przyczyny: "x509: certificate signed by unknown authority" przy
-    # odswiezaniu tokenu OAuth remote'a, a rownoczesnie curl nie dowozi
-    # notyfikacji do Rollbara (http=000), wiec awaria backupu jest cicha.
-    # Do f676fba (2026-06-18) backup-runner stal na postgres:*-alpine, ktory
-    # ma bundle CA w bazowym obrazie - stad regresja przeszla niezauwazona.
     local yml="$REPO_DIR/docker-compose.backup.yml"
 
-    assert_file_contains "apk instaluje ca-certificates" \
-        'apk add --no-cache ca-certificates' "$yml"
-    assert_file_contains "apt-get instaluje ca-certificates" \
-        'no-install-recommends ca-certificates' "$yml"
-
-    # Healthcheck musi patrzec na sam bundle, nie tylko na binarki: brak CA
-    # nie objawia sie niczym az do nocnego cyklu o 2:30.
-    assert_file_contains "healthcheck sprawdza bundle CA" \
-        'ca-certificates.crt' "$yml"
+    if grep -qE 'apt-get|apk add' "$yml"; then
+        fail "backup-runner nadal doinstalowuje pakiety w runtime"
+    else
+        pass "backup-runner nie instaluje niczego w runtime"
+    fi
+    assert_file_contains "orkiestrator ma docker.sock" \
+        '/var/run/docker.sock' "$yml"
+    assert_file_contains "orkiestrator ma media do tarowania" \
+        'media:/mediaroot:ro' "$yml"
+    # Bez tego mountu `[ ! -f "$RCLONE_CONFIG" ]` w kroku 4 cyklu jest prawdziwe
+    # ZAWSZE i cykl pada co noc na fail rclone-config-missing 3.
+    assert_file_contains "orkiestrator widzi config rclone (:ro)" \
+        '/config/rclone:ro' "$yml"
+    assert_file_contains "orkiestrator dostaje COMPOSE_PROJECT_NAME" \
+        'COMPOSE_PROJECT_NAME' "$yml"
+    # Bez env_file cykl czyta same defaulty. Najgrozniejsze: operator
+    # z DJANGO_BPP_RCLONE_KEEP_MONTHS= (udokumentowany wylacznik) dostaje
+    # WLACZONE kasowanie zdalnych kopii.
+    # shellcheck disable=SC2016  # to WZORZEC grep-a: ${...} ma zostac literalne
+    assert_file_contains "orkiestrator ma env_file" \
+        'env_file: ${BPP_CONFIGS_DIR}/.env' "$yml"
+    assert_file_contains "healthcheck sonduje socket" 'docker version' "$yml"
+    assert_file_contains "healthcheck sonduje pipefail" 'pipefail' "$yml"
 }
 
 test_rclone_config_mount_writable() {
@@ -1712,16 +1718,24 @@ test_rclone_config_mount_writable() {
     #      autoryzacje NA TRWALE.
     # Mount byl :ro od pierwszego commita (6514c1a, 2026-04-07), wiec
     # udokumentowany `make rclone-config` nie zadzialal ani razu.
+    #
+    # Od orkiestratora (Zadanie 3) sa DWA mounty tego samego katalogu w tym
+    # pliku: `rclone` (serwis, ktory pisze token/config) ma go RW, a
+    # `backup-runner` (orkiestrator, ktory tylko sprawdza `[ -f ... ]` przed
+    # wysylka) ma go CELOWO :ro. Sprawdzenie nie moze wiec byc blankietowym
+    # "nigdzie w pliku nie ma :ro" — musi trafic w KONKRETNY mount serwisu
+    # rclone (koncowka linii bez sufiksu, kotwiczona `$`), inaczej legalny
+    # mount orkiestratora zawsze zapala falszywy alarm.
     local yml="$REPO_DIR/docker-compose.backup.yml"
 
     # shellcheck disable=SC2016  # to WZORZEC grep-a: ${...} ma zostac literalne
     assert_file_contains "config rclone jest montowany" \
         '${BPP_CONFIGS_DIR}/rclone:/config/rclone' "$yml"
 
-    if grep -q '/config/rclone:ro' "$yml"; then
-        fail "config rclone montowany :ro — make rclone-config nie zapisze pliku"
+    if grep -qE '/config/rclone$' "$yml"; then
+        pass "serwis rclone: config montowany read-write (bez sufiksu :ro)"
     else
-        pass "config rclone montowany read-write"
+        fail "serwis rclone: brak mountu /config/rclone bez :ro — make rclone-config nie zapisze pliku"
     fi
 }
 
@@ -2135,7 +2149,7 @@ test_ensure_config_files_altcha_selfheal
 test_init_configs_path_validation
 test_install_docker_windows
 test_rclone_single_source_of_truth
-test_backup_runner_ca_certificates
+test_backup_runner_is_orchestrator
 test_rclone_config_mount_writable
 test_rclone_service_declared
 
