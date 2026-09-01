@@ -482,13 +482,22 @@ PATH="$OLD_PATH"
 echo
 echo "6. Uruchomienie pod busybox ash"
 
+# Shebang sprawdzamy na hoscie (head+grep na widocznym pliku) - nie trzeba do
+# tego dockera, w przeciwienstwie do e2e nizej. Dziala niezaleznie od tego,
+# czy docker jest dostepny.
+for s in backup-cycle.sh rclone-sync.sh rclone-config.sh; do
+    head_rc=0
+    head -1 "$REPO_DIR/scripts/$s" | grep -q '^#!/bin/sh$' || head_rc=$?
+    assert_eq "0" "$head_rc" "$s ma shebang #!/bin/sh"
+done
+
 if ! command -v docker >/dev/null 2>&1 || ! docker info >/dev/null 2>&1; then
-    echo "  SKIP: brak dzialajacego dockera"
+    echo "  SKIP: brak dzialajacego dockera (e2e pod busybox ash)"
 else
     ASH_IMAGE="${BPP_ASH_TEST_IMAGE:-docker:cli}"
     ash_bin="$TEST_ROOT/ash-bin"
     mkdir -p "$ash_bin"
-    # Atrapy: skrypt ma dojsc do konca bez prawdziwej bazy i bez sieci.
+    # Atrapy: skrypty maja dojsc do konca bez prawdziwej bazy i bez sieci.
     # WAZNE: shebang #!/bin/sh, nie #!/usr/bin/env bash - w obrazie testowym
     # (docker:cli) nie ma basha, wiec atrapa z bashowym shebangiem w ogole by
     # sie nie uruchomila (rc=127).
@@ -507,7 +516,22 @@ done
 mkdir -p "$out"; printf 'dump' > "$out/toc.dat"
 exit 0
 MOCK
-    for t in rclone curl jq; do
+    # rclone dzieli sie miedzy backup-cycle.sh/rclone-sync.sh (`copy`) i
+    # rclone-config.sh (`config`): zawsze zapisuje plik pod --config, jesli
+    # taki argument dostanie. Dla `copy` to no-op (plik juz istnieje z
+    # ponizszego printf), a dla rclone-config.sh to WARUNEK KONIECZNY, zeby
+    # doszlo do rclone_fix_config_owner (chown/chmod dzialaja tylko na
+    # istniejacym pliku).
+    cat > "$ash_bin/rclone" <<'MOCK'
+#!/bin/sh
+conf=""
+while [ $# -gt 0 ]; do
+    case "$1" in --config) conf="$2"; shift 2 ;; *) shift ;; esac
+done
+[ -n "$conf" ] && printf '[backup_enc]\ntype = local\n' > "$conf"
+exit 0
+MOCK
+    for t in curl jq; do
         printf '#!/bin/sh\nexit 0\n' > "$ash_bin/$t"
     done
     chmod +x "$ash_bin"/*
@@ -518,9 +542,23 @@ MOCK
     ash_work="$TEST_ROOT/ash-work"
     mkdir -p "$ash_work/backup" "$ash_work/media" "$ash_work/config"
     printf '[backup_enc]\ntype = local\n' > "$ash_work/config/rclone.conf"
+    ash_log="$ash_work/backup-cycle.log"
+
+    # Bind-mount pod Docker Desktop/OrbStack (macOS) bywa RZADKO niegotowy w
+    # pierwszej chwili startu kontenera - zaobserwowane empirycznie przy
+    # wielu szybkich `docker run` pod rzad ("can't create .../nonexistent
+    # directory" mimo ze katalog na hoscie istnieje). Prawdziwa regresja (zly
+    # shebang, zla logika skryptu) pada DETERMINISTYCZNIE za kazdym razem,
+    # wiec jeden retry infrastruktury nie maskuje bledow logiki - tylko
+    # jednorazowy wyscig przy montowaniu.
+    run_ash() {
+        if "$@" >/dev/null 2>&1; then return 0; fi
+        sleep 1
+        "$@" >/dev/null 2>&1
+    }
 
     ash_rc=0
-    docker run --rm \
+    run_ash docker run --rm \
         -v "$REPO_DIR/scripts:/scripts:ro" \
         -v "$ash_bin:/stub:ro" \
         -v "$ash_work:/work" \
@@ -532,15 +570,49 @@ MOCK
         -e DJANGO_BPP_DB_HOST=db -e DJANGO_BPP_DB_PORT=5432 \
         -e DJANGO_BPP_DB_USER=u -e DJANGO_BPP_DB_NAME=n \
         -e DJANGO_BPP_RCLONE_KEEP_MONTHS=0 \
-        "$ASH_IMAGE" /scripts/backup-cycle.sh >/dev/null 2>&1 || ash_rc=$?
+        "$ASH_IMAGE" /scripts/backup-cycle.sh || ash_rc=$?
     assert_eq "0" "$ash_rc" "backup-cycle.sh dochodzi do konca pod busybox ash"
 
-    for s in rclone-sync.sh rclone-config.sh; do
-        head_rc=0
-        docker run --rm -v "$REPO_DIR/scripts:/scripts:ro" "$ASH_IMAGE" \
-            sh -c "head -1 /scripts/$s | grep -q '^#!/bin/sh$'" || head_rc=$?
-        assert_eq "0" "$head_rc" "$s ma shebang #!/bin/sh"
-    done
+    # Samo rc=0 NIE przypina poprawki BPP_INTENDED_EXIT=1 przed koncowym
+    # `exit 0`: bledna wersja (bez tej linii) TEZ konczy sie rc=0, bo trap
+    # EXIT->on_exit wywoluje `exit "$rc"` z rc=0 niezaleznie od tego, ktora
+    # galaz go ustawila. Zmyslona regresja (linia usunieta recznie, zbadana
+    # w tej samej sesji) dawala DOKLADNIE to: rc=0 i dodatkowa linie
+    # "FAIL: unexpected-error (exit=0)" plus drugie "rollbar: skip" w logu -
+    # wiec pina to tresc loga, nie kod wyjscia.
+    ASH_LOG="$(cat "$ash_log" 2>/dev/null || true)"
+    assert_not_contains "$ASH_LOG" "unexpected-error" \
+        "MUTACYJNY: udany cykl NIE zglasza sie przez on_exit jako unexpected-error"
+    assert_contains "$ASH_LOG" "Backup OK on" \
+        "udany cykl zostawia w logu komunikat sukcesu"
+
+    # --- rclone-sync.sh - realne uruchomienie pod ash, nie tylko shebang ---
+    sync_rc=0
+    run_ash docker run --rm \
+        -v "$REPO_DIR/scripts:/scripts:ro" \
+        -v "$ash_bin:/stub:ro" \
+        -v "$ash_work:/work" \
+        -e "PATH=/stub:/usr/local/bin:/usr/bin:/bin" \
+        -e BPP_BACKUP_DIR=/work/backup \
+        -e BPP_RCLONE_CONFIG=/work/config/rclone.conf \
+        -e DJANGO_BPP_RCLONE_REMOTE="backup_enc:" \
+        "$ASH_IMAGE" /scripts/rclone-sync.sh || sync_rc=$?
+    assert_eq "0" "$sync_rc" "rclone-sync.sh dochodzi do konca pod busybox ash"
+
+    # --- rclone-config.sh - realne uruchomienie pod ash, z atrapa kreatora,
+    # ktora faktycznie zapisuje plik (patrz atrapa "rclone" wyzej), zeby
+    # doszlo do rclone_fix_config_owner (chown/chmod na prawdziwym pliku). ---
+    mkdir -p "$ash_work/rcfg"
+    rm -f "$ash_work/rcfg/rclone.conf"
+    cfg_rc=0
+    run_ash docker run --rm \
+        -v "$REPO_DIR/scripts:/scripts:ro" \
+        -v "$ash_bin:/stub:ro" \
+        -v "$ash_work:/work" \
+        -e "PATH=/stub:/usr/local/bin:/usr/bin:/bin" \
+        -e BPP_RCLONE_CONFIG=/work/rcfg/rclone.conf \
+        "$ASH_IMAGE" /scripts/rclone-config.sh || cfg_rc=$?
+    assert_eq "0" "$cfg_rc" "rclone-config.sh dochodzi do konca pod busybox ash"
 fi
 
 echo
