@@ -1725,6 +1725,59 @@ test_rclone_config_mount_writable() {
     fi
 }
 
+test_rclone_service_declared() {
+    yellow "=== Test: rclone jako zadeklarowany serwis compose ==="
+
+    # Obraz uzyty wylacznie w `docker run` bylby (a) sciagany dopiero o 2:30,
+    # bo compose ciagnie tylko obrazy zadeklarowanych serwisow, i (b) kasowany
+    # przez `docker system prune -af` na koncu `make up`, ktory usuwa obrazy
+    # "without at least one container associated to them". Dzialajacy serwis
+    # rozwiazuje oba problemy naraz.
+    local yml="$REPO_DIR/docker-compose.backup.yml"
+
+    assert_file_contains "serwis rclone zadeklarowany" '^  rclone:' "$yml"
+    assert_file_contains "rclone: obraz z domyslna wartoscia" \
+        'BPP_RCLONE_IMAGE:-' "$yml"
+    assert_file_contains "rclone: restart always (Ofelia potrzebuje celu)" \
+        'restart: always' "$yml"
+    assert_file_contains "rclone: logging anchor" 'logging: \*default-logging' "$yml"
+    assert_file_contains "rclone: montuje skrypty" './scripts:/scripts:ro' "$yml"
+    # Sonda CA zostaje mimo ze upstreamowy obraz ja ma: BPP_RCLONE_IMAGE pozwala
+    # podstawic dowolny obraz, a CLAUDE.md zakazuje usuwania tego sprawdzenia.
+    assert_file_contains "rclone: healthcheck sprawdza bundle CA" \
+        'ca-certificates.crt' "$yml"
+
+    assert_file_contains "mk/rclone.mk celuje w serwis rclone" \
+        'exec rclone' "$REPO_DIR/mk/rclone.mk"
+
+    # Recepta targetu: linie zaczynajace sie tabem, do pierwszej linii bez taba.
+    recipe_of() {
+        awk -v t="^$1:" '
+            $0 ~ t { inr = 1; next }
+            inr && /^\t/ { print; next }
+            inr && !/^\t/ { exit }
+        ' "$2"
+    }
+
+    local mk="$REPO_DIR/mk/rclone.mk"
+    local t
+    for t in rclone-sync rclone-config rclone-check; do
+        if recipe_of "$t" "$mk" | grep -q 'backup-runner'; then
+            fail "target $t nadal celuje w backup-runner"
+        else
+            pass "target $t celuje w serwis rclone"
+        fi
+    done
+    # backup-cycle CELOWO zostaje w backup-runnerze — przenosi go dopiero
+    # Zadanie 3. Asercja pozytywna, zeby nikt nie przeniosl go przedwczesnie
+    # ani nie zgubil tego kroku w Zadaniu 3.
+    if recipe_of backup-cycle "$mk" | grep -q 'backup-runner'; then
+        pass "backup-cycle nadal w backup-runnerze (przenosi go Zadanie 3)"
+    else
+        fail "backup-cycle przedwczesnie przeniesiony poza backup-runner"
+    fi
+}
+
 test_loki_retention_migration() {
     yellow "=== Test: retencja Loki — migracja do .env + render ==="
 
@@ -2084,6 +2137,7 @@ test_install_docker_windows
 test_rclone_single_source_of_truth
 test_backup_runner_ca_certificates
 test_rclone_config_mount_writable
+test_rclone_service_declared
 
 echo ""
 echo "========================================"

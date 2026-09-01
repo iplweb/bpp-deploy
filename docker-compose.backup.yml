@@ -100,3 +100,30 @@ services:
       # poranna prace biznesowa.
       ofelia.job-exec.backup_cycle.schedule: "0 30 2 * * *"
       ofelia.job-exec.backup_cycle.command: "/scripts/backup-cycle.sh"
+
+  # Rclone jako ZADEKLAROWANY serwis, a nie `docker run --rm` ze skryptu.
+  # Powod nie jest estetyczny: (1) compose ciagnie obrazy tylko zadeklarowanych
+  # serwisow, wiec obraz uzyty w `docker run` byl by pobierany dopiero o 2:30;
+  # (2) `make up` konczy sie `docker system prune -af`, ktory usuwa obrazy bez
+  # skojarzonego kontenera - a `--rm` zadnego nie zostawia, wiec obraz znikalby
+  # przy KAZDYM `make up`; (3) mounty deklaruje compose, wiec w skryptach nie ma
+  # ani jednej sciezki hosta (`docker run -v /backup:...` z wnetrza kontenera
+  # zamontowalby pusta sciezke hosta - mount by sie udal, dane nie).
+  rclone:
+    image: ${BPP_RCLONE_IMAGE:-rclone/rclone:1.71.0}
+    restart: always
+    logging: *default-logging
+    env_file: ${BPP_CONFIGS_DIR}/.env
+    volumes:
+      # RW, nigdy :ro - rclone zapisuje tu odswiezony token OAuth.
+      - ${BPP_CONFIGS_DIR}/rclone:/config/rclone
+      - ${DJANGO_BPP_HOST_BACKUP_DIR}:/backup:ro
+      - ./scripts:/scripts:ro
+    entrypoint: ["/bin/sh", "-c"]
+    command: ["exec sleep infinity"]
+    healthcheck:
+      test: ["CMD-SHELL", "rclone version >/dev/null && [ -s /etc/ssl/certs/ca-certificates.crt ]"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
