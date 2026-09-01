@@ -298,11 +298,20 @@ assert_eq "backup_enc:2026-08/" "$UPLOAD_DEST" \
 
 # Orkiestrator (docker:cli) nie ma juz lokalnie pg_dump ani rclone - oba kroki
 # MUSZA isc przez `docker exec` w kontenerach, ktore te narzedzia maja.
-assert_contains "$(cat "$RECORD")" "docker exec" \
-    "krok pg_dump idzie przez docker exec"
-assert_not_contains "$(cat "$RECORD")" "docker run" \
+# UWAGA: `docker exec cid-dbserver`, NIE golo "docker exec" - sam shim
+# rclone() tez generuje "docker exec", wiec luzniejsza asercja przechodzilaby
+# nawet po regresji cofajacej krok 1 do lokalnego pg_dump (shim i tak zawolalby
+# "docker exec" dla rclone copy). Podobnie "service=dbserver" samo w sobie NIE
+# wystarczy - ten string wystepuje juz w linii `docker ps --filter
+# label=...service=dbserver`, ktora leci ZAWSZE (nawet gdy krok 1 zostal
+# lokalny), wiec dopiero POLACZENIE "docker exec" + "cid-dbserver" pina
+# faktyczne wykonanie pg_dump przez `docker exec` w dbserverze.
+RECORD_CONTENT="$(cat "$RECORD")"
+assert_contains "$RECORD_CONTENT" "docker exec cid-dbserver" \
+    "krok pg_dump idzie przez docker exec w dbserverze"
+assert_not_contains "$RECORD_CONTENT" "docker run" \
     "cykl nie uzywa docker run (sciezki hosta!)"
-assert_contains "$(cat "$RECORD")" "service=rclone" \
+assert_contains "$RECORD_CONTENT" "service=rclone" \
     "wysylka celuje w serwis rclone"
 
 MOCK_YM=2026-08 MOCK_LSF_DIRS="" KEEP_MONTHS_ENV=__unset__ MOCK_FAIL_ON=copy run_cycle
@@ -737,7 +746,17 @@ assert_contains "$(cat "$DOCKER_LOG")" \
     "label=com.docker.compose.project=testproj" "filtruje po projekcie"
 assert_contains "$(cat "$DOCKER_LOG")" \
     "label=com.docker.compose.service=dbserver" "filtruje po usludze"
-assert_not_contains "$(cat "$DOCKER_LOG")" "head -1" "nie uzywa head (SIGPIPE)"
+# `head` bylby konsumentem POTOKU (docker ps | head -1), nigdy argumentem
+# samego `docker` - wiec zadna implementacja nie zostawilaby "head -1" w tym
+# logu wywolan, a poprzednia wersja tej asercji nie mogla NIGDY pasc. Pilnujemy
+# wiec kontraktu tam, gdzie faktycznie zyje: w zrodle lib-container.sh - kodzie,
+# nie komentarzach (plik CELOWO tlumaczy "head -1" slowem w komentarzu, wiec
+# surowy grep po calej tresci zapaliby sie na wlasnym uzasadnieniu).
+LIBC_CODE="$(grep -v '^[[:space:]]*#' "$REPO_DIR/scripts/lib-container.sh")"
+assert_not_contains "$LIBC_CODE" "head -" \
+    "lib-container.sh nie uzywa head w potoku (SIGPIPE pod pipefail)"
+assert_contains "$LIBC_CODE" "sed -n '1p'" \
+    "lib-container.sh uzywa sed -n '1p' zamiast head"
 
 : > "$DOCKER_LOG"
 rc=0; MOCK_NO_CONTAINER=1 bpp_container dbserver >/dev/null || rc=$?

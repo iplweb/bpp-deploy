@@ -76,9 +76,18 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # (podwojna notyfikacja). Zamiast tego logujemy i zwracamy 3 - obsluge
 # zostawiamy guardom wywolujacym (`if ! rclone copy ...; then fail ...; fi`
 # na top-levelu w tym skrypcie, `|| return 1` w rclone_list_month_dirs).
+#
+# KRYTYCZNE: `log` tutaj musi isc na stderr (`>&2`), nie na domyslne stdout.
+# Kiedy ten shim jest wolany WEWNATRZ `$( )` (przypadek `rclone lsf` powyzej),
+# stdout calej funkcji ladowalby sie do zmiennej wywolujacego (np. `raw`) i
+# przepadal bez sladu w logu - w logu zostawalby tylko ogolnikowy komunikat
+# wywolujacego ("nie moge wylistowac..."). Top-levelowe
+# `exec > >(tee -a "$LOG") 2>&1` i tak kieruje stderr do tego samego pliku
+# logu (i na terminal), wiec przekierowanie na `>&2` niczego nie gubi - tylko
+# omija przechwycenie przez `$( )`.
 rclone() {
     _rc_cid="$(bpp_container rclone)" || {
-        log "BLAD: brak dzialajacego kontenera serwisu rclone"
+        log "BLAD: brak dzialajacego kontenera serwisu rclone" >&2
         return 3
     }
     docker exec "$_rc_cid" rclone "$@"
