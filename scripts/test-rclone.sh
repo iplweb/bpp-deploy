@@ -491,6 +491,17 @@ for s in backup-cycle.sh rclone-sync.sh rclone-config.sh; do
     assert_eq "0" "$head_rc" "$s ma shebang #!/bin/sh"
 done
 
+# Przy definitywnej porazce e2e nizej zostawal tylko kod wyjscia, bez
+# stdout/stderr procesu - cicha awaria bez sladu. Wypisujemy przechwycone
+# wyjscie WYLACZNIE wtedy, gdy wywolanie faktycznie zawiodlo.
+show_ash_output_on_fail() {
+    local rc="$1" out="$2" label="$3"
+    if [ "$rc" != "0" ]; then
+        echo "  --- wyjscie $label pod ash (rc=$rc) ---"
+        printf '%s\n' "$out"
+    fi
+}
+
 if ! command -v docker >/dev/null 2>&1 || ! docker info >/dev/null 2>&1; then
     echo "  SKIP: brak dzialajacego dockera (e2e pod busybox ash)"
 else
@@ -544,21 +555,18 @@ MOCK
     printf '[backup_enc]\ntype = local\n' > "$ash_work/config/rclone.conf"
     ash_log="$ash_work/backup-cycle.log"
 
-    # Bind-mount pod Docker Desktop/OrbStack (macOS) bywa RZADKO niegotowy w
-    # pierwszej chwili startu kontenera - zaobserwowane empirycznie przy
-    # wielu szybkich `docker run` pod rzad ("can't create .../nonexistent
-    # directory" mimo ze katalog na hoscie istnieje). Prawdziwa regresja (zly
-    # shebang, zla logika skryptu) pada DETERMINISTYCZNIE za kazdym razem,
-    # wiec jeden retry infrastruktury nie maskuje bledow logiki - tylko
-    # jednorazowy wyscig przy montowaniu.
-    run_ash() {
-        if "$@" >/dev/null 2>&1; then return 0; fi
-        sleep 1
-        "$@" >/dev/null 2>&1
-    }
-
-    ash_rc=0
-    run_ash docker run --rm \
+    # NIE dodawac tu retry na `docker run`. Wczesniejsza wersja tej sekcji
+    # miala retry "na wypadek" wyscigu bind-mountu - zweryfikowane empirycznie
+    # (65 kontrolnych startow na tym samym hoscie, 0 porazek), ze taki wyscig
+    # nie istnieje w obecnym ksztalcie testu. Obserwowany wtedy blad
+    # ("can't create .../nonexistent directory") byl artefaktem iterowania
+    # nad tym testem (katalog docelowy jeszcze nie istnial w danym miejscu
+    # skryptu w trakcie edycji), nie awaria dockera - retry go maskowal
+    # tylko dlatego, ze nieudana pierwsza proba zostawiala po sobie katalog
+    # dla drugiej. Zamiast retry: przechwytujemy pelne wyjscie i pokazujemy
+    # je przy definitywnej porazce (`show_ash_output_on_fail` wyzej), zeby
+    # realny blad byl widoczny od razu, a nie diagnozowany na slepo.
+    ash_out="$(docker run --rm \
         -v "$REPO_DIR/scripts:/scripts:ro" \
         -v "$ash_bin:/stub:ro" \
         -v "$ash_work:/work" \
@@ -570,8 +578,9 @@ MOCK
         -e DJANGO_BPP_DB_HOST=db -e DJANGO_BPP_DB_PORT=5432 \
         -e DJANGO_BPP_DB_USER=u -e DJANGO_BPP_DB_NAME=n \
         -e DJANGO_BPP_RCLONE_KEEP_MONTHS=0 \
-        "$ASH_IMAGE" /scripts/backup-cycle.sh || ash_rc=$?
+        "$ASH_IMAGE" /scripts/backup-cycle.sh 2>&1)" && ash_rc=0 || ash_rc=$?
     assert_eq "0" "$ash_rc" "backup-cycle.sh dochodzi do konca pod busybox ash"
+    show_ash_output_on_fail "$ash_rc" "$ash_out" "backup-cycle.sh"
 
     # Samo rc=0 NIE przypina poprawki BPP_INTENDED_EXIT=1 przed koncowym
     # `exit 0`: bledna wersja (bez tej linii) TEZ konczy sie rc=0, bo trap
@@ -587,8 +596,7 @@ MOCK
         "udany cykl zostawia w logu komunikat sukcesu"
 
     # --- rclone-sync.sh - realne uruchomienie pod ash, nie tylko shebang ---
-    sync_rc=0
-    run_ash docker run --rm \
+    sync_out="$(docker run --rm \
         -v "$REPO_DIR/scripts:/scripts:ro" \
         -v "$ash_bin:/stub:ro" \
         -v "$ash_work:/work" \
@@ -596,23 +604,24 @@ MOCK
         -e BPP_BACKUP_DIR=/work/backup \
         -e BPP_RCLONE_CONFIG=/work/config/rclone.conf \
         -e DJANGO_BPP_RCLONE_REMOTE="backup_enc:" \
-        "$ASH_IMAGE" /scripts/rclone-sync.sh || sync_rc=$?
+        "$ASH_IMAGE" /scripts/rclone-sync.sh 2>&1)" && sync_rc=0 || sync_rc=$?
     assert_eq "0" "$sync_rc" "rclone-sync.sh dochodzi do konca pod busybox ash"
+    show_ash_output_on_fail "$sync_rc" "$sync_out" "rclone-sync.sh"
 
     # --- rclone-config.sh - realne uruchomienie pod ash, z atrapa kreatora,
     # ktora faktycznie zapisuje plik (patrz atrapa "rclone" wyzej), zeby
     # doszlo do rclone_fix_config_owner (chown/chmod na prawdziwym pliku). ---
     mkdir -p "$ash_work/rcfg"
     rm -f "$ash_work/rcfg/rclone.conf"
-    cfg_rc=0
-    run_ash docker run --rm \
+    cfg_out="$(docker run --rm \
         -v "$REPO_DIR/scripts:/scripts:ro" \
         -v "$ash_bin:/stub:ro" \
         -v "$ash_work:/work" \
         -e "PATH=/stub:/usr/local/bin:/usr/bin:/bin" \
         -e BPP_RCLONE_CONFIG=/work/rcfg/rclone.conf \
-        "$ASH_IMAGE" /scripts/rclone-config.sh || cfg_rc=$?
+        "$ASH_IMAGE" /scripts/rclone-config.sh 2>&1)" && cfg_rc=0 || cfg_rc=$?
     assert_eq "0" "$cfg_rc" "rclone-config.sh dochodzi do konca pod busybox ash"
+    show_ash_output_on_fail "$cfg_rc" "$cfg_out" "rclone-config.sh"
 fi
 
 echo
