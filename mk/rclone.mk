@@ -18,9 +18,10 @@ rclone-sync:
 	docker compose exec -e DJANGO_BPP_RCLONE_REMOTE=$(RCLONE_REMOTE) \
 		backup-runner /scripts/rclone-sync.sh
 
+# Kreator + wyrownanie wlasciciela rclone.conf (powstaje jako root, bo kontener
+# jest rootem) — logika w scripts/rclone-config.sh, nie tutaj.
 rclone-config:
-	docker compose exec backup-runner \
-		rclone --config /config/rclone/rclone.conf config
+	docker compose exec backup-runner /scripts/rclone-config.sh
 
 rclone-check:
 	docker compose exec backup-runner \

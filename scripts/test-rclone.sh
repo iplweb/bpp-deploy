@@ -364,6 +364,118 @@ MOCK_YM=2026-08 MOCK_LSF_DIRS="$DIRS" KEEP_MONTHS_ENV="12" MOCK_FAIL_ON=lsf run_
 assert_eq "0" "$CYCLE_RC" "nieudane lsf NIE wywraca backupu"
 assert_eq "0" "$(grep -cE '^purge ' "$RECORD" || true)" "nieudane lsf -> zero purge (nie zgadujemy)"
 
+# ==========================================================================
+# 5. rclone_fix_config_owner — wlasciciel i prawa rclone.conf
+# ==========================================================================
+echo
+echo "5. rclone_fix_config_owner — wlasciciel i prawa rclone.conf"
+
+# `rclone config` dziala w kontenerze jako root, wiec rclone.conf powstaje na
+# hoscie jako root:root. docs/eksploatacja/przenosiny-serwera.md kaze przenosic
+# $BPP_CONFIGS_DIR zwyklym `rsync -avzP` — ten takiego pliku NIE przeczyta
+# i zostawi nowy serwer bez konfiguracji backupu zdalnego, a operator dowie sie
+# o tym dopiero, gdy zabraknie kopii na zdalnym. Stad wyrownanie wlasciciela do
+# wlasciciela KATALOGU (czyli tego, kto zrobil init-configs na hoscie).
+#
+# chown jest atrapa w PATH: prawdziwej zmiany wlasciciela nie da sie zrobic bez
+# roota, a asercja ma sprawdzic, ze wolanie w ogole leci i z jakimi arguemntami.
+
+OWNER_DIR="$TEST_ROOT/owner/rclone"
+OWNER_BIN="$TEST_ROOT/owner-bin"
+mkdir -p "$OWNER_DIR" "$OWNER_BIN"
+CONF="$OWNER_DIR/rclone.conf"
+export CHOWN_LOG="$TEST_ROOT/chown.log"
+
+cat > "$OWNER_BIN/chown" <<'SH'
+#!/bin/sh
+echo "chown $*" >> "$CHOWN_LOG"
+if [ "${MOCK_CHOWN_FAIL:-0}" = "1" ]; then exit 1; fi
+exit 0
+SH
+chmod +x "$OWNER_BIN/chown"
+
+# Prawa pliku przenosnie: GNU (Linux/CI) i BSD (macOS dewelopera).
+perm_of() { stat -c '%a' "$1" 2>/dev/null || stat -f '%Lp' "$1"; }
+EXPECTED_OWNER="$(stat -c '%u:%g' "$OWNER_DIR" 2>/dev/null || stat -f '%u:%g' "$OWNER_DIR")"
+
+OLD_PATH="$PATH"
+PATH="$OWNER_BIN:$PATH"
+
+# --- brak pliku: kreator przerwany albo zapis padl -------------------------
+: > "$CHOWN_LOG"
+rm -f "$CONF"
+FIX_RC=0; rclone_fix_config_owner "$CONF" || FIX_RC=$?
+assert_eq "1" "$FIX_RC" "brak pliku -> rc=1 (caller ma o czym poinformowac)"
+assert_eq "0" "$(grep -c . "$CHOWN_LOG" || true)" "brak pliku -> zaden chown nie leci"
+
+# --- plik jest: wlasciciel katalogu + zwezenie praw ------------------------
+: > "$CHOWN_LOG"
+printf '[backup_enc]\ntype = local\n' > "$CONF"
+chmod 0644 "$CONF"
+FIX_RC=0; rclone_fix_config_owner "$CONF" || FIX_RC=$?
+assert_eq "0" "$FIX_RC" "plik jest -> rc=0"
+assert_contains "$(cat "$CHOWN_LOG")" "chown $EXPECTED_OWNER $CONF" \
+    "chown celuje we wlasciciela KATALOGU, nie w zgadywany uid"
+assert_eq "600" "$(perm_of "$CONF")" "rclone.conf zwezony do 0600 (sa w nim poswiadczenia)"
+
+# --- chown padl: funkcja nie moze udawac sukcesu ---------------------------
+: > "$CHOWN_LOG"
+FIX_RC=0; MOCK_CHOWN_FAIL=1 rclone_fix_config_owner "$CONF" || FIX_RC=$?
+assert_eq "3" "$FIX_RC" "nieudany chown -> rc=3, nie cichy sukces"
+
+PATH="$OLD_PATH"
+unset MOCK_CHOWN_FAIL
+
+# ==========================================================================
+# 5b. scripts/rclone-config.sh — cale wolanie, nie sama funkcja
+# ==========================================================================
+echo
+echo "5b. scripts/rclone-config.sh — e2e z atrapa kreatora"
+
+# Sekcja 5 testuje funkcje; tutaj leci PRAWDZIWY skrypt, ktory `make
+# rclone-config` odpala w kontenerze. Bez tego regresja w samym okablowaniu
+# (wywalony `. lib-rclone.sh`, zla sciezka configu) przeszlaby niezauwazona:
+# funkcja dalej byla zielona, a target nic by nie poprawial.
+
+CFG_BIN="$TEST_ROOT/cfg-bin"
+CFG_DIR="$TEST_ROOT/cfg/rclone"
+mkdir -p "$CFG_BIN" "$CFG_DIR"
+CFG_CONF="$CFG_DIR/rclone.conf"
+
+# Atrapa kreatora: prawdziwy `rclone config` zapisuje plik pod --config.
+cat > "$CFG_BIN/rclone" <<'SH'
+#!/bin/sh
+conf=""
+while [ $# -gt 0 ]; do
+    case "$1" in --config) conf="$2"; shift 2 ;; *) shift ;; esac
+done
+if [ "${MOCK_WIZARD_SAVES:-1}" = "1" ]; then
+    printf '[backup_enc]\ntype = local\n' > "$conf"
+fi
+exit 0
+SH
+chmod +x "$CFG_BIN/rclone"
+
+OLD_PATH="$PATH"
+PATH="$CFG_BIN:$PATH"
+
+# --- kreator zapisal konfiguracje -----------------------------------------
+rm -f "$CFG_CONF"
+CFG_RC=0
+BPP_RCLONE_CONFIG="$CFG_CONF" bash "$REPO_DIR/scripts/rclone-config.sh" >/dev/null 2>&1 || CFG_RC=$?
+assert_eq "0" "$CFG_RC" "rclone-config.sh konczy sie zerem, gdy kreator zapisal config"
+assert_eq "600" "$(perm_of "$CFG_CONF")" "rclone-config.sh zweza prawa swiezego configu do 0600"
+
+# --- kreator nic nie zapisal: ostrzezenie, nie cisza ------------------------
+rm -f "$CFG_CONF"
+CFG_OUT="$(MOCK_WIZARD_SAVES=0 BPP_RCLONE_CONFIG="$CFG_CONF" \
+    bash "$REPO_DIR/scripts/rclone-config.sh" 2>&1 || true)"
+assert_contains "$CFG_OUT" "UWAGA" "brak configu po kreatorze -> ostrzezenie na wyjsciu"
+assert_contains "$CFG_OUT" "read-only file system" \
+    "ostrzezenie nazywa najczestsza przyczyne (mount :ro)"
+
+PATH="$OLD_PATH"
+
 echo
 echo "=================================="
 green "PASS: $PASS"

@@ -51,7 +51,25 @@ services:
     volumes:
       - ${DJANGO_BPP_HOST_BACKUP_DIR}:/backup
       - media:/mediaroot:ro
-      - ${BPP_CONFIGS_DIR}/rclone:/config/rclone:ro
+      # CRITICAL: read-WRITE, nigdy :ro. rclone tego katalogu nie tylko czyta.
+      # 1) `rclone config` (czyli `make rclone-config`) zapisuje rclone.conf
+      #    przez temp-plik + rename W TYM katalogu. Przy :ro kazda odpowiedz
+      #    w kreatorze konczy sie "Failed to save config after 10 tries: ...
+      #    read-only file system", ale kreator brnie dalej - operator
+      #    przeklikuje calosc i dopiero potem odkrywa, ze konfiguracja nie
+      #    powstala. Mount byl :ro od pierwszego commita (6514c1a), wiec
+      #    udokumentowany `make rclone-config` nie zadzialal ani razu.
+      # 2) Po kazdym wygasnieciu access-tokenu OAuth rclone zapisuje tu
+      #    odswiezony token - dokumentacja rclone (opcja --config) stawia to
+      #    wprost: "When token-based authentication are used, the
+      #    configuration file must be writable, because rclone needs to
+      #    update the tokens inside it". Tam, gdzie refresh-token jest
+      #    JEDNORAZOWY (Box: "Each refresh_token is valid for one use in
+      #    60 days"), brak zapisu rozwala autoryzacje NA TRWALE - pierwsze
+      #    odswiezenie zuzywa stary token, nowy nie ma gdzie wyladowac.
+      # :ro nic tu nie chronilo: to ten sam kontener, ktory ma rw na /backup
+      # i dostaje PGPASSWORD.
+      - ${BPP_CONFIGS_DIR}/rclone:/config/rclone
       - ./scripts:/scripts:ro
     entrypoint: ["/bin/sh", "-c"]
     # Ten sam blok dziala na OBU obrazach: Debian (default, apt-get) i alpine

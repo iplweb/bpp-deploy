@@ -100,3 +100,37 @@ rclone_list_month_dirs() {
         | { grep -E '^[0-9]{4}-[0-9]{2}$' || true; } \
         | sort
 }
+
+# rclone_fix_config_owner <sciezka do rclone.conf>
+#   Wyrownuje wlasciciela pliku do wlasciciela KATALOGU, w ktorym lezy,
+#   i zweza prawa do 0600.
+#
+#   Po co: `rclone config` (make rclone-config) leci w kontenerze jako root,
+#   wiec swiezy rclone.conf pojawia sie na hoscie jako root:root 0600. Samym
+#   backupom to nie przeszkadza — kontener tez jest rootem — ale
+#   docs/eksploatacja/przenosiny-serwera.md kaze przeniesc $BPP_CONFIGS_DIR
+#   zwyklym `rsync -avzP`, ktory jako zwykly uzytkownik tego pliku NIE
+#   przeczyta. Nowy serwer wstaje wtedy bez konfiguracji backupu zdalnego,
+#   a wychodzi to dopiero brakiem kopii na zdalnym.
+#
+#   Celujemy we wlasciciela katalogu, a nie w przekazany z hosta `id -u`:
+#   katalog zaklada init-configs jako ten sam uzytkownik, ktory potem robi
+#   rsync, a wersja z `id -u` klamalaby przy `sudo make rclone-config`.
+#
+#   Kody wyjscia (caller ma o czym ostrzec — cicho tu nic nie ginie):
+#     0  poprawione
+#     1  pliku nie ma (kreator przerwany albo zapis padl)
+#     2  nie udalo sie odczytac wlasciciela katalogu
+#     3  chown albo chmod zawiodl
+rclone_fix_config_owner() {
+    local conf="$1" dir owner
+    [ -f "$conf" ] || return 1
+    dir="$(dirname "$conf")"
+    # `stat -c` to GNU i busybox (oba warianty backup-runnera), `stat -f` to
+    # BSD — potrzebne, bo scripts/test-rclone.sh uruchamia te funkcje NAPRAWDE
+    # na hoscie, a deweloperzy siedza na macOS.
+    owner="$(stat -c '%u:%g' "$dir" 2>/dev/null || stat -f '%u:%g' "$dir" 2>/dev/null)" || return 2
+    [ -n "$owner" ] || return 2
+    chown "$owner" "$conf" || return 3
+    chmod 0600 "$conf" || return 3
+}

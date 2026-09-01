@@ -121,6 +121,75 @@ Bezpieczniki, każdy celowy:
 Retencja **lokalna** (`DJANGO_BPP_BACKUP_KEEP_LAST`, domyślnie 7 kopii) jest od
 niej niezależna i działa jak dotąd.
 
+## Konfiguracja zdalnego — `make rclone-config`
+
+`make rclone-config` uruchamia interaktywny kreator `rclone config` **wewnątrz
+kontenera `backup-runner`**. Powstały plik ląduje w
+`$BPP_CONFIGS_DIR/rclone/rclone.conf` (bind mount, więc przeżywa odtworzenie
+kontenera) i to jego czytają `make rclone-sync`, `make rclone-check` i nocny
+cykl.
+
+Nazwa remote'a musi się zgadzać z `DJANGO_BPP_RCLONE_REMOTE` w `.env`
+(domyślnie `backup_enc:`).
+
+!!! warning "`read-only file system` przy zapisie konfiguracji"
+    **Symptom** — kreator na każdą odpowiedź odpowiada:
+
+    ```
+    ERROR : Failed to save config after 10 tries: failed to create temp file
+    for new config: open /config/rclone/rclone.conf1427152738:
+    read-only file system
+    ```
+
+    i mimo to **brnie dalej**, więc można przeklikać całą konfigurację i dopiero
+    na końcu odkryć, że nic nie powstało.
+
+    **Przyczyna.** Do września 2026 katalog `rclone` był montowany `:ro`
+    (od pierwszego commita — czyli `make rclone-config` nie zadziałał ani razu).
+    rclone tego pliku nie tylko czyta: zapisuje go przez plik tymczasowy
+    + `rename` w tym samym katalogu. Wymaga tego również **normalna praca**
+    z remote'em OAuth — [dokumentacja rclone](https://rclone.org/docs/), opcja
+    `--config`:
+
+    > When token-based authentication are used, the configuration file must be
+    > writable, because rclone needs to update the tokens inside it.
+
+    Dla większości remote'ów (Dropbox, Google Drive) `:ro` oznacza tylko
+    hałas w logu — refresh-token się nie zmienia, więc kolejne odświeżenie i tak
+    się uda. Ale tam, gdzie refresh-token jest **jednorazowy**, brak zapisu
+    rozwala autoryzację na trwałe: [dokumentacja Boxa w rclone](https://rclone.org/box/)
+    cytuje *„Each refresh_token is valid for one use in 60 days"* i ostrzega, że
+    po nieudanym odświeżeniu dostaniesz `Invalid refresh token` i trzeba przejść
+    OAuth od nowa.
+
+    **Rozwiązanie** — `git pull && make up`. Sam `git pull` **nie wystarczy**:
+    zmiana siedzi w `volumes:` w `docker-compose.backup.yml`, więc kontener musi
+    się odtworzyć (tak samo jak przy [awarii CA](#awaria-tls-certificate-signed-by-unknown-authority)).
+
+    Doraźnie, bez odtwarzania kontenera, można skonfigurować remote na kopii
+    w `/tmp` i przenieść gotowy plik na hosta:
+
+    ```bash
+    docker compose exec backup-runner sh -c \
+        'cp /config/rclone/rclone.conf /tmp/rclone.conf 2>/dev/null; \
+         rclone --config /tmp/rclone.conf config'
+    docker compose cp backup-runner:/tmp/rclone.conf \
+        "$BPP_CONFIGS_DIR/rclone/rclone.conf"
+    ```
+
+!!! note "Właściciel pliku — poprawiany automatycznie"
+    Kreator działa jako `root` w kontenerze, więc `rclone.conf` powstałby na hoście
+    jako `root:root`. Backupom to nie przeszkadza (kontener też jest rootem), ale
+    przy [przenosinach serwera](przenosiny-serwera.md) `rsync` uruchomiony z konta
+    operatora takiego pliku **nie przeczyta** — i nowy serwer wstałby bez
+    konfiguracji backupu zdalnego.
+
+    Dlatego `make rclone-config` po zamknięciu kreatora wyrównuje właściciela pliku
+    do właściciela katalogu `$BPP_CONFIGS_DIR/rclone/` i zwęża prawa do `0600`
+    (funkcja `rclone_fix_config_owner` w `scripts/lib-rclone.sh`). Gdyby się nie
+    udało, zobaczysz `UWAGA:` z kodem błędu — backupy działają dalej, ale katalog
+    konfiguracyjny przenoś wtedy przez `sudo rsync`.
+
 ## Awaria TLS: `certificate signed by unknown authority`
 
 **Symptom** — `rclone` nie dogaduje się ze zdalnym, a komunikat sugeruje wygasły token:

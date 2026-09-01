@@ -1655,6 +1655,19 @@ test_rclone_single_source_of_truth() {
         'test-rclone.sh' "$REPO_DIR/Makefile"
     assert_file_contains "CI wola test-rclone.sh" \
         'test-rclone.sh' "$REPO_DIR/.github/workflows/ci.yml"
+
+    # `make rclone-config` musi isc przez skrypt, a nie wolac rclone wprost:
+    # po kreatorze trzeba jeszcze wyrownac wlasciciela rclone.conf (kontener
+    # jest rootem, a przenosiny serwera robi zwykly `rsync` z konta operatora).
+    # Sama funkcja jest testowana naprawde w scripts/test-rclone.sh; tutaj
+    # pilnujemy tylko, ze nikt nie "uproscil" targetu z powrotem do goleg
+    # `docker compose exec ... rclone config`.
+    assert_file_exists "scripts/rclone-config.sh istnieje" \
+        "$REPO_DIR/scripts/rclone-config.sh"
+    assert_file_contains "mk/rclone.mk deleguje do scripts/rclone-config.sh" \
+        '/scripts/rclone-config.sh' "$REPO_DIR/mk/rclone.mk"
+    assert_file_contains "rclone-config.sh wyrownuje wlasciciela configu" \
+        'rclone_fix_config_owner' "$REPO_DIR/scripts/rclone-config.sh"
 }
 
 test_backup_runner_ca_certificates() {
@@ -1679,6 +1692,37 @@ test_backup_runner_ca_certificates() {
     # nie objawia sie niczym az do nocnego cyklu o 2:30.
     assert_file_contains "healthcheck sprawdza bundle CA" \
         'ca-certificates.crt' "$yml"
+}
+
+test_rclone_config_mount_writable() {
+    yellow "=== Test: config rclone montowany read-write ==="
+
+    # Katalog z rclone.conf NIE moze byc montowany :ro. rclone tego pliku nie
+    # tylko czyta:
+    #   1. `rclone config` (czyli `make rclone-config`) zapisuje go przez
+    #      temp-plik + rename W TYM SAMYM katalogu — przy :ro konfiguracji nie
+    #      da sie w ogole utworzyc: kazda odpowiedz w kreatorze konczy sie
+    #      "Failed to save config after 10 tries: ... read-only file system",
+    #      a kreator mimo to brnie dalej, wiec operator dochodzi do konca i
+    #      dopiero potem odkrywa, ze nic nie powstalo.
+    #   2. Po kazdym wygasnieciu access-tokenu OAuth rclone dopisuje tam nowy
+    #      token — dokumentacja rclone (--config): "the configuration file must
+    #      be writable, because rclone needs to update the tokens inside it".
+    #      Gdzie refresh-token jest jednorazowy (Box), brak zapisu rozwala
+    #      autoryzacje NA TRWALE.
+    # Mount byl :ro od pierwszego commita (6514c1a, 2026-04-07), wiec
+    # udokumentowany `make rclone-config` nie zadzialal ani razu.
+    local yml="$REPO_DIR/docker-compose.backup.yml"
+
+    # shellcheck disable=SC2016  # to WZORZEC grep-a: ${...} ma zostac literalne
+    assert_file_contains "config rclone jest montowany" \
+        '${BPP_CONFIGS_DIR}/rclone:/config/rclone' "$yml"
+
+    if grep -q '/config/rclone:ro' "$yml"; then
+        fail "config rclone montowany :ro — make rclone-config nie zapisze pliku"
+    else
+        pass "config rclone montowany read-write"
+    fi
 }
 
 test_loki_retention_migration() {
@@ -2039,6 +2083,7 @@ test_init_configs_path_validation
 test_install_docker_windows
 test_rclone_single_source_of_truth
 test_backup_runner_ca_certificates
+test_rclone_config_mount_writable
 
 echo ""
 echo "========================================"

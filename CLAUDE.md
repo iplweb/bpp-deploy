@@ -355,6 +355,28 @@ przejściu na obraz współdzielony z `dbserverem`. Zmiana siedzi w `command:`, 
 w konfiguracji kontenera — **sam `git pull` jej nie wdraża, potrzebny `make up`**
 (inaczej niż reszta tej sekcji, jadąca na bind-mouncie `scripts/`).
 
+**CRITICAL: `${BPP_CONFIGS_DIR}/rclone` montujemy read-WRITE — nigdy `:ro`.**
+rclone tego katalogu nie tylko czyta: `rclone config` zapisuje `rclone.conf` przez
+temp-plik + `rename` w tym samym katalogu, a przy remote'ach OAuth dopisuje tam
+odświeżony token po każdym wygaśnięciu access-tokenu. **Symptom: `make rclone-config`
+sypie `Failed to save config after 10 tries: … read-only file system`, ale kreator
+brnie dalej** — operator przeklikuje całość i dopiero potem widzi, że konfiguracja nie
+powstała; tam, gdzie refresh-token jest jednorazowy (Box), brak zapisu rozwala
+autoryzację **na trwałe**. **Anti-fixes — do NOT:** (1) przywracać `:ro` „dla porządku" — to ten sam
+kontener, który ma rw na `/backup` i dostaje `PGPASSWORD`, więc `:ro` niczego nie
+chroniło; (2) obchodzić tego jednorazowym kontenerem rw tylko na czas `rclone config`
+— nie naprawia zapisu tokenu w cyklu nocnym. Mount siedzi w `volumes:`, więc **sam
+`git pull` nie wystarcza — potrzebny `make up`**. Broni tego
+`test_rclone_config_mount_writable` w `tests/test_makefile.sh`.
+
+`make rclone-config` deleguje do `scripts/rclone-config.sh`, który po kreatorze woła
+`rclone_fix_config_owner` (`scripts/lib-rclone.sh`) — **nie „upraszczaj" tego targetu
+z powrotem do gołego `docker compose exec … rclone config`**: kontener jest rootem,
+więc `rclone.conf` powstaje jako `root:root`, a przenosiny serwera robi zwykły `rsync`
+z konta operatora, który tego pliku nie przeczyta (nowy host wstaje bez backupu
+zdalnego). Funkcja celuje we właściciela **katalogu**, nie w przekazany `id -u` —
+inaczej `sudo make rclone-config` wpisywałby roota.
+
 `BPP_BACKUP_DIR`/`BPP_MEDIA_DIR`/`BPP_RCLONE_CONFIG`/`BPP_BACKUP_LOG` w
 `backup-cycle.sh` istnieją **wyłącznie** po to, by `scripts/test-rclone.sh` mógł
 uruchomić prawdziwy skrypt na hoście — asercja „copy, nie sync" musi odpalać kod,
