@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/bin/sh
 #
 # Codzienny cykl backupu: pg_dump -> tar media -> lokalna rotacja -> rclone
 # copy -> retencja zdalna -> Rollbar notify. Wywolywane przez Ofelie (label na kontenerze
@@ -21,7 +21,7 @@
 # Exit codes:
 #   0 - pelny sukces
 #   1 - pg_dump lub tar bazy failed; takze nieoczekiwany blad dowolnej
-#       innej komendy (trap ERR -> fail "unexpected-error")
+#       innej komendy (trap EXIT -> on_exit "unexpected-error")
 #   2 - tar media failed
 #   3 - rclone copy failed (lokalne backupy zostaly utworzone)
 #
@@ -29,7 +29,34 @@
 # prawa zamienic udanego backupu w alert. Nieudany purge to ostrzezenie w logu
 # i adnotacja w komunikacie do Rollbara.
 
-set -Eeuo pipefail
+# shellcheck shell=sh
+# shellcheck disable=SC3040,SC3001,SC3043
+#   SC3040 `set -o pipefail`: swiadome odstepstwo od POSIX. Busybox ash i bash
+#     je maja, dash nie - stad preflight nizej. Kontrakty o SIGPIPE (patrz
+#     lib-rclone.sh) bez pipefail przestaja obowiazywac.
+#   SC3001 `exec > >(tee ...)` i SC3043 `local`: resztkowa zaleznosc od
+#     bash-compat busyboksa (CONFIG_ASH_BASH_COMPAT), zweryfikowana empirycznie
+#     w docker:cli i rclone/rclone. Zamienniki (mkfifo+tee, zmienne globalne)
+#     sa gorsze - patrz specs/2026-09-01-backup-orchestrator-design.md §4.
+#   UWAGA: ta dyrektywa musi stac PRZED wszelkim kodem (rowniez przed
+#   preflightem), inaczej jest lokalna dla jednej linii i nie gasi drugiego
+#   wystapienia `set -o pipefail` ponizej - zweryfikowane realnym shellcheckiem.
+
+# Docelowe obrazy (docker:cli, rclone/rclone) nie maja basha, wiec shebang musi byc
+# /bin/sh. Ale na Debianie /bin/sh to dash, ktory NIE zna `pipefail` - a na nim stoja
+# kontrakty o SIGPIPE w tym repo. Wiec: jesli powloka nie ma pipefail, przeskakujemy
+# na basha; jesli basha tez nie ma, gliniemy z czytelnym komunikatem zamiast dziwnie.
+if ! (set -o pipefail) 2>/dev/null; then
+    if command -v bash >/dev/null 2>&1; then
+        exec bash "$0" "$@"
+    fi
+    echo "BLAD: ten skrypt wymaga powloki z pipefail (busybox ash albo bash)." >&2
+    echo "      dash jej nie ma - uruchom przez bash albo wewnatrz kontenera." >&2
+    exit 1
+fi
+
+set -eu
+set -o pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=scripts/lib-rclone.sh
@@ -68,8 +95,14 @@ exec > >(tee -a "$LOG") 2>&1
 log() { printf '[%s] %s\n' "$(date -u +%H:%M:%SZ)" "$*"; }
 
 fmt_size() {
-    local bytes="$1"
-    numfmt --to=iec --suffix=B "$bytes" 2>/dev/null || echo "${bytes}B"
+    # numfmt nie istnieje ani w docker:cli, ani w rclone/rclone - bez tego kazdy
+    # komunikat do Rollbara mialby surowe bajty.
+    awk -v b="$1" 'BEGIN {
+        split("B KiB MiB GiB TiB", u, " ")
+        i = 1
+        while (b >= 1024 && i < 5) { b /= 1024; i++ }
+        printf (i == 1 ? "%d%s\n" : "%.1f%s\n"), b, u[i]
+    }'
 }
 
 notify_rollbar() {
@@ -94,7 +127,7 @@ JSON
 }
 
 fail() {
-    trap - ERR
+    BPP_INTENDED_EXIT=1
     local step="$1" code="$2"
     log "FAIL: $step (exit=$code)"
     local tail_log
@@ -107,10 +140,34 @@ $tail_log"
 
 # set -e zamienialby ciche kontynuowanie w cicha smierc BEZ notyfikacji
 # Rollbar - dlatego nieoczekiwane bledy (komendy poza jawnym `if !`/`|| fail`)
-# kierujemy przez trap ERR do fail(). Kroki krytyczne (pg_dump, tar, rclone)
+# kierujemy przez trap EXIT do on_exit(). Kroki krytyczne (pg_dump, tar, rclone)
 # maja wlasne guardy z dokladna nazwa kroku i exit code'em - warunki if/||
-# nie odpalaja trapu. set -E przenosi trap do funkcji i subshelli.
-trap 'fail "unexpected-error" 1' ERR
+# nie odpalaja trapu.
+#
+# Zamiennik `trap ERR` (bashizm). trap EXIT lapie takze abort z `set -e`, w tym
+# w funkcjach - czyli pokrywa wiecej niz ERR bez `-E`.
+#
+# KRYTYCZNE: kazda komenda w tej sciezce ma `|| true`. Blad wewnatrz trapa urywa go
+# w polowie, `exit "$rc"` nie zostaje osiagniety i kod wyjscia zostaje sklobrowany
+# na 1 - a notyfikacja idzie przez `docker exec appserver`, ktory pada dokladnie
+# wtedy, gdy appserver lezy, czyli w scenariuszu, o ktorym raportujemy.
+BPP_INTENDED_EXIT=0
+
+# shellcheck disable=SC2317  # wywolywane przez trap
+on_exit() {
+    rc=$?
+    if [ "$BPP_INTENDED_EXIT" = 1 ]; then exit "$rc"; fi
+    BPP_INTENDED_EXIT=1
+    log "FAIL: unexpected-error (exit=$rc)" || true
+    notify_rollbar error "Backup FAIL on ${DJANGO_BPP_HOSTNAME:-unknown}: step=unexpected-error exit=$rc" || true
+    exit "$rc"
+}
+trap on_exit EXIT
+
+# Smierc `tee` z przekierowania logu dawalaby SIGPIPE, rc=141, BEZ trapa EXIT
+# i bez notyfikacji. Zignorowanie sygnalu zamienia to w zwykly blad zapisu,
+# ktory `set -e` skieruje do on_exit.
+trap '' PIPE
 
 # --- 1. pg_dump bazy do katalogu backupow (bind-mount hosta) ---
 log "pg_dump $DJANGO_BPP_DB_NAME from $DJANGO_BPP_DB_HOST:$DJANGO_BPP_DB_PORT..."
@@ -220,9 +277,11 @@ prune_remote_months() {
     # nieodwracalnego zdarzenia.
     #
     # NIE uzywac tu `| head -1`: pod `set -o pipefail` producent dostaje
-    # SIGPIPE, pipeline zwraca blad, trap ERR wywraca caly backup. Ta sama
+    # SIGPIPE, pipeline zwraca blad, trap EXIT wywraca caly backup. Ta sama
     # pulapka co z `grep -q` w probce wsparcia (patrz CLAUDE.md).
-    oldest="${to_purge%%$'\n'*}"
+    # `sed -n 1p`, a nie `head -1`: head zamyka wejscie po pierwszej linii, producent
+    # dostaje SIGPIPE i pod pipefail wywraca caly backup.
+    oldest="$(printf '%s\n' "$to_purge" | sed -n '1p')"
     # Nieosiagalne przy obecnych filtrach, ale promien razenia to CALY zdalny:
     # `rclone purge backup_enc:` skasowaloby wszystkie backupy. Jedna linia za
     # odciecie tej mozliwosci na zawsze jest tania.
@@ -253,4 +312,5 @@ MSG="Backup OK on ${DJANGO_BPP_HOSTNAME:-unknown}: db=$(fmt_size "$DB_SIZE") med
 log "$MSG"
 notify_rollbar info "$MSG"
 
+BPP_INTENDED_EXIT=1
 exit 0

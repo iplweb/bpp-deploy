@@ -476,6 +476,73 @@ assert_contains "$CFG_OUT" "read-only file system" \
 
 PATH="$OLD_PATH"
 
+# ==========================================================================
+# 6. Skrypty uruchamiaja sie pod busybox ash (docelowe obrazy nie maja basha)
+# ==========================================================================
+echo
+echo "6. Uruchomienie pod busybox ash"
+
+if ! command -v docker >/dev/null 2>&1 || ! docker info >/dev/null 2>&1; then
+    echo "  SKIP: brak dzialajacego dockera"
+else
+    ASH_IMAGE="${BPP_ASH_TEST_IMAGE:-docker:cli}"
+    ash_bin="$TEST_ROOT/ash-bin"
+    mkdir -p "$ash_bin"
+    # Atrapy: skrypt ma dojsc do konca bez prawdziwej bazy i bez sieci.
+    # WAZNE: shebang #!/bin/sh, nie #!/usr/bin/env bash - w obrazie testowym
+    # (docker:cli) nie ma basha, wiec atrapa z bashowym shebangiem w ogole by
+    # sie nie uruchomila (rc=127).
+    #
+    # pg_dump NIE moze byc gola atrapa "exit 0": backup-cycle.sh po pg_dump
+    # robi `tar czf "$DB_TAR" -C "$BACKUP_DIR" "db-backup-TS"`, a bez
+    # katalogu dumpu tar pada i caly cykl konczy sie fail("db-tar", 1).
+    # Atrapa odwzorowuje MOCK z sekcji 2 (pg_dump tworzy katalog z -f i
+    # wrzuca do niego plik), tylko przepisana na #!/bin/sh.
+    cat > "$ash_bin/pg_dump" <<'MOCK'
+#!/bin/sh
+out=""
+while [ $# -gt 0 ]; do
+    case "$1" in -f) out="$2"; shift 2 ;; *) shift ;; esac
+done
+mkdir -p "$out"; printf 'dump' > "$out/toc.dat"
+exit 0
+MOCK
+    for t in rclone curl jq; do
+        printf '#!/bin/sh\nexit 0\n' > "$ash_bin/$t"
+    done
+    chmod +x "$ash_bin"/*
+    # tar i date NIE dostaja atrap: prawdziwy busybox 1.37 w docker:cli ma
+    # oba applety i obsluguje tu potrzebne opcje (tar czf -C, date +%Y-%m,
+    # stat -c%s) - zweryfikowane bezposrednio w tym obrazie. Atrapa dublowalaby
+    # tylko prawdziwe narzedzie bez zadnej korzysci dla testu.
+    ash_work="$TEST_ROOT/ash-work"
+    mkdir -p "$ash_work/backup" "$ash_work/media" "$ash_work/config"
+    printf '[backup_enc]\ntype = local\n' > "$ash_work/config/rclone.conf"
+
+    ash_rc=0
+    docker run --rm \
+        -v "$REPO_DIR/scripts:/scripts:ro" \
+        -v "$ash_bin:/stub:ro" \
+        -v "$ash_work:/work" \
+        -e "PATH=/stub:/usr/local/bin:/usr/bin:/bin" \
+        -e BPP_BACKUP_DIR=/work/backup \
+        -e BPP_MEDIA_DIR=/work/media \
+        -e BPP_RCLONE_CONFIG=/work/config/rclone.conf \
+        -e BPP_BACKUP_LOG=/work/backup-cycle.log \
+        -e DJANGO_BPP_DB_HOST=db -e DJANGO_BPP_DB_PORT=5432 \
+        -e DJANGO_BPP_DB_USER=u -e DJANGO_BPP_DB_NAME=n \
+        -e DJANGO_BPP_RCLONE_KEEP_MONTHS=0 \
+        "$ASH_IMAGE" /scripts/backup-cycle.sh >/dev/null 2>&1 || ash_rc=$?
+    assert_eq "0" "$ash_rc" "backup-cycle.sh dochodzi do konca pod busybox ash"
+
+    for s in rclone-sync.sh rclone-config.sh; do
+        head_rc=0
+        docker run --rm -v "$REPO_DIR/scripts:/scripts:ro" "$ASH_IMAGE" \
+            sh -c "head -1 /scripts/$s | grep -q '^#!/bin/sh$'" || head_rc=$?
+        assert_eq "0" "$head_rc" "$s ma shebang #!/bin/sh"
+    done
+fi
+
 echo
 echo "=================================="
 green "PASS: $PASS"

@@ -54,7 +54,12 @@ rclone_keep_months_valid() {
 #   ktory nie wyjdzie u nas, tylko na cudzej instalacji.
 _ym_index() {
     local y="${1%%-*}" m="${1##*-}"
-    printf '%s' "$(( 10#$y * 12 + 10#$m - 1 ))"
+    # `10#` to bashizm. Samo jego skasowanie wprowadza octal-bug: `$((08))` to
+    # w busyboksie `arithmetic syntax error`, czyli wywrocenie retencji w sierpniu
+    # i wrzesniu. Dlatego zdejmujemy wiodace zera jawnie.
+    y="${y#0}"; y="${y#0}"; y="${y#0}"
+    m="${m#0}"
+    printf '%s' "$(( ${y:-0} * 12 + ${m:-0} - 1 ))"
 }
 
 # rclone_months_to_purge <biezacy YYYY-MM> <keep_months>
