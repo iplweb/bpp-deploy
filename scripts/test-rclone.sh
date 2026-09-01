@@ -141,11 +141,24 @@ MOCK
 
 cat > "$BIN/pg_dump" <<'MOCK'
 #!/usr/bin/env bash
+# MOCK_FAIL_ON_STEP=pg_dump - do wymuszenia fail("pg_dump", 1) w sekcji 8
+# (notyfikacja przy padlym appserverze). Domyslnie zawsze sukces.
+if [ "${MOCK_FAIL_ON_STEP:-}" = "pg_dump" ]; then exit 1; fi
 out=""
 while [ $# -gt 0 ]; do
     case "$1" in -f) out="$2"; shift 2 ;; *) shift ;; esac
 done
 mkdir -p "$out"; printf 'dump' > "$out/toc.dat"
+exit 0
+MOCK
+
+cat > "$BIN/python" <<'MOCK'
+#!/usr/bin/env bash
+# notify_rollbar odpala ten program WEWNATRZ appservera (docker exec). Testy
+# nie maja isc do prawdziwego Rollbara - potwierdzamy tylko, ze atrapa dockera
+# faktycznie doszla do wywolania pythona, bez zadnego zadania sieciowego.
+echo "python -c <rollbar-payload>" >> "$MOCK_RECORD"
+echo "rollbar http=200"
 exit 0
 MOCK
 
@@ -185,14 +198,25 @@ case "$1" in
     ps) printf 'cid-%s\n' "$(echo "$*" | sed -n 's/.*service=\([a-z-]*\).*/\1/p')"; exit 0 ;;
     exec)
         shift
+        target=""
         while [ $# -gt 0 ]; do
             case "$1" in
                 -e) shift 2 ;;
                 -i|-t|-it) shift ;;
-                cid-*) shift; break ;;
+                cid-*) target="$1"; shift; break ;;
                 *) shift ;;
             esac
         done
+        # MOCK_FAIL_ON="exec-<usluga>" -> symulacja padlego kontenera podczas
+        # `docker exec` (np. appserver widoczny w `docker ps`, ale exec pada).
+        # Zwracamy 42 (NIE 1/2/3 - kody prawdziwych krokow), zeby asercja w
+        # sekcji 8 faktycznie odroznila "notify_rollbar polkniete" (kod
+        # zostaje 1, kod fail("pg_dump",1)) od "notify_rollbar sklobrowalo
+        # trap" (kod zmienilby sie na 42) - kod 1 bylby niediagnostyczny,
+        # bo pokrywa sie z intencjonalnym kodem pg_dump.
+        case "${MOCK_FAIL_ON:-}" in
+            "exec-${target#cid-}") exit 42 ;;
+        esac
         if [ $# -gt 0 ]; then exec "$@"; fi
         exit 0
         ;;
@@ -220,6 +244,13 @@ run_cycle() {
     else
         KEEP_MONTHS_KV="DJANGO_BPP_RCLONE_KEEP_MONTHS=$KEEP_MONTHS_ENV"
     fi
+    # ROLLBAR_TOKEN_ENV=1 -> notify_rollbar dostaje token i NIE konczy sie na
+    # wczesnym "skip", wiec faktycznie dochodzi do bpp_container/docker exec.
+    # Domyslnie (nieustawione) token pusty - jak dotad, notify jest no-opem.
+    local rollbar_token=""
+    if [ "${ROLLBAR_TOKEN_ENV:-0}" = "1" ]; then
+        rollbar_token="test-rollbar-token"
+    fi
     local work="$TEST_ROOT/work"
     rm -rf "$work"; mkdir -p "$work/backup" "$work/mediaroot" "$work/config"
     printf '[backup_enc]\ntype = local\n' > "$work/config/rclone.conf"
@@ -230,6 +261,7 @@ run_cycle() {
         MOCK_YM="${MOCK_YM:-2026-08}" \
         MOCK_LSF_DIRS="${MOCK_LSF_DIRS:-}" \
         MOCK_FAIL_ON="${MOCK_FAIL_ON:-}" \
+        MOCK_FAIL_ON_STEP="${MOCK_FAIL_ON_STEP:-}" \
         BPP_BACKUP_DIR="$work/backup" \
         BPP_MEDIA_DIR="$work/mediaroot" \
         BPP_RCLONE_CONFIG="$work/config/rclone.conf" \
@@ -240,7 +272,7 @@ run_cycle() {
         COMPOSE_PROJECT_NAME=testproj \
         DJANGO_BPP_HOSTNAME=test.example \
         DJANGO_BPP_RCLONE_REMOTE="backup_enc:" \
-        ROLLBAR_ACCESS_TOKEN="" \
+        ROLLBAR_ACCESS_TOKEN="$rollbar_token" \
         ${KEEP_MONTHS_KV:+"$KEEP_MONTHS_KV"} \
         bash "$CYCLE" > "$CYCLE_LOG" 2>&1
     CYCLE_RC=$?
@@ -763,6 +795,35 @@ rc=0; MOCK_NO_CONTAINER=1 bpp_container dbserver >/dev/null || rc=$?
 assert_eq "1" "$rc" "brak kontenera -> status 1, nie cichy sukces"
 
 PATH="$OLD_PATH"; unset MOCK_NO_CONTAINER COMPOSE_PROJECT_NAME
+
+# ==========================================================================
+# 8. notify_rollbar przez appservera
+# ==========================================================================
+echo
+echo "8. notify_rollbar przez appservera"
+
+# Orkiestrator (docker:cli) nie ma curl ani jq - notyfikacja idzie przez
+# `docker exec` w appserverze (python z jego wlasnego env_file czyta token).
+: > "$RECORD"
+MOCK_YM=2026-08 ROLLBAR_TOKEN_ENV=1 run_cycle
+assert_eq "0" "$CYCLE_RC" "udany cykl z tokenem Rollbara nadal konczy sie sukcesem"
+assert_contains "$(cat "$RECORD")" "service=appserver" \
+    "notyfikacja celuje w appservera"
+
+# Martwy appserver (docker ps go widzi, ale `docker exec` pada) nie moze
+# sklobrowac kodu wyjscia ani urwac trapa EXIT w polowie. ROLLBAR_TOKEN_ENV=1
+# jest tu KONIECZNE (inaczej niz w draftowej wersji tego kroku) - bez tokenu
+# notify_rollbar wraca na wczesnym "skip" i sciezka docker-exec-appserver
+# nigdy sie nie wykona, a asercja przeszlaby nawet po wyjeciu `|| true`.
+# MOCK_FAIL_ON=exec-appserver zwraca z atrapy dockera kod 42 (NIE 1) - dzieki
+# temu ta asercja realnie odroznia "notify_rollbar polkniete" (kod zostaje
+# na 1, czyli na kodzie z fail("pg_dump",1)) od "notify_rollbar sklobrowalo
+# trap" (kod zmienia sie na 42). Zweryfikowane mutacyjnie w raporcie zadania.
+: > "$RECORD"
+MOCK_YM=2026-08 ROLLBAR_TOKEN_ENV=1 MOCK_FAIL_ON=exec-appserver MOCK_FAIL_ON_STEP=pg_dump run_cycle
+assert_eq "1" "$CYCLE_RC" "padly appserver NIE zmienia kodu wyjscia (1, nie sklobrowane)"
+assert_contains "$(cat "$CYCLE_LOG")" "FAIL: pg_dump" \
+    "log nadal pokazuje prawdziwa przyczyne (pg_dump), nie notyfikacje"
 
 echo
 echo "=================================="

@@ -137,24 +137,47 @@ fmt_size() {
 }
 
 notify_rollbar() {
-    local level="$1" message="$2"
+    _level="$1"; _message="$2"
     if [ -z "${ROLLBAR_ACCESS_TOKEN:-}" ]; then
         log "rollbar: skip (ROLLBAR_ACCESS_TOKEN not set)"
         return 0
     fi
-    local body_json
-    body_json="$(printf '%s' "$message" | jq -Rs .)"
-    local payload
-    payload=$(cat <<JSON
-{"access_token":"$ROLLBAR_ACCESS_TOKEN","data":{"environment":"${DJANGO_BPP_HOSTNAME:-unknown}","level":"$level","body":{"message":{"body":$body_json}},"custom":{"component":"backup-cycle","timestamp":"$TIMESTAMP"}}}
-JSON
+    # Orkiestrator nie ma curl ani jq. Python w appserverze escapuje JSON sam
+    # i czyta token z wlasnego env_file, wiec sekret nie przechodzi przez -e.
+    #
+    # KRYTYCZNE: cala funkcja konczy sie sukcesem ZAWSZE. Jest wolana z on_exit,
+    # a blad w trapie urywa go przed `exit "$rc"` i klobruje kod wyjscia na 1 -
+    # i to dokladnie wtedy, gdy appserver lezy, czyli w scenariuszu, o ktorym
+    # raportujemy.
+    _app="$(bpp_container appserver)" || {
+        log "rollbar: brak dzialajacego appservera - notyfikacja pominieta"
+        return 0
+    }
+    docker exec \
+        -e "BPP_RB_LEVEL=$_level" \
+        -e "BPP_RB_MSG=$_message" \
+        -e "BPP_RB_TS=$TIMESTAMP" \
+        -e "BPP_RB_ENV=${DJANGO_BPP_HOSTNAME:-unknown}" \
+        "$_app" python -c '
+import json, os, urllib.request
+payload = {
+    "access_token": os.environ["ROLLBAR_ACCESS_TOKEN"],
+    "data": {
+        "environment": os.environ["BPP_RB_ENV"],
+        "level": os.environ["BPP_RB_LEVEL"],
+        "body": {"message": {"body": os.environ["BPP_RB_MSG"]}},
+        "custom": {"component": "backup-cycle", "timestamp": os.environ["BPP_RB_TS"]},
+    },
+}
+req = urllib.request.Request(
+    "https://api.rollbar.com/api/1/item/",
+    data=json.dumps(payload).encode(),
+    headers={"Content-Type": "application/json"},
 )
-    local http_code
-    http_code=$(curl -sS -o /dev/null -w "%{http_code}" -m 10 \
-        -H "Content-Type: application/json" \
-        -X POST https://api.rollbar.com/api/1/item/ \
-        -d "$payload" 2>/dev/null || echo "000")
-    log "rollbar: POST level=$level http=$http_code"
+with urllib.request.urlopen(req, timeout=10) as r:
+    print("rollbar http=%s" % r.status)
+' 2>&1 | while IFS= read -r _line; do log "rollbar: $_line"; done || true
+    return 0
 }
 
 fail() {
