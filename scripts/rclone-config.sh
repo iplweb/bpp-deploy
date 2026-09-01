@@ -1,8 +1,9 @@
 #!/bin/sh
 #
 # `make rclone-config` — kreator konfiguracji zdalnego backupu.
-# Uruchamiany WEWNATRZ backup-runnera: rclone jest doinstalowywany w tym
-# kontenerze, na hoscie go nie zakladamy.
+# Uruchamiany WEWNATRZ serwisu `rclone` (obraz rclone/rclone, zadeklarowany
+# w docker-compose.backup.yml) - na hoscie rclone'a nie zakladamy, a orkiestrator
+# `backup-runner` (docker:cli) w ogole go nie ma.
 #
 # Poza odpaleniem kreatora robi jedna rzecz wiecej: wyrownuje wlasciciela
 # powstalego rclone.conf do wlasciciela katalogu na hoscie. Uzasadnienie
@@ -24,7 +25,7 @@
 # Docelowe obrazy (docker:cli, rclone/rclone) nie maja basha, wiec shebang musi byc
 # /bin/sh. Ale na Debianie /bin/sh to dash, ktory NIE zna `pipefail` - a na nim stoja
 # kontrakty o SIGPIPE w tym repo. Wiec: jesli powloka nie ma pipefail, przeskakujemy
-# na basha; jesli basha tez nie ma, gliniemy z czytelnym komunikatem zamiast dziwnie.
+# na basha; jesli basha tez nie ma, giniemy z czytelnym komunikatem zamiast dziwnie.
 if ! (set -o pipefail) 2>/dev/null; then
     if command -v bash >/dev/null 2>&1; then
         exec bash "$0" "$@"

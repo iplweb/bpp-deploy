@@ -51,7 +51,7 @@ Operator topics and their canonical pages:
 | `defaults/alloy/config.alloy` | `docs/rozwoj/pulapki-alloy.md` |
 | `scripts/autoupdate.sh`, `scripts/deploy-with-warning.sh`, `scripts/site-down-warning.sh`, `mk/deployment.mk` | `docs/rozwoj/pulapki-wdrozenia.md` |
 | `defaults/webserver/*` | `docs/architektura/waf.md` + `docs/architektura/utwardzenie-brzegu.md` |
-| `scripts/backup-cycle.sh`, `scripts/lib-rclone.sh`, `mk/rclone.mk` | `docs/eksploatacja/backup-i-rclone.md` |
+| `scripts/backup-cycle.sh`, `scripts/lib-rclone.sh`, `scripts/lib-container.sh`, `mk/rclone.mk`, `docker-compose.backup.yml` | `docs/eksploatacja/backup-i-rclone.md` |
 | kompresja (`gzip_*`, brotli, zstd) w `_bpp-locations.conf` | `docs/rozwoj/pulapki-kompresji.md` |
 
 ## Configuration Architecture (essentials)
@@ -67,7 +67,7 @@ docker-compose.yml                    # Main orchestration
 ├── docker-compose.infrastructure.yml # Nginx, Redis
 ├── docker-compose.application.yml    # appserver, authserver, ofelia, autoheal + staticfiles/media volumes
 ├── docker-compose.workers.yml        # Celery (general, denorm, beat, flower, denorm-queue)
-└── docker-compose.backup.yml         # backup-runner
+└── docker-compose.backup.yml         # backup-runner (orchestrator) + rclone
 ```
 
 Volumes are defined in the file that owns them but referenced cross-file (e.g. `staticfiles`/`media` in `application.yml`, used by workers). Each `include:` has `env_file: ${BPP_CONFIGS_DIR}/.env`. `BPP_CONFIGS_DIR` is read from repo-local `.env` by Compose — `docker compose up` works without `make`.
@@ -162,7 +162,7 @@ Four contracts, each fatal if dropped:
 3. **`dbserver` defines its own healthcheck** (`pg_isready`) — stock postgres has none, and appserver/authserver `depend_on: service_healthy`.
 4. **`dbserver` needs a service-level `env_file`** — the `include`-level one is interpolation-only and is NOT injected into the container.
 
-Fresh installs default **`18.4`**; the Compose safety-net stays **`:-16.13`** so an ancient `.env`-less PG16 install isn't handed a PG18 image. `backup-runner` **shares `dbserver`'s image** by default (`BPP_BACKUP_PG_IMAGE` unset → 100% shared layers); only **external mode** points it at `postgres:<major>-alpine`, written by `init-configs` and self-healed by `ensure-config-files`. Major upgrades require dump/restore — use `make upgrade-postgres`, do **not** edit the var manually. Detail: `docs/konfiguracja/postgresql.md`.
+Fresh installs default **`18.4`**; the Compose safety-net stays **`:-16.13`** so an ancient `.env`-less PG16 install isn't handed a PG18 image. The nightly backup's `pg_dump` runs **inside `dbserver`** via `docker exec` (external mode: inside the sentinel), so the client always matches the server — `backup-runner` is a `docker:28-cli` orchestrator with no Postgres image at all. `BPP_BACKUP_PG_IMAGE` is **dead** (2026-09): nothing reads it; tolerated and ignored in old `.env`, no removal migration (the `DJANGO_BPP_ENABLE_HTML2DOCX_IMAGE` pattern — guarded by `test_backup_pg_image_retired`). Major upgrades require dump/restore — use `make upgrade-postgres`, do **not** edit the vars manually. Detail: `docs/konfiguracja/postgresql.md`.
 
 ### Image version pinning (`DOCKER_VERSION`) and upgrade rehearsal
 
@@ -333,27 +333,44 @@ błąd retencji to ostrzeżenie a nie `fail`.
 **Anti-fixes — do NOT:** (1) zdejmować limitu jednego katalogu na cykl — to on
 zamienia nieodwracalne zdarzenie w dobę na reakcję; (2) brać najstarszego przez
 `| head -1` — pod `set -o pipefail` producent dostaje SIGPIPE, pipeline zwraca
-błąd i `trap ERR` wywraca cały backup (ta sama pułapka co `grep -q` w sondzie
-wsparcia); (3) liczyć progu przez `date -d "-N months"` — busybox w wariancie
-alpine `backup-runnera` tego nie umie.
+błąd i trap EXIT wywraca cały backup (ta sama pułapka co `grep -q` w sondzie
+wsparcia); (3) liczyć progu przez `date -d "-N months"` — busybox w obrazach
+orkiestratora (`docker:cli`) i serwisu `rclone` tego nie umie.
 
-**CRITICAL: `ca-certificates` musi zostać na liście pakietów doinstalowywanych
-w `command:` `backup-runnera`** (obie gałęzie: `apt-get` i `apk`). Oficjalny obraz
-`postgres` (Debian) purge'uje `ca-certificates` na końcu builda, debianowy `rclone`
-zależy wyłącznie od `libc6` (nie ma ich nawet w *Recommends*), a my instalujemy
-z `--no-install-recommends` — bez jawnej instalacji kontener nie ma **żadnego**
-roota CA. **Symptom: `x509: certificate signed by unknown authority` poprzedzone
-mylącym `couldn't fetch token - maybe it has expired?`** — czyli wygląda na wygasły
-token OAuth, a jest pusty magazyn CA. Awaria jest niema: `notify_rollbar` też idzie
-przez `curl` po HTTPS, więc alert o `exit 3` dostaje `http=000`. **Anti-fixes — do
-NOT:** (1) „naprawiać" tego przez `rclone config reconnect` ani rotację tokenu —
-token jest zdrowy; (2) dokładać `--no-check-certificate`/`--insecure-skip-verify`;
-(3) usuwać sprawdzenia `/etc/ssl/certs/ca-certificates.crt` z healthchecku — brak CA
-nie objawia się niczym aż do cyklu o 02:30. Do czerwca 2026 `backup-runner` stał na
-`postgres:*-alpine` (bundle CA w bazowym obrazie), więc regresja weszła cicho przy
-przejściu na obraz współdzielony z `dbserverem`. Zmiana siedzi w `command:`, czyli
-w konfiguracji kontenera — **sam `git pull` jej nie wdraża, potrzebny `make up`**
-(inaczej niż reszta tej sekcji, jadąca na bind-mouncie `scripts/`).
+**CRITICAL: `backup-runner` to orkiestrator na `docker:28-cli` — niczego nie
+doinstalowuje w runtime.** Sam wykonuje tylko sekwencję cyklu i busybox `tar`;
+`pg_dump` robi przez `docker exec` w `dbserverze` (hasło czytane TAM,
+z `DJANGO_BPP_DB_PASSWORD` — nigdy przez `-e`), `rclone` w serwisie `rclone`
+(shim `rclone()` w `backup-cycle.sh`), a notyfikację Rollbara przez
+`docker exec appserver python` — `curl`/`jq`/`apt-get` już nie istnieją.
+Tripwire'y, każdy nośny:
+
+- **Kontenery adresuj po labelach compose** (`bpp_container` w
+  `scripts/lib-container.sh`), nigdy po nazwie — compose nazwy generuje
+  (`<projekt>-<usługa>-<n>`), a to repo nie ustawia `container_name:`.
+- **Każda komenda w trapie EXIT (`on_exit`, `notify_rollbar`) musi mieć
+  `|| true`** — błąd w trapie urywa go przed `exit "$rc"` i klobruje kod wyjścia
+  na 1, a kanał notyfikacji (`docker exec appserver`) pada dokładnie wtedy, gdy
+  appserver leży, czyli w scenariuszu, o którym raportujemy.
+- **`env_file: ${BPP_CONFIGS_DIR}/.env` na orkiestratorze jest krytyczny, nie
+  kosmetyczny** — bez niego cykl czyta same defaulty ze skryptu i pusty
+  `DJANGO_BPP_RCLONE_KEEP_MONTHS=` (udokumentowany wyłącznik) przestaje wyłączać
+  retencję zdalną: operator dostaje WŁĄCZONE kasowanie zdalnych kopii.
+- **Sonda CA (`[ -s /etc/ssl/certs/ca-certificates.crt ]`) zostaje w healthchecku
+  serwisu `rclone`** mimo że upstreamowy obraz ma bundle wbudowany —
+  `BPP_RCLONE_IMAGE` pozwala podstawić dowolny obraz, a brak CA nie objawia się
+  niczym aż do cyklu o 02:30. **Symptom: `x509: certificate signed by unknown
+  authority` poprzedzone mylącym `couldn't fetch token - maybe it has
+  expired?`** — wygląda na wygasły token OAuth, a jest pusty magazyn CA
+  (historyczna awaria z ery `apt-get`, `a6d96b0`). NIE „naprawiać" przez
+  `rclone config reconnect`/rotację tokenu ani `--no-check-certificate`.
+- **Nie dodawaj `user:` do orkiestratora** — `docker:cli` działa jako uid 0
+  i tylko dlatego czyta socket `root:root`.
+- **Wdrożeniowo orkiestrator + notyfikacja przez appservera to JEDNA jednostka**
+  (pośredni stan wołałby w `notify_rollbar` `jq`/`curl`, których w `docker:cli`
+  nie ma), a zmiana siedzi w obrazach i `command:` — **sam `git pull` jej nie
+  wdraża, potrzebny `make up`** (inaczej niż reszta tej sekcji, jadąca na
+  bind-mouncie `scripts/`).
 
 **CRITICAL: `${BPP_CONFIGS_DIR}/rclone` montujemy read-WRITE — nigdy `:ro`.**
 rclone tego katalogu nie tylko czyta: `rclone config` zapisuje `rclone.conf` przez
@@ -362,11 +379,14 @@ odświeżony token po każdym wygaśnięciu access-tokenu. **Symptom: `make rclo
 sypie `Failed to save config after 10 tries: … read-only file system`, ale kreator
 brnie dalej** — operator przeklikuje całość i dopiero potem widzi, że konfiguracja nie
 powstała; tam, gdzie refresh-token jest jednorazowy (Box), brak zapisu rozwala
-autoryzację **na trwałe**. **Anti-fixes — do NOT:** (1) przywracać `:ro` „dla porządku" — to ten sam
-kontener, który ma rw na `/backup` i dostaje `PGPASSWORD`, więc `:ro` niczego nie
-chroniło; (2) obchodzić tego jednorazowym kontenerem rw tylko na czas `rclone config`
-— nie naprawia zapisu tokenu w cyklu nocnym. Mount siedzi w `volumes:`, więc **sam
-`git pull` nie wystarcza — potrzebny `make up`**. Broni tego
+autoryzację **na trwałe**. Dotyczy mountu w serwisie **`rclone`**; bliźniaczy mount
+w orkiestratorze (`backup-runner`) jest CELOWO `:ro` — on tylko sprawdza
+`[ -f "$RCLONE_CONFIG" ]` przed wysyłką, pisze wyłącznie serwis `rclone`.
+**Anti-fixes — do NOT:** (1) przywracać `:ro` w serwisie `rclone` „dla porządku"
+ani „ujednolicać" obu mountów w którąkolwiek stronę; (2) obchodzić tego
+jednorazowym kontenerem rw tylko na czas `rclone config` — nie naprawia zapisu
+tokenu w cyklu nocnym. Mount siedzi w `volumes:`, więc **sam `git pull` nie
+wystarcza — potrzebny `make up`**. Broni tego
 `test_rclone_config_mount_writable` w `tests/test_makefile.sh`.
 
 `make rclone-config` deleguje do `scripts/rclone-config.sh`, który po kreatorze woła
@@ -410,7 +430,7 @@ One cycle: new commit on `origin/main` **or** new Docker image → optional back
 
 ## Resource Limits
 
-All services (except `backup-runner`) have `*_MEM_LIMIT`/`*_CPU_LIMIT` env vars, sized for an **8 GB host** by default. `make configure-resources` detects host RAM/CPU and proposes a proportional split. RAM limit is **hard** (OOM kill), CPU is **soft** (throttling). Full table + tuning: `docs/konfiguracja/limity-zasobow.md`.
+All services (except `backup-runner` and `rclone` — **two** deliberate exceptions) have `*_MEM_LIMIT`/`*_CPU_LIMIT` env vars, sized for an **8 GB host** by default. `backup-runner` (docker:cli orchestrator) delegates heavy steps via `docker exec`, so they count against the *target* containers' limits; `rclone` stays uncapped because an OOM-kill mid-`copy` turns a slow backup into no backup (rationale in the YAML comment in `docker-compose.backup.yml`). `make configure-resources` detects host RAM/CPU and proposes a proportional split. RAM limit is **hard** (OOM kill), CPU is **soft** (throttling). Full table + tuning: `docs/konfiguracja/limity-zasobow.md`.
 
 ## Optional Feature Flags
 
@@ -440,7 +460,7 @@ Calendar versioning `YYYY.MM.DD[.N]`. `make release` (`scripts/release.sh`): com
 ## Safety
 
 - `make up` (hence `make run`) ends with `docker system prune -af` **after** the stack is healthy (`--wait`) — the optional `html2docx` sidecar, when its profile is on, is already **up** at that point, so its image counts as in-use and survives the prune. No `--volumes` → named data volumes are safe; but `-af` removes **all** unused images host-wide (incl. non-BPP). Use `make up-quick` on shared/dev hosts to skip it. Don't "fix" this by adding `--volumes`.
-- `make up` ends with a **read-only health gate** (`scripts/post-deploy-check.sh`, hooked into the `up` recipe → `run` inherits it; `up-quick` does NOT). Flags compose services that are `unhealthy`/`restarting` (NOT `exited` — that would false-positive on on-demand `backup-runner`). All OK → `✓` + exit 0; problem + **TTY** → prompt `[s]`hell/`[d]`octor + exit 1; problem + **non-TTY** (CI/cron/`| tee`) → exit 1, no prompt. **Fail-open** on the checker's own errors (can't `cd`, no compose) → exit 0, never blocks a deploy. Read-only by design — does NOT send mail/ntfy/Rollbar (those stay opt-in in `make doctor`). Gates on container state, not log-error greps (too noisy). **CRITICAL for internal callers:** any script invoking `make up` non-interactively under `set -e` (currently `scripts/upgrade-postgres.sh` before its `make migrate`, and `scripts/restore.sh`) MUST `export BPP_SKIP_HEALTH_GATE=1` first — `scripts/autoupdate.sh` does the same for its unattended `make run` (the gate's prompt would otherwise block the auto-update loop under screen's pseudo-TTY) — else a transient post-`--wait` flap makes the gate `exit 1` (aborting the script mid-sequence) or, under a no-human PTY (`ssh -t`/Ansible), the prompt blocks (mitigated by a 30s `read -t` timeout). A new `make up` caller → set the same env. Tests: `make test-post-deploy-check` (mocks docker/make; like `test-doctor`, not yet in CI's `tests/test_makefile.sh`).
+- `make up` ends with a **read-only health gate** (`scripts/post-deploy-check.sh`, hooked into the `up` recipe → `run` inherits it; `up-quick` does NOT). Flags compose services that are `unhealthy`/`restarting` (NOT `exited` — that would false-positive on the one-shot `webserver-init` and on-demand `certbot`/`workerserver-status`). All OK → `✓` + exit 0; problem + **TTY** → prompt `[s]`hell/`[d]`octor + exit 1; problem + **non-TTY** (CI/cron/`| tee`) → exit 1, no prompt. **Fail-open** on the checker's own errors (can't `cd`, no compose) → exit 0, never blocks a deploy. Read-only by design — does NOT send mail/ntfy/Rollbar (those stay opt-in in `make doctor`). Gates on container state, not log-error greps (too noisy). **CRITICAL for internal callers:** any script invoking `make up` non-interactively under `set -e` (currently `scripts/upgrade-postgres.sh` before its `make migrate`, and `scripts/restore.sh`) MUST `export BPP_SKIP_HEALTH_GATE=1` first — `scripts/autoupdate.sh` does the same for its unattended `make run` (the gate's prompt would otherwise block the auto-update loop under screen's pseudo-TTY) — else a transient post-`--wait` flap makes the gate `exit 1` (aborting the script mid-sequence) or, under a no-human PTY (`ssh -t`/Ansible), the prompt blocks (mitigated by a 30s `read -t` timeout). A new `make up` caller → set the same env. Tests: `make test-post-deploy-check` (mocks docker/make; like `test-doctor`, not yet in CI's `tests/test_makefile.sh`).
 - Always `make db-backup` before major changes
 - Use `make` targets instead of raw `docker compose` (they handle dependencies)
 - Verify environment-specific config (database markers, backup settings) before destructive operations

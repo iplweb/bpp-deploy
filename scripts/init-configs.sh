@@ -404,24 +404,29 @@ LOG_MAX_FILE=5
 EOF
 
     if [ -n "$EXT_PG_VERSION" ]; then
+        # BPP_BACKUP_PG_IMAGE nie jest tu juz zapisywana - zmienna jest MARTWA
+        # od 2026-09. Byla potrzebna, gdy backup-runner wspoldzielil obraz
+        # Postgresa z sentinelem; orkiestrator (docker:cli) obrazu Postgresa
+        # nie potrzebuje, bo pg_dump wykonuje przez `docker exec` w dbserverze.
+        # W starych .env zmienna jest tolerowana i ignorowana, bez migracji
+        # usuwajacej (wzorzec DJANGO_BPP_ENABLE_HTML2DOCX_IMAGE - kasowanie
+        # cudzych wpisow lamie kontrakt kompatybilnosci wstecznej).
         cat >> "$ENV_FILE" <<EOF
 
 # === Wersja PostgreSQL ===
-# W trybie external VERSION i VERSION_MAJOR sa rowne - sentinel i backup-runner
-# potrzebuja tylko majora (postgres:<major>-alpine). Zmienne istnieja osobno
-# dla spojnosci z trybem lokalnym (gdzie VERSION jest MAJOR.MINOR).
+# W trybie external VERSION i VERSION_MAJOR sa rowne - sentinel potrzebuje
+# tylko majora (postgres:<major>-alpine); nocny pg_dump cyklu backupu wykonuje
+# sie wlasnie w nim, przez docker exec. Zmienne istnieja osobno dla spojnosci
+# z trybem lokalnym (gdzie VERSION jest MAJOR.MINOR).
 DJANGO_BPP_POSTGRESQL_VERSION=$EXT_PG_VERSION
 DJANGO_BPP_POSTGRESQL_VERSION_MAJOR=$EXT_PG_VERSION
-# Tryb external: backup-runner ma wspoldzielic lekki obraz z sentinelem
-# (postgres:<major>-alpine) zamiast ciagnac osobny obraz Debianowy. W trybie
-# lokalnym ta zmienna jest NIEUSTAWIONA -> compose bierze pelny obraz dbservera.
-BPP_BACKUP_PG_IMAGE=postgres:$EXT_PG_VERSION-alpine
 EOF
     fi
 
     # Zmienne wersji dla trybu lokalnego:
     #   DJANGO_BPP_POSTGRESQL_VERSION       - pelny MAJOR.MINOR, tag postgres:<ver>
-    #   DJANGO_BPP_POSTGRESQL_VERSION_MAJOR - derived major, dla backup-runnera (postgres:<major>-alpine)
+    #   DJANGO_BPP_POSTGRESQL_VERSION_MAJOR - derived major; w trybie lokalnym compose
+    #     go nie czyta (napedza tag sentinela w trybie external), trzymany spojnie
     # Upgrade majora: `make upgrade-postgres` (logical dump & restore z zachowaniem
     # starego volume jako kopii zapasowej).
     if [ "$BPP_EXTERNAL_DB" != "yes" ] && [ -n "${DBSERVER_PG_VERSION:-}" ]; then
@@ -433,7 +438,7 @@ EOF
 # Nie zmieniaj recznie dla upgrade'u majora - uzyj 'make upgrade-postgres'
 # (dump & restore). Minor update (np. 16.13 -> 16.14) mozna zrobic recznie.
 DJANGO_BPP_POSTGRESQL_VERSION=$DBSERVER_PG_VERSION
-# Auto-derived major (pg_dump backup-runnera musi byc >= wersji serwera).
+# Auto-derived major (w trybie external napedza tag sentinela postgres:<major>-alpine).
 DJANGO_BPP_POSTGRESQL_VERSION_MAJOR=$_dbserver_major
 EOF
     fi

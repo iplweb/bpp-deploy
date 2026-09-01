@@ -1782,13 +1782,37 @@ test_rclone_service_declared() {
             pass "target $t celuje w serwis rclone"
         fi
     done
-    # backup-cycle CELOWO zostaje w backup-runnerze — przenosi go dopiero
-    # Zadanie 3. Asercja pozytywna, zeby nikt nie przeniosl go przedwczesnie
-    # ani nie zgubil tego kroku w Zadaniu 3.
+    # backup-cycle CELOWO exec-uje w backup-runnerze: to orkiestrator cyklu
+    # (docker:cli), ktory pg_dump/rclone/notyfikacje deleguje przez `docker
+    # exec`. Przeniesienie targetu do serwisu rclone albo dbservera rozbija
+    # cykl (tam nie ma docker.sock ani shima `rclone()`).
     if recipe_of backup-cycle "$mk" | grep -q 'backup-runner'; then
-        pass "backup-cycle nadal w backup-runnerze (przenosi go Zadanie 3)"
+        pass "backup-cycle exec-uje w backup-runnerze (orkiestratorze)"
     else
-        fail "backup-cycle przedwczesnie przeniesiony poza backup-runner"
+        fail "backup-cycle nie celuje w backup-runner (orkiestrator cyklu)"
+    fi
+}
+
+test_backup_pg_image_retired() {
+    yellow "=== Test: BPP_BACKUP_PG_IMAGE wygaszona ==="
+
+    # Zmienna byla potrzebna, gdy backup-runner wspoldzielil obraz Postgresa
+    # z dbserverem (tryb external: postgres:<major>-alpine). Orkiestrator na
+    # docker:cli obrazu Postgresa nie potrzebuje - pg_dump wykonuje przez
+    # `docker exec` w dbserverze. Wzorzec martwej flagi jak
+    # DJANGO_BPP_ENABLE_HTML2DOCX_IMAGE: przestajemy zapisywac, ale NIE
+    # usuwamy ze starych .env i nic sie na nia nie wywraca.
+    for f in scripts/init-configs.sh scripts/ensure-config-files.sh; do
+        if grep -qE '^[^#]*BPP_BACKUP_PG_IMAGE=' "$REPO_DIR/$f"; then
+            fail "$f nadal zapisuje BPP_BACKUP_PG_IMAGE"
+        else
+            pass "$f nie zapisuje BPP_BACKUP_PG_IMAGE"
+        fi
+    done
+    if grep -q 'BPP_BACKUP_PG_IMAGE' "$REPO_DIR/docker-compose.backup.yml"; then
+        fail "compose nadal czyta BPP_BACKUP_PG_IMAGE"
+    else
+        pass "compose nie czyta BPP_BACKUP_PG_IMAGE"
     fi
 }
 
@@ -2152,6 +2176,7 @@ test_rclone_single_source_of_truth
 test_backup_runner_is_orchestrator
 test_rclone_config_mount_writable
 test_rclone_service_declared
+test_backup_pg_image_retired
 
 echo ""
 echo "========================================"

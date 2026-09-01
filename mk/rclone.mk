@@ -28,8 +28,10 @@ rclone-check:
 		rclone --config /config/rclone/rclone.conf ls $(RCLONE_REMOTE)
 
 # Pelny cykl backupu: pg_dump + tar media + rotacja lokalna + rclone copy +
-# retencja zdalna + Rollbar notify. Nadal dziala w backup-runnerze - to
-# Zadanie 3 przenosi sama orkiestracje cyklu na osobne kontenery, nie ten plik.
-# Ofelia wola to samo raz dziennie przez label na backup-runner.
+# retencja zdalna + Rollbar notify. Target CELOWO exec-uje w backup-runnerze:
+# to orkiestrator (docker:cli), ktory sam wykonuje tylko sekwencje i tar,
+# a pg_dump/rclone/notyfikacje deleguje przez `docker exec` do dbservera,
+# serwisu rclone i appservera. Ofelia wola to samo raz dziennie przez label
+# na backup-runner.
 backup-cycle:
 	docker compose exec backup-runner /scripts/backup-cycle.sh

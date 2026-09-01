@@ -11,7 +11,7 @@ docker-compose.yml                    # Główna orkiestracja
 ├── docker-compose.infrastructure.yml # Nginx, Redis
 ├── docker-compose.application.yml    # appserver, authserver, ofelia, autoheal + wolumeny staticfiles/media
 ├── docker-compose.workers.yml        # Celery (general, denorm, beat, flower, denorm-queue)
-└── docker-compose.backup.yml         # backup-runner
+└── docker-compose.backup.yml         # backup-runner (orkiestrator) + rclone
 ```
 
 Wolumeny są definiowane w pliku, który jest ich właścicielem, ale referowane między

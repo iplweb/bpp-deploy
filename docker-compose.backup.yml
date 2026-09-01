@@ -83,6 +83,10 @@ services:
   # przy KAZDYM `make up`; (3) mounty deklaruje compose, wiec w skryptach nie ma
   # ani jednej sciezki hosta (`docker run -v /backup:...` z wnetrza kontenera
   # zamontowalby pusta sciezke hosta - mount by sie udal, dane nie).
+  # Celowo BEZ limitu pamieci (drugi wyjatek obok backup-runnera, patrz
+  # docs/konfiguracja/limity-zasobow.md): OOM-kill w trakcie `rclone copy`
+  # zamienia wolny backup w brak backupu, a proces i tak dziala tylko w oknie
+  # cyklu nocnego.
   rclone:
     image: ${BPP_RCLONE_IMAGE:-rclone/rclone:1.71.0}
     restart: always

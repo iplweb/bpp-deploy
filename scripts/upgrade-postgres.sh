@@ -18,7 +18,8 @@
 #
 # Tryb external (BPP_DATABASE_COMPOSE=docker-compose.database.external.yml) ma
 # wlasna, drastycznie prostsza sciezke - upgrade prawdziwej bazy robi admin po
-# stronie hosta, deploy repo tylko bumpuje wersje sentinela/backup-runnera.
+# stronie hosta, deploy repo tylko bumpuje wersje sentinela (nocny pg_dump
+# cyklu backupu wykonuje sie w sentinelu przez docker exec).
 #
 # Wymagania:
 #   - Docker Compose v2.20+ (juz wymagane przez include w docker-compose.yml)
@@ -310,8 +311,9 @@ Procedura po stronie BPP (po skutecznym upgrade'ie zewnetrznej bazy):
      (obecnie: ${_cur_ext_major:-<nieustawione>})
 
   3. make up
-     -> recreate sentinela i backup-runnera na nowym obrazie
-        postgres:<nowy_major>-alpine.
+     -> recreate sentinela na nowym obrazie postgres:<nowy_major>-alpine
+        (nocny pg_dump cyklu backupu wykonuje sie w sentinelu przez docker
+        exec, wiec dostaje nowa wersje automatycznie).
 
 EOF
 
@@ -342,7 +344,7 @@ EOF
         run docker compose pull dbserver backup-runner
         run docker compose up -d dbserver backup-runner
         echo
-        echo "Gotowe. Sentinel i backup-runner dzialaja na postgres:${NEW_MAJOR}-alpine."
+        echo "Gotowe. Sentinel dziala na postgres:${NEW_MAJOR}-alpine (pg_dump cyklu backupu wykonuje sie w nim)."
         echo "Sprawdz: docker compose exec dbserver pg_isready -h \$DJANGO_BPP_DB_HOST"
     fi
     exit 0
@@ -684,8 +686,8 @@ fi
 # ---- Krok 2: stop dependent services ------------------------------------
 # WAZNE: stop PRZED db-backupem - zeby pg_dump dostal czysty snapshot bez
 # concurrent writes od appservera/workerow. ofelia stop = nie wystartuje swojego
-# cronu (migrate, denorm-rebuild) w trakcie upgrade'u. backup-runner stop = nie
-# wystartuje wlasnego pg_dumpa rownolegle z naszym.
+# cronu (migrate, denorm-rebuild) w trakcie upgrade'u. backup-runner stop =
+# orkiestrator nie odpali cyklu backupu (pg_dump w dbserverze) rownolegle z naszym.
 if [ "$FROM_STEP" -le 2 ] && ! step_is_skipped 2; then
     CURRENT_STEP=2
     echo
@@ -702,7 +704,7 @@ uniknac konfliktow w trakcie upgrade'u:
   denorm-queue           - LISTEN/NOTIFY bridge
   flower                 - monitoring Celery
   ofelia                 - Docker cron (zeby nie triggerowal taskow w trakcie)
-  backup-runner          - daily backup (zeby nie uruchomil wlasnego pg_dumpa)
+  backup-runner          - orkiestrator backupu (zeby nie odpalil cyklu w trakcie)
 
 Dbserver zostanie uruchomiony - pg_dump musi miec dostep do zywej bazy.
 Zatrzymane serwisy wroca same po 'make up' w kroku 10.
@@ -776,7 +778,10 @@ if [ "$FROM_STEP" -le 6 ] && ! step_is_skipped 6; then
     run docker volume rm "$VOLUME_NAME"
 fi
 
-# ---- Krok 7: bump wersji dbservera i backup-runnera ---------------------
+# ---- Krok 7: bump wersji dbservera (_VERSION) i majora (_MAJOR) ---------
+# Nazwa zmiennej CURRENT_BACKUP_RUNNER_MAJOR jest historyczna: _MAJOR napedzal
+# obraz backup-runnera, dzis napedza tag sentinela w trybie external, a tutaj
+# (tryb local) jest trzymany spojnie z dbserverem.
 # CURRENT_BACKUP_RUNNER_MAJOR zawsze wyliczamy (nawet przy skipie kroku 7) bo
 # potrzebujemy go ponizej do decyzji czy eksportowac _MAJOR do shell env.
 CURRENT_BACKUP_RUNNER_MAJOR="$(get_env_var DJANGO_BPP_POSTGRESQL_VERSION_MAJOR "$APP_ENV")"
@@ -800,15 +805,16 @@ if [ "$FROM_STEP" -le 7 ] && ! step_is_skipped 7; then
         echo "Usunieto stara DJANGO_BPP_POSTGRESQL_DBSERVER_PG_VERSION (zastapiona przez _VERSION)."
     fi
 
-    # Jednoczesnie synchronizuj DJANGO_BPP_POSTGRESQL_VERSION_MAJOR (major dla
-    # backup-runnera) jesli byla spojna z dbserverem. Gdy byla rozjechana
-    # (np. user swiadomie trzyma backup-runner na nowszej wersji), nie ruszamy jej.
+    # Jednoczesnie synchronizuj DJANGO_BPP_POSTGRESQL_VERSION_MAJOR (tag
+    # sentinela w trybie external; w lokalnym nieuzywany przez compose) jesli
+    # byla spojna z dbserverem. Gdy byla rozjechana (np. user swiadomie ja
+    # trzyma na innej wersji), nie ruszamy jej.
     if [ -z "$CURRENT_BACKUP_RUNNER_MAJOR" ] || [ "$CURRENT_BACKUP_RUNNER_MAJOR" = "$CURRENT_PG_MAJOR" ]; then
         run set_env_var DJANGO_BPP_POSTGRESQL_VERSION_MAJOR "$EXPECTED_MAJOR" "$APP_ENV"
         echo "DJANGO_BPP_POSTGRESQL_VERSION_MAJOR: ${CURRENT_BACKUP_RUNNER_MAJOR:-<puste>} -> $EXPECTED_MAJOR"
     elif [[ "$CURRENT_BACKUP_RUNNER_MAJOR" =~ ^[0-9]+$ ]]; then
         echo "UWAGA: DJANGO_BPP_POSTGRESQL_VERSION_MAJOR=$CURRENT_BACKUP_RUNNER_MAJOR rozjechane z"
-        echo "       dbserver ($CURRENT_PG_MAJOR) - nie ruszam (backup-runner moze miec >= wersja serwera)."
+        echo "       dbserver ($CURRENT_PG_MAJOR) - nie ruszam (moze byc rozjechana celowo)."
         if [ "$CURRENT_BACKUP_RUNNER_MAJOR" -lt "$EXPECTED_MAJOR" ]; then
             echo "       ALE: $CURRENT_BACKUP_RUNNER_MAJOR < $EXPECTED_MAJOR - rozwaz recznie bumpnac po upgrade."
         fi

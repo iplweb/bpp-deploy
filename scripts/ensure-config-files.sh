@@ -249,22 +249,13 @@ if [ -f "$_ENV" ]; then
     _ensure_var LOKI_RETENTION_WEBSERVER "$(_loki_period webserver  4320h)" \
         "  + dopisano LOKI_RETENTION_WEBSERVER w .env"
 
-    # backup-runner image override - TYLKO w trybie zewnetrznej bazy. Tam
-    # dbserver to lekki sentinel postgres:<major>-alpine, wiec backup-runner ma
-    # wspoldzielic z nim warstwy (zamiast ciagnac osobny obraz Debianowy ~450MB).
-    # W trybie lokalnym ta zmienna POZOSTAJE nieustawiona -> compose bierze pelny
-    # obraz dbservera (postgres:<MAJOR.MINOR>), wspoldzielony z prawdziwym PG.
-    # Stare instalacje external (sprzed tej zmiennej) dostaja ja tu, bez
-    # recznego kroku - zgodnie z regula kompatybilnosci wstecznej.
-    _DBCOMPOSE="$(grep -E '^BPP_DATABASE_COMPOSE=' "$REPO_DIR/.env" 2>/dev/null | tail -1 | cut -d= -f2- || true)"
-    if [ "$_DBCOMPOSE" = "docker-compose.database.external.yml" ]; then
-        _bk_major="$(grep -E '^DJANGO_BPP_POSTGRESQL_VERSION_MAJOR=' "$_ENV" 2>/dev/null | tail -1 | cut -d= -f2-)"
-        [ -n "$_bk_major" ] || _bk_major="$(grep -E '^DJANGO_BPP_POSTGRESQL_DB_VERSION=' "$_ENV" 2>/dev/null | tail -1 | cut -d= -f2-)"
-        if [ -n "$_bk_major" ]; then
-            _ensure_var BPP_BACKUP_PG_IMAGE "postgres:${_bk_major}-alpine" \
-                "  + dopisano BPP_BACKUP_PG_IMAGE=postgres:${_bk_major}-alpine (tryb external) w .env"
-        fi
-    fi
+    # BPP_BACKUP_PG_IMAGE nie jest tu juz samouzdrawiana - zmienna jest MARTWA
+    # od 2026-09. Byla potrzebna, gdy backup-runner wspoldzielil obraz Postgresa
+    # z sentinelem trybu external; orkiestrator (docker:cli) obrazu Postgresa
+    # nie potrzebuje, bo pg_dump wykonuje przez `docker exec` w dbserverze.
+    # W starych .env zmienna jest tolerowana i ignorowana, bez migracji
+    # usuwajacej (wzorzec DJANGO_BPP_ENABLE_HTML2DOCX_IMAGE - kasowanie cudzych
+    # wpisow lamie kontrakt kompatybilnosci wstecznej).
 fi
 
 if [ -f "$_ENV" ] && [ -f "$DEFAULTS_DIR/netdata/go.d/postgres.conf.tpl" ]; then

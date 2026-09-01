@@ -112,9 +112,14 @@ bo jego realny apetyt na RAM zależy od liczby procesów-dzieci prefork.
 
 ## Bez limitu
 
-Trzy usługi celowo nie mają limitu RAM:
+Cztery usługi celowo nie mają limitu RAM:
 
-- `backup-runner` — efemeryczny (`pg_dump`/`restore`/`rclone`, ~10 min/dzień, skoki pamięci)
+- `backup-runner` — orkiestrator backupu (`docker:28-cli`): sam wykonuje tylko
+  sekwencję cyklu i busybox `tar`, ciężkie kroki delegowane przez `docker exec`
+  liczą się do limitów kontenerów, w których się wykonują (`dbserver`, `rclone`,
+  `appserver`)
+- `rclone` — skoki pamięci tylko w oknie nocnej wysyłki; OOM-kill w trakcie
+  `rclone copy` zamieniałby wolny backup w brak backupu
 - `certbot` — krótko żyjące zadanie SSL (wydanie/odnowienie certyfikatu)
 - `workerserver-status` — `celery status`, profil `manual`, kończy się natychmiast
 
