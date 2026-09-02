@@ -61,12 +61,13 @@ Full detail: `docs/konfiguracja/architektura.md`.
 ### Modular Docker Compose (`include`, v2.20+)
 
 ```
-docker-compose.yml                    # Main orchestration
+docker-compose.yml                    # Main orchestration — includes only, declares no services
 ├── docker-compose.monitoring.yml     # Netdata, Loki, Grafana, Alloy, Dozzle
-├── docker-compose.database.yml       # PostgreSQL + postgresql_data volume
+├── docker-compose.database.yml       # PostgreSQL + postgresql_data volume  (default)
+│   └ docker-compose.database.external.yml   # external DB — swapped in via ${BPP_DATABASE_COMPOSE}
 ├── docker-compose.infrastructure.yml # Nginx, Redis
 ├── docker-compose.application.yml    # appserver, authserver, ofelia, autoheal + staticfiles/media volumes
-├── docker-compose.workers.yml        # Celery (general, denorm, beat, flower, denorm-queue)
+├── docker-compose.workers.yml        # workerserver, denorm-queue, workerserver-status, celerybeat, flower
 └── docker-compose.backup.yml         # backup-runner (orchestrator) + rclone
 ```
 
@@ -92,7 +93,7 @@ Everything else under the config dir stays `copy_if_missing`. Dashboards removed
 
 **Adding a file to this list:** an existing install must keep its tuned values. Read them out of the operator's current file and write them into `.env` (what the Loki retention migration does with `awk`) — writing repo constants silently resets tuning on a plain `git pull && make up`, exactly what the backwards-compat contract forbids. Render guards and the `init-configs`-before-`.env` ordering: `docs/konfiguracja/architektura.md`.
 
-Leaving a config on `copy_if_missing` freezes it **at install time forever** — that's how the CRS severity mapping (`60ea290`) reached no deployment at all, and why Loki's level detection had to ship as a CLI flag workaround. Both are cautionary tales, not patterns to copy.
+Leaving a config on `copy_if_missing` freezes it **at install time forever** — an existing install never sees the new version. That has already cost a CRS severity mapping (reached no deployment at all) and a Loki level-detection fix (had to ship as a CLI flag instead).
 
 ### Staticfiles volume — contract with appserver image
 
@@ -199,7 +200,7 @@ Images are slim — `uv` is no longer present. Use native `python` / `celery`:
 
 ### Single `workerserver` — both queues
 
-As of June 2026 there is **one** Celery worker, `workerserver` (was `workerserver-general` + `workerserver-denorm`), consuming **both** queues. We set `CELERY_QUEUE: "celery,denorm"` **explicitly** in compose (not relying on the new image default) so the merge works on the **current published image too** — otherwise the `denorm` queue would have no consumer until the new image ships. **No strict priority** — kombu round-robins the queues (deliberate per the BPP single-worker spec: `denorm`/`flush_single` tasks are short). Concurrency (default **75% cores**) and child recycling are configured in the **BPP image** `app.conf` (via `celery_tasks.py`) through `CELERY_WORKER_*` env (`CELERY_WORKER_CONCURRENCY`, `_CONCURRENCY_PERCENT`, `_MAX_MEMORY_PER_CHILD`, `_MAX_TASKS_PER_CHILD`, `_POOL`, `_PREFETCH_MULTIPLIER`) — read only by the June-2026+ image. Env rename (`WORKER_GENERAL_*`→`WORKER_*`, drop `WORKER_DENORM_*`) has the mandatory two-layer protection: Compose fallback `${WORKER_MEM_LIMIT:-${WORKER_GENERAL_MEM_LIMIT:-…}}` + `init-configs` migration (`configure-resources` also recomputes + cleans). Detail: `docs/konfiguracja/limity-zasobow.md#concurrency-celery`.
+There is **one** Celery worker, `workerserver`, consuming both the `celery` and `denorm` queues. We set `CELERY_QUEUE: "celery,denorm"` **explicitly** in compose (not relying on the new image default) so the merge works on the **current published image too** — otherwise the `denorm` queue would have no consumer until the new image ships. **No strict priority** — kombu round-robins the queues (deliberate per the BPP single-worker spec: `denorm`/`flush_single` tasks are short). Concurrency (default **75% cores**) and child recycling are configured in the **BPP image** `app.conf` (via `celery_tasks.py`) through `CELERY_WORKER_*` env (`CELERY_WORKER_CONCURRENCY`, `_CONCURRENCY_PERCENT`, `_MAX_MEMORY_PER_CHILD`, `_MAX_TASKS_PER_CHILD`, `_POOL`, `_PREFETCH_MULTIPLIER`) — read only by the June-2026+ image. Env rename (`WORKER_GENERAL_*`→`WORKER_*`, drop `WORKER_DENORM_*`) has the mandatory two-layer protection: Compose fallback `${WORKER_MEM_LIMIT:-${WORKER_GENERAL_MEM_LIMIT:-…}}` + `init-configs` migration (`configure-resources` also recomputes + cleans). Detail: `docs/konfiguracja/limity-zasobow.md#concurrency-celery`.
 
 ### Log level (`detected_level`) — single source, closed vocabulary
 
@@ -211,7 +212,7 @@ WAF hits produce **two Loki entries per request** (`modsec_src` = `audit` / `ngi
 
 ### Logging — add `logging` to new services
 
-All services use the `local` log driver via a per-file `x-logging` YAML anchor. **YAML anchors do not cross `include:` boundaries** — each of the 7 compose files defines its own `x-logging`. **When adding a new service: include `logging: *default-logging` or it falls back to unrotated `json-file`.** Full logging/retention detail: `docs/monitoring/logowanie.md`.
+All services use the `local` log driver via a per-file `x-logging` YAML anchor. **YAML anchors do not cross `include:` boundaries** — every compose file that declares services defines its own `x-logging` (the root file declares none). **When adding a new service: include `logging: *default-logging` or it falls back to unrotated `json-file`.** Full logging/retention detail: `docs/monitoring/logowanie.md`.
 
 ### Rate limiting (nginx)
 
@@ -219,7 +220,7 @@ Per-IP `limit_req` on `/admin/` (50r/s), `/api/` (60r/s) and the rest (`location
 
 ### Edge hardening (nginx) — blocks that are *not* the WAF
 
-Requests that are not attacks but are **not ours** (CRS passes them, correctly). All in versioned bind-mounts → `git pull && make up`, no `.env` migration. Four rules + `server_tokens`, all covered by `make test-waf` (48 cases). Detail: `docs/architektura/utwardzenie-brzegu.md`.
+Requests that are not attacks but are **not ours** (CRS passes them, correctly). All in versioned bind-mounts → `git pull && make up`, no `.env` migration. Four rules + `server_tokens`, all covered by `make test-waf`. Detail: `docs/architektura/utwardzenie-brzegu.md`.
 
 Four rules → `444` (executable extensions, ~30 foreign-app prefixes, template literals `{{…}}`/`${…}`) plus client timeouts. Constraints that are non-obvious and were each established by measurement:
 

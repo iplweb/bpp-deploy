@@ -7,10 +7,11 @@ Wymaga Compose v2.20+. Główna orkiestracja jest rozbita na pliki tematyczne:
 ```
 docker-compose.yml                    # Główna orkiestracja
 ├── docker-compose.monitoring.yml     # Netdata, Loki, Grafana, Alloy, Dozzle
-├── docker-compose.database.yml       # PostgreSQL + wolumen postgresql_data
+├── docker-compose.database.yml       # PostgreSQL + wolumen postgresql_data  (domyslnie)
+│   └ docker-compose.database.external.yml   # baza zewnetrzna — podmiana przez ${BPP_DATABASE_COMPOSE}
 ├── docker-compose.infrastructure.yml # Nginx, Redis
 ├── docker-compose.application.yml    # appserver, authserver, ofelia, autoheal + wolumeny staticfiles/media
-├── docker-compose.workers.yml        # Celery (general, denorm, beat, flower, denorm-queue)
+├── docker-compose.workers.yml        # workerserver, denorm-queue, workerserver-status, celerybeat, flower
 └── docker-compose.backup.yml         # backup-runner (orkiestrator) + rclone
 ```
 

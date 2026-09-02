@@ -89,11 +89,14 @@ protection, not prose. Don't cut to hit a size target.
 These are facts about the system the docs describe — keep them accurate:
 
 1. **Force-synced configs.** `grafana/provisioning/dashboards/*`,
-   `grafana/provisioning/datasources/datasources.yaml.tpl`, and
-   `netdata/netdata.conf` (rendered from `defaults/netdata/netdata.conf.tpl`) are
-   overwritten on every `make up`/`refresh`. Everything else under the config dir is
-   `copy_if_missing` and survives upgrades. Don't tell users to hand-edit force-synced
-   files — point them at `.env` knobs.
+   `grafana/provisioning/datasources/datasources.yaml.tpl`, `alloy/config.alloy`,
+   and — rendered host-side from their `.tpl` — `netdata/netdata.conf` and
+   `loki/local-config.yaml` are overwritten on every `make up`/`refresh`. The
+   authoritative list is the `copy_always` call sites in
+   `scripts/ensure-config-files.sh`, mirrored in CLAUDE.md; check it rather than
+   trusting this line. Everything else under the config dir is `copy_if_missing`
+   and survives upgrades. Don't tell users to hand-edit force-synced files —
+   point them at `.env` knobs.
 2. **Backwards compatibility.** A new `bpp-deploy` must run on the **old** `.env`
    with no manual edits. Renames need a reader fallback **and** an `init-configs`
    migration. Any doc that introduces a renamed var must reflect both names.
