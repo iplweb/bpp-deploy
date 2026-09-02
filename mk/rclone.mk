@@ -1,9 +1,9 @@
 .PHONY: rclone-sync rclone-config rclone-check backup-cycle
 
-# Wszystkie polecenia rclone i caly cykl backupu dzialaja wewnatrz serwisu
-# backup-runner (patrz docker-compose.backup.yml). Do backup-runnera
-# doinstalowuje rclone przez apk add na starcie, wiec trzeba poczekac az
-# healthcheck przejdzie zanim polecenia beda dostepne.
+# Polecenia rclone (sync/config/check) dzialaja wewnatrz zadeklarowanego
+# serwisu compose `rclone` (obraz rclone/rclone, patrz docker-compose.backup.yml).
+# Serwis niczego nie doinstalowuje w runtime - narzedzie jest gotowe od razu,
+# wystarczy poczekac az przejdzie healthcheck.
 
 RCLONE_REMOTE ?= $(if $(DJANGO_BPP_RCLONE_REMOTE),$(DJANGO_BPP_RCLONE_REMOTE),backup_enc:)
 
@@ -16,19 +16,22 @@ RCLONE_REMOTE ?= $(if $(DJANGO_BPP_RCLONE_REMOTE),$(DJANGO_BPP_RCLONE_REMOTE),ba
 # overridem pokazywalby JUZ INNY remote - dwie komendy rozjechane bez bledu.
 rclone-sync:
 	docker compose exec -e DJANGO_BPP_RCLONE_REMOTE=$(RCLONE_REMOTE) \
-		backup-runner /scripts/rclone-sync.sh
+		rclone /scripts/rclone-sync.sh
 
 # Kreator + wyrownanie wlasciciela rclone.conf (powstaje jako root, bo kontener
 # jest rootem) — logika w scripts/rclone-config.sh, nie tutaj.
 rclone-config:
-	docker compose exec backup-runner /scripts/rclone-config.sh
+	docker compose exec rclone /scripts/rclone-config.sh
 
 rclone-check:
-	docker compose exec backup-runner \
+	docker compose exec rclone \
 		rclone --config /config/rclone/rclone.conf ls $(RCLONE_REMOTE)
 
 # Pelny cykl backupu: pg_dump + tar media + rotacja lokalna + rclone copy +
-# retencja zdalna + Rollbar notify.
-# Ofelia wola to samo raz dziennie przez label na backup-runner.
+# retencja zdalna + Rollbar notify. Target CELOWO exec-uje w backup-runnerze:
+# to orkiestrator (docker:cli), ktory sam wykonuje tylko sekwencje i tar,
+# a pg_dump/rclone/notyfikacje deleguje przez `docker exec` do dbservera,
+# serwisu rclone i appservera. Ofelia wola to samo raz dziennie przez label
+# na backup-runner.
 backup-cycle:
 	docker compose exec backup-runner /scripts/backup-cycle.sh

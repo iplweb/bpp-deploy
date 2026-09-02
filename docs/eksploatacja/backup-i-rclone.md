@@ -13,24 +13,61 @@ make rclone-check     # Sprawdzenie spójności kopii zdalnej
 ## Codzienny backup
 
 Codzienny backup uruchamia Ofelia o **02:30** (label `0 30 2 * * *` na `backup-runner`).
-`backup-runner` to efemeryczny kontener: robi `pg_dump`, pakuje media (tar), wysyła
-przez rclone i raportuje do Rollbara.
+`backup-runner` to **orkiestrator** (obraz `docker:28-cli`): sam nie ma ani `pg_dump`,
+ani rclone'a — wykonuje sekwencję cyklu, a ciężkie kroki deleguje przez `docker exec`
+do kontenerów, które i tak istnieją i mają właściwe narzędzia:
 
-!!! note "Obraz backup-runnera — bez podwójnego ściągania"
-    Domyślnie `backup-runner` używa **tego samego** obrazu co `dbserver`
-    (`postgres:${DJANGO_BPP_POSTGRESQL_VERSION}`, wariant Debian) — dzięki temu
-    współdzieli z nim 100% warstw i nie zajmuje dodatkowego miejsca na dysku
-    (osobny `-alpine` nie dzieli warstw z Debianem i kosztowałby ~350 MB więcej).
-    `pg_dump` trafia dokładnie w wersję serwera. `rclone`, `curl`, `jq`
-    **i `ca-certificates`** są doinstalowane w runtime (`apt-get`) — bez tego
-    ostatniego kontener nie ma żadnego roota CA i **każde** połączenie HTTPS
-    pada (patrz [Awaria TLS](#awaria-tls-certificate-signed-by-unknown-authority)). W trybie **zewnętrznej bazy** `dbserver`
-    to lekki sentinel `postgres:<major>-alpine`; tam `init-configs` ustawia
-    `BPP_BACKUP_PG_IMAGE=postgres:<major>-alpine`, by `backup-runner` współdzielił
-    warstwy z sentinelem (na starych instalacjach dopisuje to `ensure-config-files`
-    przy zwykłym `make up`).
+1. `pg_dump` — w kontenerze `dbserver`, więc wersja klienta zawsze równa się wersji
+   serwera (w trybie external — sentinela `postgres:<major>-alpine`),
+2. tar dumpu i mediów — lokalnie (busybox `tar`; `/backup` i wolumen `media` są
+   zamontowane także w orkiestratorze),
+3. rotacja lokalna (`DJANGO_BPP_BACKUP_KEEP_LAST`),
+4. `rclone copy` + retencja zdalna — w serwisie `rclone` (patrz niżej),
+5. notyfikacja do Rollbara — `docker exec appserver python` (bez `curl`/`jq`).
+
+Kontenery są adresowane po labelach compose (`com.docker.compose.service`), nigdy po
+nazwie — nazwy generuje compose.
+
+!!! note "Dwa obrazy, zero doinstalowywania w runtime"
+    Do września 2026 `backup-runner` startował na obrazie `postgres` (współdzielonym
+    z `dbserverem`) i doinstalowywał `rclone`, `curl`, `jq` i `ca-certificates` przez
+    `apt-get` przy każdym starcie — każdy start wymagał sieci i repozytorium Debiana,
+    a awaria tej instalacji była cicha aż do 02:30 (tak weszła
+    [awaria TLS](#awaria-tls-certificate-signed-by-unknown-authority)). Teraz obrazy
+    są dwa i oba gotowe od razu:
+
+    - `backup-runner` — `docker:28-cli` (override: `BPP_ORCHESTRATOR_IMAGE` w `.env`),
+    - `rclone` — `rclone/rclone:1.71.0` (override: `BPP_RCLONE_IMAGE` w `.env`).
+
+    Zmienna `BPP_BACKUP_PG_IMAGE` (dawny override obrazu backup-runnera w trybie
+    external) jest **martwa**: nic jej nie czyta, w starym `.env` jest tolerowana
+    i ignorowana — nie trzeba jej usuwać.
+
+!!! warning "Wdrożenie orkiestratora wymaga `make up`"
+    Migracja na orkiestrator to **jedna jednostka wdrożeniowa**: zmiana obrazów
+    i `command:` w `docker-compose.backup.yml` razem z nowymi skryptami. Sam
+    `git pull` jej **nie wdraża** (inaczej niż zwykłe zmiany w `scripts/`, które
+    jadą na bind-mouncie i wchodzą przy najbliższym cyklu) — stary kontener nie ma
+    `docker` ani socketu, więc nowy `backup-cycle.sh` wołany w nim przez Ofelię
+    padnie, a notyfikacja o tym nie wyjdzie. Zrób `git pull && make up` jednym
+    ciągiem.
 
 `make backup-cycle` uruchamia ten sam cykl ręcznie.
+
+## Serwis `rclone`
+
+`rclone` jest **zadeklarowanym, stale działającym serwisem** compose (obraz
+`rclone/rclone`, bezczynny `sleep infinity`), a nie kontenerem `docker run --rm`
+odpalanym na czas wysyłki. Powód nie jest estetyczny: compose ściąga obrazy tylko
+zadeklarowanych serwisów (obraz z `docker run` byłby pobierany dopiero o 02:30),
+a `make up` kończy się `docker system prune -af`, który usuwa obrazy bez
+skojarzonego kontenera — obraz „gołego" rclone'a znikałby przy każdym deployu.
+
+W serwisie `rclone` wykonują się: krok wysyłki i retencji zdalnej cyklu nocnego
+(przez `docker exec` z orkiestratora) oraz targety `make rclone-config`,
+`make rclone-sync` i `make rclone-check`. Katalog `$BPP_CONFIGS_DIR/rclone`
+jest tu montowany **read-write** (rclone dopisuje odświeżone tokeny OAuth do
+`rclone.conf`), a katalog backupów — read-only.
 
 ## Układ katalogów na zdalnym
 
@@ -124,7 +161,7 @@ niej niezależna i działa jak dotąd.
 ## Konfiguracja zdalnego — `make rclone-config`
 
 `make rclone-config` uruchamia interaktywny kreator `rclone config` **wewnątrz
-kontenera `backup-runner`**. Powstały plik ląduje w
+serwisu `rclone`**. Powstały plik ląduje w
 `$BPP_CONFIGS_DIR/rclone/rclone.conf` (bind mount, więc przeżywa odtworzenie
 kontenera) i to jego czytają `make rclone-sync`, `make rclone-check` i nocny
 cykl.
@@ -163,19 +200,9 @@ Nazwa remote'a musi się zgadzać z `DJANGO_BPP_RCLONE_REMOTE` w `.env`
     OAuth od nowa.
 
     **Rozwiązanie** — `git pull && make up`. Sam `git pull` **nie wystarczy**:
-    zmiana siedzi w `volumes:` w `docker-compose.backup.yml`, więc kontener musi
-    się odtworzyć (tak samo jak przy [awarii CA](#awaria-tls-certificate-signed-by-unknown-authority)).
-
-    Doraźnie, bez odtwarzania kontenera, można skonfigurować remote na kopii
-    w `/tmp` i przenieść gotowy plik na hosta:
-
-    ```bash
-    docker compose exec backup-runner sh -c \
-        'cp /config/rclone/rclone.conf /tmp/rclone.conf 2>/dev/null; \
-         rclone --config /tmp/rclone.conf config'
-    docker compose cp backup-runner:/tmp/rclone.conf \
-        "$BPP_CONFIGS_DIR/rclone/rclone.conf"
-    ```
+    zmiana siedzi w `volumes:` w `docker-compose.backup.yml`, więc kontenery muszą
+    się odtworzyć. Po `make up` kreator działa w serwisie `rclone`, który montuje
+    katalog konfiguracyjny read-write — obejścia nie są już potrzebne.
 
 !!! note "Właściciel pliku — poprawiany automatycznie"
     Kreator działa jako `root` w kontenerze, więc `rclone.conf` powstałby na hoście
@@ -204,49 +231,37 @@ tls: failed to verify certificate: x509: certificate signed by unknown authority
 Pierwsza połowa komunikatu myli. Token jest w porządku — **kontener nie ma magazynu
 certyfikatów CA**, więc padnie *każde* połączenie HTTPS, nie tylko do Dropboksa.
 
-**Przyczyna.** Oficjalny obraz `postgres` (wariant Debian) instaluje `ca-certificates`
-wyłącznie na czas ściągnięcia `gosu`, po czym robi `apt-get purge --auto-remove` —
-finalny obraz nie zawiera `/etc/ssl/certs/ca-certificates.crt`. Debianowy pakiet
-`rclone` zależy tylko od `libc6` (`ca-certificates` nie ma nawet w *Recommends*),
-a instalacja runtime'owa idzie z `--no-install-recommends`, więc nic tej luki nie
-łatało. Dopóki `backup-runner` stał na `postgres:*-alpine` (do czerwca 2026),
-problemu nie było — alpine ma bundle CA w obrazie bazowym. Przeniesienie
-`backup-runnera` na obraz współdzielony z `dbserverem` zabrało go po cichu.
+**Historia.** Do września 2026 `backup-runner` stał na obrazie `postgres` (Debian),
+który purge'uje `ca-certificates` na końcu builda, i doinstalowywał rclone w runtime
+bez żadnego roota CA — stąd ta awaria. Była niema: notyfikacja Rollbara szła tym
+samym zepsutym HTTPS-em, więc alert o `exit 3` (rclone copy failed) dostawał
+`http=000` i nigdy nie docierał; lokalne kopie powstawały normalnie, brakowało
+wyłącznie wysyłki. Pierwotna przyczyna zniknęła razem z `apt-get`: dziś rclone
+działa w dedykowanym [serwisie `rclone`](#serwis-rclone) na obrazie
+`rclone/rclone`, który bundle CA ma wbudowany.
 
-!!! danger "Awaria backupu była niema"
-    `notify_rollbar` też strzela `curl`-em po HTTPS. Bez CA nocny cykl kończył się
-    na `exit 3` (rclone copy failed), a powiadomienie o tym dostawało `http=000` —
-    czyli **alert o nieudanym backupie zdalnym nigdy nie docierał**. Lokalne kopie
-    w `$DJANGO_BPP_HOST_BACKUP_DIR` powstawały normalnie; brakowało wyłącznie
-    wysyłki na zdalny.
+**Dlaczego sonda CA mimo to została.** Healthcheck serwisu `rclone` nadal sprawdza
+niepusty `/etc/ssl/certs/ca-certificates.crt`: `BPP_RCLONE_IMAGE` pozwala podstawić
+dowolny obraz, a brak CA nie objawia się niczym aż do cyklu o 02:30 — sonda robi
+z niekompatybilnego obrazu kontener `unhealthy` już przy `make up`. **Nie usuwaj
+jej.**
 
-**Diagnoza:**
+**Diagnoza** (gdyby symptom wrócił, np. po podmianie `BPP_RCLONE_IMAGE`):
 
 ```bash
-docker compose exec backup-runner ls -l /etc/ssl/certs/ca-certificates.crt
-# brak pliku  -> to ta usterka
+docker compose ps rclone
+# unhealthy -> healthcheck wykrył brak CA albo niedziałające `rclone version`
+docker compose exec rclone ls -l /etc/ssl/certs/ca-certificates.crt
+# brak pliku -> to ta usterka
 docker compose logs ofelia | grep -i backup_cycle | tail -20
 # "rclone-copy (exit=3)" wskazuje, od kiedy wysyłka nie działa
 ```
 
-**Rozwiązanie** — `git pull && make up`. Tu **nie wystarczy sam `git pull`**:
-inaczej niż przy [retencji zdalnej](#retencja-zdalna-django_bpp_rclone_keep_months),
-lista instalowanych pakietów siedzi w `command:` w `docker-compose.backup.yml`, czyli
-w konfiguracji kontenera — musi się on odtworzyć.
-
-Doraźnie, bez odtwarzania kontenera (ginie przy najbliższym `make up`):
-
-```bash
-docker compose exec backup-runner sh -c \
-    'apt-get update && apt-get install -y --no-install-recommends ca-certificates'
-docker compose exec backup-runner rclone --config /config/rclone/rclone.conf ls backup:
-```
+**Rozwiązanie** — wróć na domyślny obraz (usuń `BPP_RCLONE_IMAGE` z `.env`) albo
+wskaż obraz z bundlem CA, po czym `make up`.
 
 Po naprawie zaległe kopie uzupełnią się same przy najbliższym cyklu: na zdalny
 wysyłany jest **cały** `$DJANGO_BPP_HOST_BACKUP_DIR`, a nie tylko dzisiejsze pliki.
-
-Nawrót usterki wyłapuje healthcheck `backup-runnera`, który sprawdza bundle CA na
-równi z binarkami — bez tego brak CA nie objawia się niczym aż do 02:30 w nocy.
 
 ## `make backup` / `make restore` — para baza + media
 

@@ -1670,28 +1670,65 @@ test_rclone_single_source_of_truth() {
         'rclone_fix_config_owner' "$REPO_DIR/scripts/rclone-config.sh"
 }
 
-test_backup_runner_ca_certificates() {
-    yellow "=== Test: backup-runner ma magazyn CA ==="
+# Wycina blok JEDNEGO serwisu z pliku compose (od "  <svc>:" do nastepnego
+# klucza na tym samym wcieciu) i zdejmuje linie komentarzy. Bez tego asercje
+# na pliku compose nie umieja pasc: docker-compose.backup.yml jest gesto
+# komentowany i te same stringi ('/var/run/docker.sock', 'pipefail') wystepuja
+# w komentarzach nad asertowanymi liniami, a wzorce wspolne dla obu serwisow
+# ('env_file: ...') trafiaja w sasiedni serwis. Udowodnione mutacyjnie:
+# usuniecie mountu socketu, `(set -o pipefail)` z healthchecku i env_file
+# z backup-runnera dawalo 0 FAIL na wersji grepujacej caly plik.
+svc_block() {
+    awk -v s="^  $1:" '$0 ~ s {inb=1; next} inb && /^  [a-z]/ {exit} inb' "$2" \
+        | grep -v '^[[:space:]]*#'
+}
 
-    # Oficjalny obraz postgres (Debian) purge'uje ca-certificates na koncu
-    # builda, a debianowy rclone zalezy tylko od libc6 - wiec bez jawnej
-    # instalacji kontener nie ma ZADNEGO roota CA. Objaw jest odlegly od
-    # przyczyny: "x509: certificate signed by unknown authority" przy
-    # odswiezaniu tokenu OAuth remote'a, a rownoczesnie curl nie dowozi
-    # notyfikacji do Rollbara (http=000), wiec awaria backupu jest cicha.
-    # Do f676fba (2026-06-18) backup-runner stal na postgres:*-alpine, ktory
-    # ma bundle CA w bazowym obrazie - stad regresja przeszla niezauwazona.
+# Asercja na tresci bloku serwisu (dopasowanie DOSLOWNE, grep -F).
+assert_svc_contains() {
+    local name="$1" needle="$2" block="$3"
+    if printf '%s\n' "$block" | grep -qF -- "$needle"; then pass "$name"
+    else fail "$name (brak '$needle' w bloku serwisu, bez komentarzy)"; fi
+}
+
+test_backup_runner_is_orchestrator() {
+    yellow "=== Test: backup-runner jest orkiestratorem, nie kombajnem ==="
+
     local yml="$REPO_DIR/docker-compose.backup.yml"
 
-    assert_file_contains "apk instaluje ca-certificates" \
-        'apk add --no-cache ca-certificates' "$yml"
-    assert_file_contains "apt-get instaluje ca-certificates" \
-        'no-install-recommends ca-certificates' "$yml"
+    if grep -qE 'apt-get|apk add' "$yml"; then
+        fail "backup-runner nadal doinstalowuje pakiety w runtime"
+    else
+        pass "backup-runner nie instaluje niczego w runtime"
+    fi
 
-    # Healthcheck musi patrzec na sam bundle, nie tylko na binarki: brak CA
-    # nie objawia sie niczym az do nocnego cyklu o 2:30.
-    assert_file_contains "healthcheck sprawdza bundle CA" \
-        'ca-certificates.crt' "$yml"
+    # Wszystkie asercje na bloku serwisu backup-runner BEZ komentarzy
+    # (svc_block wyzej) - grep po calym pliku nie umial pasc.
+    local runner
+    runner="$(svc_block backup-runner "$yml")"
+    if [ -z "$runner" ]; then
+        fail "svc_block nie znalazl serwisu backup-runner w $yml"
+        return
+    fi
+    pass "svc_block znalazl serwis backup-runner"
+    assert_svc_contains "orkiestrator ma docker.sock" \
+        '/var/run/docker.sock:/var/run/docker.sock' "$runner"
+    assert_svc_contains "orkiestrator ma media do tarowania" \
+        'media:/mediaroot:ro' "$runner"
+    # Bez tego mountu `[ ! -f "$RCLONE_CONFIG" ]` w kroku 4 cyklu jest prawdziwe
+    # ZAWSZE i cykl pada co noc na fail rclone-config-missing 3.
+    assert_svc_contains "orkiestrator widzi config rclone (:ro)" \
+        '/config/rclone:ro' "$runner"
+    assert_svc_contains "orkiestrator dostaje COMPOSE_PROJECT_NAME" \
+        'COMPOSE_PROJECT_NAME' "$runner"
+    # Bez env_file cykl czyta same defaulty. Najgrozniejsze: operator
+    # z DJANGO_BPP_RCLONE_KEEP_MONTHS= (udokumentowany wylacznik) dostaje
+    # WLACZONE kasowanie zdalnych kopii. Serwis `rclone` ma wlasny env_file,
+    # wiec asercja MUSI byc zakotwiczona w bloku backup-runnera.
+    # shellcheck disable=SC2016  # to WZORZEC grep-a: ${...} ma zostac literalne
+    assert_svc_contains "orkiestrator ma env_file" \
+        'env_file: ${BPP_CONFIGS_DIR}/.env' "$runner"
+    assert_svc_contains "healthcheck sonduje socket" 'docker version' "$runner"
+    assert_svc_contains "healthcheck sonduje pipefail" '(set -o pipefail)' "$runner"
 }
 
 test_rclone_config_mount_writable() {
@@ -1712,16 +1749,115 @@ test_rclone_config_mount_writable() {
     #      autoryzacje NA TRWALE.
     # Mount byl :ro od pierwszego commita (6514c1a, 2026-04-07), wiec
     # udokumentowany `make rclone-config` nie zadzialal ani razu.
+    #
+    # Od orkiestratora (Zadanie 3) sa DWA mounty tego samego katalogu w tym
+    # pliku: `rclone` (serwis, ktory pisze token/config) ma go RW, a
+    # `backup-runner` (orkiestrator, ktory tylko sprawdza `[ -f ... ]` przed
+    # wysylka) ma go CELOWO :ro. Sprawdzenie nie moze wiec byc ani blankietowym
+    # "nigdzie w pliku nie ma :ro" (legalny mount orkiestratora zapalalby
+    # falszywy alarm), ani "gdziekolwiek w pliku jest mount bez :ro" — mutacja
+    # ZAMIANY ROL (orkiestrator RW, serwis rclone :ro) przechodzila na zielono,
+    # a to jest dokladnie regresja, dla ktorej ten test istnieje. Obie asercje
+    # sa wiec kotwiczone w blokach serwisow przez svc_block.
     local yml="$REPO_DIR/docker-compose.backup.yml"
 
     # shellcheck disable=SC2016  # to WZORZEC grep-a: ${...} ma zostac literalne
     assert_file_contains "config rclone jest montowany" \
         '${BPP_CONFIGS_DIR}/rclone:/config/rclone' "$yml"
 
-    if grep -q '/config/rclone:ro' "$yml"; then
-        fail "config rclone montowany :ro — make rclone-config nie zapisze pliku"
+    local rclone_svc runner
+    rclone_svc="$(svc_block rclone "$yml")"
+    runner="$(svc_block backup-runner "$yml")"
+    if [ -z "$rclone_svc" ] || [ -z "$runner" ]; then
+        fail "svc_block nie znalazl serwisu rclone/backup-runner w $yml"
+        return
+    fi
+    if printf '%s\n' "$rclone_svc" | grep -qE '/config/rclone$'; then
+        pass "serwis rclone: config montowany read-write (bez sufiksu :ro)"
     else
-        pass "config rclone montowany read-write"
+        fail "serwis rclone: brak mountu /config/rclone bez :ro — make rclone-config nie zapisze pliku"
+    fi
+    if printf '%s\n' "$runner" | grep -qF '/config/rclone:ro'; then
+        pass "backup-runner: config montowany :ro (zapis robi wylacznie serwis rclone)"
+    else
+        fail "backup-runner: mount /config/rclone musi miec :ro — orkiestrator tylko sprawdza [ -f ]"
+    fi
+}
+
+test_rclone_service_declared() {
+    yellow "=== Test: rclone jako zadeklarowany serwis compose ==="
+
+    # Obraz uzyty wylacznie w `docker run` bylby (a) sciagany dopiero o 2:30,
+    # bo compose ciagnie tylko obrazy zadeklarowanych serwisow, i (b) kasowany
+    # przez `docker system prune -af` na koncu `make up`, ktory usuwa obrazy
+    # "without at least one container associated to them". Dzialajacy serwis
+    # rozwiazuje oba problemy naraz.
+    local yml="$REPO_DIR/docker-compose.backup.yml"
+
+    assert_file_contains "serwis rclone zadeklarowany" '^  rclone:' "$yml"
+    assert_file_contains "rclone: obraz z domyslna wartoscia" \
+        'BPP_RCLONE_IMAGE:-' "$yml"
+    assert_file_contains "rclone: restart always (Ofelia potrzebuje celu)" \
+        'restart: always' "$yml"
+    assert_file_contains "rclone: logging anchor" 'logging: \*default-logging' "$yml"
+    assert_file_contains "rclone: montuje skrypty" './scripts:/scripts:ro' "$yml"
+    # Sonda CA zostaje mimo ze upstreamowy obraz ja ma: BPP_RCLONE_IMAGE pozwala
+    # podstawic dowolny obraz, a CLAUDE.md zakazuje usuwania tego sprawdzenia.
+    assert_file_contains "rclone: healthcheck sprawdza bundle CA" \
+        'ca-certificates.crt' "$yml"
+
+    assert_file_contains "mk/rclone.mk celuje w serwis rclone" \
+        'exec rclone' "$REPO_DIR/mk/rclone.mk"
+
+    # Recepta targetu: linie zaczynajace sie tabem, do pierwszej linii bez taba.
+    recipe_of() {
+        awk -v t="^$1:" '
+            $0 ~ t { inr = 1; next }
+            inr && /^\t/ { print; next }
+            inr && !/^\t/ { exit }
+        ' "$2"
+    }
+
+    local mk="$REPO_DIR/mk/rclone.mk"
+    local t
+    for t in rclone-sync rclone-config rclone-check; do
+        if recipe_of "$t" "$mk" | grep -q 'backup-runner'; then
+            fail "target $t nadal celuje w backup-runner"
+        else
+            pass "target $t celuje w serwis rclone"
+        fi
+    done
+    # backup-cycle CELOWO exec-uje w backup-runnerze: to orkiestrator cyklu
+    # (docker:cli), ktory pg_dump/rclone/notyfikacje deleguje przez `docker
+    # exec`. Przeniesienie targetu do serwisu rclone albo dbservera rozbija
+    # cykl (tam nie ma docker.sock ani shima `rclone()`).
+    if recipe_of backup-cycle "$mk" | grep -q 'backup-runner'; then
+        pass "backup-cycle exec-uje w backup-runnerze (orkiestratorze)"
+    else
+        fail "backup-cycle nie celuje w backup-runner (orkiestrator cyklu)"
+    fi
+}
+
+test_backup_pg_image_retired() {
+    yellow "=== Test: BPP_BACKUP_PG_IMAGE wygaszona ==="
+
+    # Zmienna byla potrzebna, gdy backup-runner wspoldzielil obraz Postgresa
+    # z dbserverem (tryb external: postgres:<major>-alpine). Orkiestrator na
+    # docker:cli obrazu Postgresa nie potrzebuje - pg_dump wykonuje przez
+    # `docker exec` w dbserverze. Wzorzec martwej flagi jak
+    # DJANGO_BPP_ENABLE_HTML2DOCX_IMAGE: przestajemy zapisywac, ale NIE
+    # usuwamy ze starych .env i nic sie na nia nie wywraca.
+    for f in scripts/init-configs.sh scripts/ensure-config-files.sh; do
+        if grep -qE '^[^#]*BPP_BACKUP_PG_IMAGE=' "$REPO_DIR/$f"; then
+            fail "$f nadal zapisuje BPP_BACKUP_PG_IMAGE"
+        else
+            pass "$f nie zapisuje BPP_BACKUP_PG_IMAGE"
+        fi
+    done
+    if grep -q 'BPP_BACKUP_PG_IMAGE' "$REPO_DIR/docker-compose.backup.yml"; then
+        fail "compose nadal czyta BPP_BACKUP_PG_IMAGE"
+    else
+        pass "compose nie czyta BPP_BACKUP_PG_IMAGE"
     fi
 }
 
@@ -2082,8 +2218,10 @@ test_ensure_config_files_altcha_selfheal
 test_init_configs_path_validation
 test_install_docker_windows
 test_rclone_single_source_of_truth
-test_backup_runner_ca_certificates
+test_backup_runner_is_orchestrator
 test_rclone_config_mount_writable
+test_rclone_service_declared
+test_backup_pg_image_retired
 
 echo ""
 echo "========================================"

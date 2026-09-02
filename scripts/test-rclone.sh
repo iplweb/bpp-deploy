@@ -141,11 +141,24 @@ MOCK
 
 cat > "$BIN/pg_dump" <<'MOCK'
 #!/usr/bin/env bash
+# MOCK_FAIL_ON_STEP=pg_dump - do wymuszenia fail("pg_dump", 1) w sekcji 8
+# (notyfikacja przy padlym appserverze). Domyslnie zawsze sukces.
+if [ "${MOCK_FAIL_ON_STEP:-}" = "pg_dump" ]; then exit 1; fi
 out=""
 while [ $# -gt 0 ]; do
     case "$1" in -f) out="$2"; shift 2 ;; *) shift ;; esac
 done
 mkdir -p "$out"; printf 'dump' > "$out/toc.dat"
+exit 0
+MOCK
+
+cat > "$BIN/python" <<'MOCK'
+#!/usr/bin/env bash
+# notify_rollbar odpala ten program WEWNATRZ appservera (docker exec). Testy
+# nie maja isc do prawdziwego Rollbara - potwierdzamy tylko, ze atrapa dockera
+# faktycznie doszla do wywolania pythona, bez zadnego zadania sieciowego.
+echo "python -c <rollbar-payload>" >> "$MOCK_RECORD"
+echo "rollbar http=200"
 exit 0
 MOCK
 
@@ -170,6 +183,47 @@ for d in /bin/date /usr/bin/date; do [ -x "$d" ] && exec "$d" "$@"; done
 exit 127
 MOCK
 
+# docker: backup-cycle.sh nie wola juz pg_dump/rclone lokalnie - adresuje
+# kontenery po labelach (bpp_container -> `docker ps --filter label=...`) i
+# wykonuje ciezkie kroki przez `docker exec`. Ta atrapa odgrywa role samego
+# dockera: `ps` zwraca fikcyjne ID wyliczone z filtra usługi, `exec` zdejmuje
+# "exec", flagi (-e VAR, -i/-t/-it) i ID kontenera, po czym `exec`-uje reszte
+# LOKALNIE - dzieki temu istniejace atrapy pg_dump/rclone wyzej w PATH nadal
+# dostaja wywolanie i dotychczasowe asercje ("copy, nie sync" itp.) dzialaja
+# na tej samej sciezce bez zmian.
+cat > "$BIN/docker" <<'MOCK'
+#!/usr/bin/env bash
+echo "docker $*" >> "$MOCK_RECORD"
+case "$1" in
+    ps) printf 'cid-%s\n' "$(echo "$*" | sed -n 's/.*service=\([a-z-]*\).*/\1/p')"; exit 0 ;;
+    exec)
+        shift
+        target=""
+        while [ $# -gt 0 ]; do
+            case "$1" in
+                -e) shift 2 ;;
+                -i|-t|-it) shift ;;
+                cid-*) target="$1"; shift; break ;;
+                *) shift ;;
+            esac
+        done
+        # MOCK_FAIL_ON="exec-<usluga>" -> symulacja padlego kontenera podczas
+        # `docker exec` (np. appserver widoczny w `docker ps`, ale exec pada).
+        # Zwracamy 42 (NIE 1/2/3 - kody prawdziwych krokow), zeby asercja w
+        # sekcji 8 faktycznie odroznila "notify_rollbar polkniete" (kod
+        # zostaje 1, kod fail("pg_dump",1)) od "notify_rollbar sklobrowalo
+        # trap" (kod zmienilby sie na 42) - kod 1 bylby niediagnostyczny,
+        # bo pokrywa sie z intencjonalnym kodem pg_dump.
+        case "${MOCK_FAIL_ON:-}" in
+            "exec-${target#cid-}") exit 42 ;;
+        esac
+        if [ $# -gt 0 ]; then exec "$@"; fi
+        exit 0
+        ;;
+    *) exit 1 ;;
+esac
+MOCK
+
 chmod +x "$BIN"/*
 
 # Uruchamia prawdziwy backup-cycle.sh z atrapami. Zwraca exit code w $CYCLE_RC,
@@ -190,6 +244,13 @@ run_cycle() {
     else
         KEEP_MONTHS_KV="DJANGO_BPP_RCLONE_KEEP_MONTHS=$KEEP_MONTHS_ENV"
     fi
+    # ROLLBAR_TOKEN_ENV=1 -> notify_rollbar dostaje token i NIE konczy sie na
+    # wczesnym "skip", wiec faktycznie dochodzi do bpp_container/docker exec.
+    # Domyslnie (nieustawione) token pusty - jak dotad, notify jest no-opem.
+    local rollbar_token=""
+    if [ "${ROLLBAR_TOKEN_ENV:-0}" = "1" ]; then
+        rollbar_token="test-rollbar-token"
+    fi
     local work="$TEST_ROOT/work"
     rm -rf "$work"; mkdir -p "$work/backup" "$work/mediaroot" "$work/config"
     printf '[backup_enc]\ntype = local\n' > "$work/config/rclone.conf"
@@ -200,15 +261,18 @@ run_cycle() {
         MOCK_YM="${MOCK_YM:-2026-08}" \
         MOCK_LSF_DIRS="${MOCK_LSF_DIRS:-}" \
         MOCK_FAIL_ON="${MOCK_FAIL_ON:-}" \
+        MOCK_FAIL_ON_STEP="${MOCK_FAIL_ON_STEP:-}" \
         BPP_BACKUP_DIR="$work/backup" \
         BPP_MEDIA_DIR="$work/mediaroot" \
         BPP_RCLONE_CONFIG="$work/config/rclone.conf" \
         BPP_BACKUP_LOG="$work/backup-cycle.log" \
         DJANGO_BPP_DB_HOST=db DJANGO_BPP_DB_PORT=5432 \
         DJANGO_BPP_DB_USER=u DJANGO_BPP_DB_NAME=n \
+        DJANGO_BPP_DB_PASSWORD=p \
+        COMPOSE_PROJECT_NAME=testproj \
         DJANGO_BPP_HOSTNAME=test.example \
         DJANGO_BPP_RCLONE_REMOTE="backup_enc:" \
-        ROLLBAR_ACCESS_TOKEN="" \
+        ROLLBAR_ACCESS_TOKEN="$rollbar_token" \
         ${KEEP_MONTHS_KV:+"$KEEP_MONTHS_KV"} \
         bash "$CYCLE" > "$CYCLE_LOG" 2>&1
     CYCLE_RC=$?
@@ -263,6 +327,24 @@ assert_not_contains "$UPLOAD" "sync " \
 UPLOAD_DEST="$(awk '{ print $3 }' <<< "$UPLOAD")"
 assert_eq "backup_enc:2026-08/" "$UPLOAD_DEST" \
     "MUTACYJNY: cel to DOKLADNIE backup_enc:2026-08/ (zaden podkatalog dzienny)"
+
+# Orkiestrator (docker:cli) nie ma juz lokalnie pg_dump ani rclone - oba kroki
+# MUSZA isc przez `docker exec` w kontenerach, ktore te narzedzia maja.
+# UWAGA: `docker exec cid-dbserver`, NIE golo "docker exec" - sam shim
+# rclone() tez generuje "docker exec", wiec luzniejsza asercja przechodzilaby
+# nawet po regresji cofajacej krok 1 do lokalnego pg_dump (shim i tak zawolalby
+# "docker exec" dla rclone copy). Podobnie "service=dbserver" samo w sobie NIE
+# wystarczy - ten string wystepuje juz w linii `docker ps --filter
+# label=...service=dbserver`, ktora leci ZAWSZE (nawet gdy krok 1 zostal
+# lokalny), wiec dopiero POLACZENIE "docker exec" + "cid-dbserver" pina
+# faktyczne wykonanie pg_dump przez `docker exec` w dbserverze.
+RECORD_CONTENT="$(cat "$RECORD")"
+assert_contains "$RECORD_CONTENT" "docker exec cid-dbserver" \
+    "krok pg_dump idzie przez docker exec w dbserverze"
+assert_not_contains "$RECORD_CONTENT" "docker run" \
+    "cykl nie uzywa docker run (sciezki hosta!)"
+assert_contains "$RECORD_CONTENT" "service=rclone" \
+    "wysylka celuje w serwis rclone"
 
 MOCK_YM=2026-08 MOCK_LSF_DIRS="" KEEP_MONTHS_ENV=__unset__ MOCK_FAIL_ON=copy run_cycle
 assert_eq "3" "$CYCLE_RC" "nieudany copy -> exit 3 (jak dotad przy sync)"
@@ -475,6 +557,363 @@ assert_contains "$CFG_OUT" "read-only file system" \
     "ostrzezenie nazywa najczestsza przyczyne (mount :ro)"
 
 PATH="$OLD_PATH"
+
+# ==========================================================================
+# 6. Skrypty uruchamiaja sie pod busybox ash (docelowe obrazy nie maja basha)
+# ==========================================================================
+echo
+echo "6. Uruchomienie pod busybox ash"
+
+# Shebang sprawdzamy na hoscie (head+grep na widocznym pliku) - nie trzeba do
+# tego dockera, w przeciwienstwie do e2e nizej. Dziala niezaleznie od tego,
+# czy docker jest dostepny.
+# Takze obie biblioteki: shebang jest tam informacyjny (sa sourcowane), ale
+# powrot do `#!/usr/bin/env bash` szedlby w parze z wyjeciem dyrektywy
+# `shellcheck shell=sh` - a ona jest JEDYNYM egzekutorem POSIX-owosci
+# (e2e pod busyboksem bashizmow nie wykryje, bash-compat).
+for s in backup-cycle.sh rclone-sync.sh rclone-config.sh lib-rclone.sh lib-container.sh; do
+    head_rc=0
+    head -1 "$REPO_DIR/scripts/$s" | grep -q '^#!/bin/sh$' || head_rc=$?
+    assert_eq "0" "$head_rc" "$s ma shebang #!/bin/sh"
+    head_rc=0
+    grep -q '^# shellcheck shell=sh$' "$REPO_DIR/scripts/$s" || head_rc=$?
+    assert_eq "0" "$head_rc" "$s deklaruje shellcheck shell=sh (jedyny egzekutor POSIX)"
+done
+
+# Przy definitywnej porazce e2e nizej zostawal tylko kod wyjscia, bez
+# stdout/stderr procesu - cicha awaria bez sladu. Wypisujemy przechwycone
+# wyjscie WYLACZNIE wtedy, gdy wywolanie faktycznie zawiodlo.
+show_ash_output_on_fail() {
+    local rc="$1" out="$2" label="$3"
+    if [ "$rc" != "0" ]; then
+        echo "  --- wyjscie $label pod ash (rc=$rc) ---"
+        printf '%s\n' "$out"
+    fi
+}
+
+if ! command -v docker >/dev/null 2>&1 || ! docker info >/dev/null 2>&1; then
+    echo "  SKIP: brak dzialajacego dockera (e2e pod busybox ash)"
+else
+    # Default DOKLADNIE taki jak pin w docker-compose.backup.yml
+    # (${BPP_ORCHESTRATOR_IMAGE:-docker:28-cli}) - z golym `docker:cli`
+    # testowalismy domyslnie inny obraz, niz jedzie na produkcje.
+    ASH_IMAGE="${BPP_ASH_TEST_IMAGE:-docker:28-cli}"
+    ash_bin="$TEST_ROOT/ash-bin"
+    mkdir -p "$ash_bin"
+    # Atrapy: skrypty maja dojsc do konca bez prawdziwej bazy i bez sieci.
+    # WAZNE: shebang #!/bin/sh, nie #!/usr/bin/env bash - w obrazie testowym
+    # (docker:cli) nie ma basha, wiec atrapa z bashowym shebangiem w ogole by
+    # sie nie uruchomila (rc=127).
+    #
+    # pg_dump NIE moze byc gola atrapa "exit 0": backup-cycle.sh po pg_dump
+    # robi `tar czf "$DB_TAR" -C "$BACKUP_DIR" "db-backup-TS"`, a bez
+    # katalogu dumpu tar pada i caly cykl konczy sie fail("db-tar", 1).
+    # Atrapa odwzorowuje MOCK z sekcji 2 (pg_dump tworzy katalog z -f i
+    # wrzuca do niego plik), tylko przepisana na #!/bin/sh.
+    cat > "$ash_bin/pg_dump" <<'MOCK'
+#!/bin/sh
+out=""
+while [ $# -gt 0 ]; do
+    case "$1" in -f) out="$2"; shift 2 ;; *) shift ;; esac
+done
+mkdir -p "$out"; printf 'dump' > "$out/toc.dat"
+exit 0
+MOCK
+    # rclone dzieli sie miedzy backup-cycle.sh/rclone-sync.sh (`copy`) i
+    # rclone-config.sh (`config`): zawsze zapisuje plik pod --config, jesli
+    # taki argument dostanie. Dla `copy` to no-op (plik juz istnieje z
+    # ponizszego printf), a dla rclone-config.sh to WARUNEK KONIECZNY, zeby
+    # doszlo do rclone_fix_config_owner (chown/chmod dzialaja tylko na
+    # istniejacym pliku).
+    #
+    # `lsf` zwraca jeden starozytny miesiac i biezacy: z pustym lsf (albo
+    # z KEEP_MONTHS=0, jak do tej pory) retencja zdalna NIGDY nie wykonywala
+    # sie pod busyboksem, a to wlasnie w niej siedzi _ym_index - jedyna
+    # funkcja przepisana specjalnie pod ash. Kazde wywolanie laduje w
+    # /work/rclone-calls.log, zeby asercje mogly potwierdzic purge.
+    cat > "$ash_bin/rclone" <<'MOCK'
+#!/bin/sh
+echo "rclone $*" >> /work/rclone-calls.log
+sub="$1"
+conf=""
+while [ $# -gt 0 ]; do
+    case "$1" in --config) conf="$2"; shift 2 ;; *) shift ;; esac
+done
+[ -n "$conf" ] && printf '[backup_enc]\ntype = local\n' > "$conf"
+case "$sub" in
+    lsf) printf '2020-01/\n%s/\n' "$(date +%Y-%m)" ;;
+esac
+exit 0
+MOCK
+    # Celowo BEZ atrap curl/jq: cykl ich juz nie potrzebuje (notyfikacja
+    # idzie przez `docker exec appserver python`), a martwa atrapa maskowalaby
+    # powrot notyfikacji do curla - e2e byloby zielone mimo regresji.
+    # docker: backup-cycle.sh adresuje dbserver/rclone po labelach compose
+    # (bpp_container -> `docker ps --filter label=...`) i wykonuje pg_dump
+    # oraz rclone przez `docker exec` - w tym kontenerze testowym nie ma
+    # dockera-w-dockerze, wiec atrapa udaje oba wywolania: `ps` zwraca
+    # fikcyjne ID z filtra usługi, `exec` zdejmuje "exec"/flagi/ID kontenera
+    # i uruchamia reszte LOKALNIE (trafiajac w atrapy pg_dump/rclone wyzej).
+    # UWAGA: domyslna galaz (nierozpoznany subcommand) MUSI dac `exit 1`, nie
+    # `exit 0`. Entrypoint obrazu docker:cli (docker-entrypoint.sh) robi
+    # `if docker help "$1" >/dev/null 2>&1; then set -- docker "$@"; fi` -
+    # przy atrapie zwracajacej wszedzie 0 ten test zawsze wychodzi prawdziwy,
+    # entrypoint doklada "docker" przed CMD (`docker sh -c ...` zamiast
+    # `sh -c ...`), a to trafia z powrotem w ta sama atrape z $1=sh, ktora
+    # znow cicho konczy sie exit 0 - kontener wychodzi natychmiast, BEZ
+    # jakiegokolwiek stdout, i asercje nizej dostaja pusty log przy rc=0.
+    # Zweryfikowane bezposrednio na tym hoscie (docker inspect pokazywal
+    # exited/exit=0/brak logow).
+    cat > "$ash_bin/docker" <<'MOCK'
+#!/bin/sh
+case "$1" in
+    ps) printf 'cid-%s\n' "$(echo "$*" | sed -n 's/.*service=\([a-z-]*\).*/\1/p')"; exit 0 ;;
+    exec)
+        shift
+        while [ $# -gt 0 ]; do
+            case "$1" in
+                -e) shift 2 ;;
+                -i|-t|-it) shift ;;
+                cid-*) shift; break ;;
+                *) shift ;;
+            esac
+        done
+        if [ $# -gt 0 ]; then exec "$@"; fi
+        exit 0
+        ;;
+    *) exit 1 ;;
+esac
+MOCK
+    chmod +x "$ash_bin"/*
+    # tar i date NIE dostaja atrap: prawdziwy busybox 1.37 w docker:cli ma
+    # oba applety i obsluguje tu potrzebne opcje (tar czf -C, date +%Y-%m,
+    # stat -c%s) - zweryfikowane bezposrednio w tym obrazie. Atrapa dublowalaby
+    # tylko prawdziwe narzedzie bez zadnej korzysci dla testu.
+    ash_work="$TEST_ROOT/ash-work"
+    mkdir -p "$ash_work/backup" "$ash_work/media" "$ash_work/config"
+    printf '[backup_enc]\ntype = local\n' > "$ash_work/config/rclone.conf"
+    ash_log="$ash_work/backup-cycle.log"
+    : > "$ash_work/rclone-calls.log"
+
+    # NIE dodawac tu retry na `docker run`. Wczesniejsza wersja tej sekcji
+    # miala retry "na wypadek" wyscigu bind-mountu - zweryfikowane empirycznie
+    # (65 kontrolnych startow na tym samym hoscie, 0 porazek), ze taki wyscig
+    # nie istnieje w obecnym ksztalcie testu. Obserwowany wtedy blad
+    # ("can't create .../nonexistent directory") byl artefaktem iterowania
+    # nad tym testem (katalog docelowy jeszcze nie istnial w danym miejscu
+    # skryptu w trakcie edycji), nie awaria dockera - retry go maskowal
+    # tylko dlatego, ze nieudana pierwsza proba zostawiala po sobie katalog
+    # dla drugiej. Zamiast retry: przechwytujemy pelne wyjscie i pokazujemy
+    # je przy definitywnej porazce (`show_ash_output_on_fail` wyzej), zeby
+    # realny blad byl widoczny od razu, a nie diagnozowany na slepo.
+    ash_out="$(docker run --rm \
+        -v "$REPO_DIR/scripts:/scripts:ro" \
+        -v "$ash_bin:/stub:ro" \
+        -v "$ash_work:/work" \
+        -e "PATH=/stub:/usr/local/bin:/usr/bin:/bin" \
+        -e BPP_BACKUP_DIR=/work/backup \
+        -e BPP_MEDIA_DIR=/work/media \
+        -e BPP_RCLONE_CONFIG=/work/config/rclone.conf \
+        -e BPP_BACKUP_LOG=/work/backup-cycle.log \
+        -e DJANGO_BPP_DB_HOST=db -e DJANGO_BPP_DB_PORT=5432 \
+        -e DJANGO_BPP_DB_USER=u -e DJANGO_BPP_DB_NAME=n \
+        -e DJANGO_BPP_DB_PASSWORD=p \
+        -e COMPOSE_PROJECT_NAME=testash \
+        -e DJANGO_BPP_RCLONE_KEEP_MONTHS=1 \
+        "$ASH_IMAGE" /scripts/backup-cycle.sh 2>&1)" && ash_rc=0 || ash_rc=$?
+    assert_eq "0" "$ash_rc" "backup-cycle.sh dochodzi do konca pod busybox ash"
+    show_ash_output_on_fail "$ash_rc" "$ash_out" "backup-cycle.sh"
+
+    # Samo rc=0 NIE przypina poprawki BPP_INTENDED_EXIT=1 przed koncowym
+    # `exit 0`: bledna wersja (bez tej linii) TEZ konczy sie rc=0, bo trap
+    # EXIT->on_exit wywoluje `exit "$rc"` z rc=0 niezaleznie od tego, ktora
+    # galaz go ustawila. Zmyslona regresja (linia usunieta recznie, zbadana
+    # w tej samej sesji) dawala DOKLADNIE to: rc=0 i dodatkowa linie
+    # "FAIL: unexpected-error (exit=0)" plus drugie "rollbar: skip" w logu -
+    # wiec pina to tresc loga, nie kod wyjscia.
+    ASH_LOG="$(cat "$ash_log" 2>/dev/null || true)"
+    assert_not_contains "$ASH_LOG" "unexpected-error" \
+        "MUTACYJNY: udany cykl NIE zglasza sie przez on_exit jako unexpected-error"
+    assert_contains "$ASH_LOG" "Backup OK on" \
+        "udany cykl zostawia w logu komunikat sukcesu"
+
+    # Retencja zdalna musi FAKTYCZNIE wykonac sie pod busyboksem: to w niej
+    # siedzi _ym_index - jedyna funkcja przepisana specjalnie pod ash - a
+    # poprzednia wersja tego przebiegu (KEEP_MONTHS=0, puste lsf) nigdy jej
+    # tam nie uruchamiala. KEEP_MONTHS=1 + zamockowane `rclone lsf` (2020-01
+    # i biezacy miesiac) oznaczaja dokladnie jedno purge najstarszego.
+    ASH_CALLS="$(cat "$ash_work/rclone-calls.log" 2>/dev/null || true)"
+    assert_contains "$ASH_CALLS" "purge backup_enc:2020-01" \
+        "retencja zdalna wykonuje sie pod ash: purge najstarszego miesiaca"
+    assert_eq "1" "$(printf '%s\n' "$ASH_CALLS" | grep -c '^rclone purge ' || true)" \
+        "pod ash: dokladnie jedno purge (biezacy miesiac nietkniety)"
+    assert_contains "$ASH_LOG" "retencja zdalna: usunieto 2020-01" \
+        "log cyklu pod ash potwierdza usuniecie 2020-01"
+
+    # --- rclone-sync.sh - realne uruchomienie pod ash, nie tylko shebang ---
+    sync_out="$(docker run --rm \
+        -v "$REPO_DIR/scripts:/scripts:ro" \
+        -v "$ash_bin:/stub:ro" \
+        -v "$ash_work:/work" \
+        -e "PATH=/stub:/usr/local/bin:/usr/bin:/bin" \
+        -e BPP_BACKUP_DIR=/work/backup \
+        -e BPP_RCLONE_CONFIG=/work/config/rclone.conf \
+        -e DJANGO_BPP_RCLONE_REMOTE="backup_enc:" \
+        "$ASH_IMAGE" /scripts/rclone-sync.sh 2>&1)" && sync_rc=0 || sync_rc=$?
+    assert_eq "0" "$sync_rc" "rclone-sync.sh dochodzi do konca pod busybox ash"
+    show_ash_output_on_fail "$sync_rc" "$sync_out" "rclone-sync.sh"
+
+    # --- rclone-config.sh - realne uruchomienie pod ash, z atrapa kreatora,
+    # ktora faktycznie zapisuje plik (patrz atrapa "rclone" wyzej), zeby
+    # doszlo do rclone_fix_config_owner (chown/chmod na prawdziwym pliku). ---
+    mkdir -p "$ash_work/rcfg"
+    rm -f "$ash_work/rcfg/rclone.conf"
+    cfg_out="$(docker run --rm \
+        -v "$REPO_DIR/scripts:/scripts:ro" \
+        -v "$ash_bin:/stub:ro" \
+        -v "$ash_work:/work" \
+        -e "PATH=/stub:/usr/local/bin:/usr/bin:/bin" \
+        -e BPP_RCLONE_CONFIG=/work/rcfg/rclone.conf \
+        "$ASH_IMAGE" /scripts/rclone-config.sh 2>&1)" && cfg_rc=0 || cfg_rc=$?
+    assert_eq "0" "$cfg_rc" "rclone-config.sh dochodzi do konca pod busybox ash"
+    show_ash_output_on_fail "$cfg_rc" "$cfg_out" "rclone-config.sh"
+fi
+
+# ==========================================================================
+# 7. bpp_container - adresowanie kontenerow po labelach compose
+# ==========================================================================
+echo
+echo "7. bpp_container"
+
+# Kontenery adresujemy po labelach, NIE po nazwie: compose generuje nazwy
+# (`<projekt>-<usluga>-1`), a `container_name:` w tym repo nie jest ustawiany,
+# wiec `docker exec dbserver` po prostu nie zadziala.
+. "$REPO_DIR/scripts/lib-container.sh"
+
+cont_bin="$TEST_ROOT/cont-bin"
+mkdir -p "$cont_bin"
+export DOCKER_LOG="$TEST_ROOT/docker-calls.log"
+cat > "$cont_bin/docker" <<'SH'
+#!/bin/sh
+echo "docker $*" >> "$DOCKER_LOG"
+case "$1" in
+    ps) [ "${MOCK_NO_CONTAINER:-0}" = "1" ] || printf 'abc123\n' ;;
+esac
+exit 0
+SH
+chmod +x "$cont_bin/docker"
+
+OLD_PATH="$PATH"; PATH="$cont_bin:$PATH"
+export COMPOSE_PROJECT_NAME=testproj
+
+: > "$DOCKER_LOG"
+got="$(bpp_container dbserver)"
+assert_eq "abc123" "$got" "bpp_container zwraca ID kontenera"
+assert_contains "$(cat "$DOCKER_LOG")" \
+    "label=com.docker.compose.project=testproj" "filtruje po projekcie"
+assert_contains "$(cat "$DOCKER_LOG")" \
+    "label=com.docker.compose.service=dbserver" "filtruje po usludze"
+# `head` bylby konsumentem POTOKU (docker ps | head -1), nigdy argumentem
+# samego `docker` - wiec zadna implementacja nie zostawilaby "head -1" w tym
+# logu wywolan, a poprzednia wersja tej asercji nie mogla NIGDY pasc. Pilnujemy
+# wiec kontraktu tam, gdzie faktycznie zyje: w zrodle lib-container.sh - kodzie,
+# nie komentarzach (plik CELOWO tlumaczy "head -1" slowem w komentarzu, wiec
+# surowy grep po calej tresci zapaliby sie na wlasnym uzasadnieniu).
+LIBC_CODE="$(grep -v '^[[:space:]]*#' "$REPO_DIR/scripts/lib-container.sh")"
+assert_not_contains "$LIBC_CODE" "head -" \
+    "lib-container.sh nie uzywa head w potoku (SIGPIPE pod pipefail)"
+assert_contains "$LIBC_CODE" "sed -n '1p'" \
+    "lib-container.sh uzywa sed -n '1p' zamiast head"
+
+: > "$DOCKER_LOG"
+rc=0; MOCK_NO_CONTAINER=1 bpp_container dbserver >/dev/null || rc=$?
+assert_eq "1" "$rc" "brak kontenera -> status 1, nie cichy sukces"
+
+PATH="$OLD_PATH"; unset MOCK_NO_CONTAINER COMPOSE_PROJECT_NAME
+
+# ==========================================================================
+# 8. notify_rollbar przez appservera
+# ==========================================================================
+echo
+echo "8. notify_rollbar przez appservera"
+
+# Orkiestrator (docker:cli) nie ma curl ani jq - notyfikacja idzie przez
+# `docker exec` w appserverze (python z jego wlasnego env_file czyta token).
+: > "$RECORD"
+MOCK_YM=2026-08 ROLLBAR_TOKEN_ENV=1 run_cycle
+assert_eq "0" "$CYCLE_RC" "udany cykl z tokenem Rollbara nadal konczy sie sukcesem"
+assert_contains "$(cat "$RECORD")" "service=appserver" \
+    "notyfikacja celuje w appservera"
+
+# Martwy appserver (docker ps go widzi, ale `docker exec` pada) nie moze
+# sklobrowac kodu wyjscia ani urwac trapa EXIT w polowie. ROLLBAR_TOKEN_ENV=1
+# jest tu KONIECZNE (inaczej niz w draftowej wersji tego kroku) - bez tokenu
+# notify_rollbar wraca na wczesnym "skip" i sciezka docker-exec-appserver
+# nigdy sie nie wykona, a asercja przeszlaby nawet po wyjeciu `|| true`.
+# MOCK_FAIL_ON=exec-appserver zwraca z atrapy dockera kod 42 (NIE 1) - dzieki
+# temu ta asercja realnie odroznia "notify_rollbar polkniete" (kod zostaje
+# na 1, czyli na kodzie z fail("pg_dump",1)) od "notify_rollbar sklobrowalo
+# trap" (kod zmienia sie na 42). Zweryfikowane mutacyjnie w raporcie zadania.
+: > "$RECORD"
+MOCK_YM=2026-08 ROLLBAR_TOKEN_ENV=1 MOCK_FAIL_ON=exec-appserver MOCK_FAIL_ON_STEP=pg_dump run_cycle
+assert_eq "1" "$CYCLE_RC" "padly appserver NIE zmienia kodu wyjscia (1, nie sklobrowane)"
+assert_contains "$(cat "$CYCLE_LOG")" "FAIL: pg_dump" \
+    "log nadal pokazuje prawdziwa przyczyne (pg_dump), nie notyfikacje"
+
+# ==========================================================================
+# 9. fail() przy zepsutym zapisie logu (profil: pelny dysk)
+# ==========================================================================
+echo
+echo "9. fail() przy zepsutym logu"
+
+# Spec §4 kontrakt 1: kazda komenda w sciezce awaryjnej ma `|| true`.
+# Realny wyzwalacz to pelny dysk: `tar czf` pada z braku miejsca, rusza
+# fail "db-tar" 1, a `log` pada z TEGO SAMEGO powodu (pisze przez tee do
+# pliku na tym samym dysku). Bez `|| true` `set -e` urywa funkcje na `log`:
+# notyfikacja NIE wychodzi (choc kanal docker exec appserver -> HTTPS dysku
+# nie potrzebuje i jest sprawny), `exit "$code"` nie zostaje osiagniety,
+# a kod wyjscia jest klobrowany na 1. Dokladnie profil "lokalne kopie sa,
+# o awarii nikt sie nie dowie".
+#
+# Test uruchamia PRAWDZIWA definicje fail() wycieta z backup-cycle.sh
+# w harnessie odtwarzajacym warunki skryptu (set -eu -o pipefail,
+# trap '' PIPE) z padajacym `log`. Grep po zrodle by tego nie przypial:
+# `|| true` moze zniknac z jednej linii, a wzorzec dalej bedzie w pliku.
+FAIL_FN="$(awk '/^fail\(\) \{/{f=1} f{print} f && /^\}/{exit}' "$CYCLE")"
+if [ -z "$FAIL_FN" ]; then
+    fail "nie udalo sie wyciac fail() z backup-cycle.sh (zmienil sie uklad pliku?)"
+else
+    pass "definicja fail() wycieta z backup-cycle.sh do harnessu"
+fi
+
+FAIL_HARNESS="$TEST_ROOT/fail-harness.sh"
+NOTIFY_MARKER="$TEST_ROOT/notify-called"
+rm -f "$NOTIFY_MARKER"
+{
+    printf '%s\n' 'set -eu'
+    printf '%s\n' 'set -o pipefail'
+    printf '%s\n' "trap '' PIPE"
+    printf '%s\n' 'LOG=/dev/null'
+    printf '%s\n' 'BPP_INTENDED_EXIT=0'
+    # log pada jak przy ENOSPC: status bledny.
+    printf '%s\n' 'log() { return 1; }'
+    # Atrapa notify CELOWO zwraca 1 (choc prawdziwa gwarantuje 0): dzieki
+    # temu test pilnuje `|| true` na OBU liniach fail() - bez tego wyjecie
+    # `|| true` z linii notify_rollbar byloby niewykrywalne.
+    printf 'notify_rollbar() { : > "%s"; return 1; }\n' "$NOTIFY_MARKER"
+    printf '%s\n' "$FAIL_FN"
+    printf '%s\n' 'fail "rclone-copy" 3'
+} > "$FAIL_HARNESS"
+
+FAIL_HARNESS_RC=0
+bash "$FAIL_HARNESS" >/dev/null 2>&1 || FAIL_HARNESS_RC=$?
+assert_eq "3" "$FAIL_HARNESS_RC" \
+    "MUTACYJNY: zepsuty log nie klobruje kodu wyjscia fail() (3, nie 1)"
+if [ -f "$NOTIFY_MARKER" ]; then
+    pass "MUTACYJNY: notyfikacja Rollbar wychodzi mimo zepsutego logu"
+else
+    fail "notify_rollbar w ogole sie nie wykonal - zepsuty log urwal fail()"
+fi
 
 echo
 echo "=================================="

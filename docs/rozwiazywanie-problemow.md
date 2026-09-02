@@ -144,17 +144,21 @@ również `git pull`.
 
 ## Backup zdalny: `certificate signed by unknown authority`
 
-**Symptom**: `rclone` w `backup-runnerze` zwraca `couldn't fetch token - maybe it has
-expired?`, a niżej `tls: failed to verify certificate: x509: certificate signed by
-unknown authority`. Lokalne kopie powstają, na zdalny nic nie leci, a alert o tym
-nie przychodzi.
+**Symptom**: rclone zwraca `couldn't fetch token - maybe it has expired?`, a niżej
+`tls: failed to verify certificate: x509: certificate signed by unknown authority`.
+Lokalne kopie powstają, na zdalny nic nie leci, a alert o tym nie przychodzi.
 
-**Przyczyna**: kontener nie ma magazynu CA — obraz `postgres` (Debian) purge'uje
-`ca-certificates` na końcu builda.
+**Przyczyna**: kontener wykonujący rclone nie ma magazynu CA. Historycznie brał się
+z runtime'owej instalacji rclone na obrazie `postgres` (usunięte we wrześniu 2026 —
+rclone działa teraz w dedykowanym serwisie `rclone` z wbudowanym bundlem CA);
+dziś symptom może wrócić tylko po podstawieniu własnego obrazu przez
+`BPP_RCLONE_IMAGE` — wtedy serwis `rclone` będzie `unhealthy` (healthcheck sonduje
+bundle CA).
 
-**Rozwiązanie**: `git pull && make up` (sam `git pull` nie wystarczy — zmiana jest
-w `command:`, kontener musi się odtworzyć). Pełny opis, diagnoza i obejście bez
-restartu: [Awaria TLS w backupie](eksploatacja/backup-i-rclone.md#awaria-tls-certificate-signed-by-unknown-authority).
+**Rozwiązanie**: na starym checkoucie `git pull && make up` (sam `git pull` nie
+wystarczy — zmiana jest w obrazach i `command:`, kontenery muszą się odtworzyć);
+przy własnym obrazie — wróć na domyślny `rclone/rclone`. Pełny opis i diagnoza:
+[Awaria TLS w backupie](eksploatacja/backup-i-rclone.md#awaria-tls-certificate-signed-by-unknown-authority).
 
 ## Po `git pull` coś się rozjechało
 

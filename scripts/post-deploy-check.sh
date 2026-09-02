@@ -11,7 +11,8 @@
 # Read-only: NIE wysyla maili/pushy/Rollbara — te zostaja opt-in w `make doctor`.
 # Bramkujemy TYLKO na stanie kontenerow, NIE na grepie bledow w logach (za duzo
 # benign "error"/"failed" -> falszywe alarmy). `exited` NIE jest flagowane
-# celowo: to lapaloby on-demand uslugi (backup-runner) jako falszywy problem.
+# celowo: to lapaloby jednostrzalowy webserver-init i on-demand uslugi
+# (certbot, workerserver-status) jako falszywy problem.
 #
 # Zachowanie:
 #   wszystko OK            -> "✓ uslugi zdrowe" + exit 0 (cicho, nie blokuje),

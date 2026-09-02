@@ -22,12 +22,14 @@ instalacje dostają domyślnie **`18.4`** (najnowsza wersja z gałęzi 18).
 > bez `python3`. Szczegóły strojenia: [Limity zasobów](limity-zasobow.md).
 
 `DJANGO_BPP_POSTGRESQL_VERSION_MAJOR` (auto-derived z `_VERSION`) trzyma sam major.
-W trybie lokalnym `backup-runner` używa jednak tego **samego pełnego obrazu** co
-`dbserver` (`postgres:${DJANGO_BPP_POSTGRESQL_VERSION}`, Debian) — współdzieli z nim
-warstwy zamiast ściągać osobny `-alpine`; `pg_dump` trafia dokładnie w wersję serwera.
-W trybie external `dbserver` to sentinel `postgres:<major>-alpine` i wtedy zmienna
-`BPP_BACKUP_PG_IMAGE` kieruje `backup-runner` na ten sam alpine. `_MAJOR` nadal
-napędza tag sentinela oraz krok upgrade'u. Szczegóły:
+W trybie external napędza tag sentinela (`postgres:<major>-alpine`); w trybie
+lokalnym compose go nie czyta — jest trzymany spójnie z `_VERSION` przez
+`make upgrade-postgres`. Nocny `pg_dump` cyklu backupu wykonuje się przez
+`docker exec` **w kontenerze `dbserver`** (odpowiednio: w sentinelu), więc wersja
+klienta zawsze równa się wersji serwera — `backup-runner` (orkiestrator na
+`docker:28-cli`) obrazu Postgresa w ogóle nie ma. Zmienna `BPP_BACKUP_PG_IMAGE`,
+która kiedyś kierowała backup-runner na obraz alpine, jest **martwa**: nic jej nie
+czyta, w starym `.env` jest tolerowana i ignorowana. Szczegóły:
 [Backup i rclone](../eksploatacja/backup-i-rclone.md).
 
 Wybór wersji następuje przy pierwszym uruchomieniu `make` — `init-configs` zapyta
@@ -145,4 +147,4 @@ Stary wolumen + tarball zostają. Kroki znajdziesz w `$BPP_CONFIGS_DIR/.upgrade-
 `BPP_DATABASE_COMPOSE=docker-compose.database.external.yml`: upgrade samej bazy wykonujesz
 po swojej stronie (managed service, RDS blue/green, `pg_upgradecluster` itp.), a skrypt
 wykrywa to i pokazuje 3-krokową instrukcję — opcjonalnie bumpuje `_VERSION` + `_MAJOR` i
-odświeża sentinel + backup-runner.
+odświeża sentinel (nocny `pg_dump` wykonuje się w nim przez `docker exec`).
