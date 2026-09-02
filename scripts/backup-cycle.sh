@@ -180,15 +180,23 @@ with urllib.request.urlopen(req, timeout=10) as r:
     return 0
 }
 
+# KRYTYCZNE: kazda komenda w tej sciezce ma `|| true` (ten sam kontrakt co
+# w on_exit nizej, spec §4). Bez tego `set -e` urywa funkcje na pierwszym
+# bledzie: realny wyzwalacz to pelny dysk - `tar` pada z braku miejsca, rusza
+# fail "db-tar" 1, `log` pada z TEGO SAMEGO powodu i notyfikacja w ogole nie
+# wychodzi (a kanal `docker exec appserver` -> HTTPS dysku nie potrzebuje
+# i jest sprawny), zas `exit "$code"` nie zostaje osiagniety - kod wyjscia
+# klobrowany na 1. Przypina to test "fail() przy zepsutym logu"
+# w scripts/test-rclone.sh.
 fail() {
     BPP_INTENDED_EXIT=1
     local step="$1" code="$2"
-    log "FAIL: $step (exit=$code)"
+    log "FAIL: $step (exit=$code)" || true
     local tail_log
     tail_log="$(tail -c 2000 "$LOG" 2>/dev/null || true)"
     notify_rollbar error "Backup FAIL on ${DJANGO_BPP_HOSTNAME:-unknown}: step=$step exit=$code
 Log tail:
-$tail_log"
+$tail_log" || true
     exit "$code"
 }
 

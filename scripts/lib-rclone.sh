@@ -1,4 +1,13 @@
-#!/usr/bin/env bash
+#!/bin/sh
+# shellcheck shell=sh
+# shellcheck disable=SC3043
+#   SC3043 `local`: resztkowa zaleznosc od bash-compat busyboksa
+#     (CONFIG_ASH_BASH_COMPAT), zweryfikowana empirycznie w docker:cli
+#     i rclone/rclone - ta sama deklaracja co w backup-cycle.sh.
+#   `shellcheck shell=sh` jest tu JEDYNYM egzekutorem zgodnosci z POSIX-em
+#   (spec §7): e2e pod busyboksem bashizmow NIE wykryje (bash-compat), a ta
+#   biblioteka jest sourcowana przez wszystkie trzy skrypty wykonywalne
+#   i wykonywana pod busyboksem w obu docelowych obrazach.
 #
 # Wspolne funkcje rclone dla scripts/backup-cycle.sh i scripts/rclone-sync.sh.
 # Biblioteka do sourcowania — nie uruchamiac bezposrednio.

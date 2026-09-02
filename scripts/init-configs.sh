@@ -299,13 +299,10 @@ if [ ! -f "$ENV_FILE" ]; then
         printf "Wersja PostgreSQL [18.4]: "
         read -r DBSERVER_PG_VERSION || true
         DBSERVER_PG_VERSION="${DBSERVER_PG_VERSION:-18.4}"
-        # Wyciagnij major (16.13 -> 16) jako domyslny dla backup-runnera,
-        # zeby out-of-the-box pg_dump byl tej samej wersji co serwer.
-        DBSERVER_PG_MAJOR="${DBSERVER_PG_VERSION%%.*}"
-
-        printf "Major version PostgreSQL dla backup-runner (pg_dump, >= wersji dbservera) [%s]: " "$DBSERVER_PG_MAJOR"
-        read -r EXT_PG_VERSION || true
-        EXT_PG_VERSION="${EXT_PG_VERSION:-$DBSERVER_PG_MAJOR}"
+        # Bez pytania o wersje dla backup-runnera: orkiestrator (docker:cli)
+        # nie ma Postgresa - pg_dump wykonuje przez `docker exec` w dbserverze,
+        # wiec wersja jest ZAWSZE ta sama co serwera. _MAJOR w trybie lokalnym
+        # compose w ogole nie czyta (derive nizej, tylko dla spojnosci).
     fi
 
     cat > "$ENV_FILE" <<EOF
@@ -403,21 +400,27 @@ LOG_MAX_FILE=5
 # DJANGO_BPP_HTML2DOCX_URL=http://html2docx:3030/convert
 EOF
 
-    if [ -n "$EXT_PG_VERSION" ]; then
+    # Warunek na BPP_EXTERNAL_DB, nie na samo EXT_PG_VERSION: w trybie
+    # lokalnym zmienna bywala ustawiona (relikt pytania o wersje dla
+    # backup-runnera) i blok dublowal klucze zapisywane nizej przez galaz
+    # lokalna - .env mial DJANGO_BPP_POSTGRESQL_VERSION dwa razy, pod
+    # nieprawdziwym naglowkiem o trybie external.
+    if [ "$BPP_EXTERNAL_DB" = "yes" ] && [ -n "${EXT_PG_VERSION:-}" ]; then
         # BPP_BACKUP_PG_IMAGE nie jest tu juz zapisywana - zmienna jest MARTWA
         # od 2026-09. Byla potrzebna, gdy backup-runner wspoldzielil obraz
         # Postgresa z sentinelem; orkiestrator (docker:cli) obrazu Postgresa
-        # nie potrzebuje, bo pg_dump wykonuje przez `docker exec` w dbserverze.
+        # nie potrzebuje, bo pg_dump wykonuje przez `docker exec` w kontenerze
+        # serwisu dbserver (lokalnie: baza, w external: sentinel).
         # W starych .env zmienna jest tolerowana i ignorowana, bez migracji
         # usuwajacej (wzorzec DJANGO_BPP_ENABLE_HTML2DOCX_IMAGE - kasowanie
         # cudzych wpisow lamie kontrakt kompatybilnosci wstecznej).
         cat >> "$ENV_FILE" <<EOF
 
-# === Wersja PostgreSQL ===
-# W trybie external VERSION i VERSION_MAJOR sa rowne - sentinel potrzebuje
-# tylko majora (postgres:<major>-alpine); nocny pg_dump cyklu backupu wykonuje
-# sie wlasnie w nim, przez docker exec. Zmienne istnieja osobno dla spojnosci
-# z trybem lokalnym (gdzie VERSION jest MAJOR.MINOR).
+# === Wersja PostgreSQL (tryb external) ===
+# VERSION i VERSION_MAJOR sa rowne - sentinel (postgres:<major>-alpine)
+# potrzebuje tylko majora; nocny pg_dump cyklu backupu wykonuje sie w nim
+# przez docker exec. Osobne zmienne dla spojnosci z trybem lokalnym
+# (gdzie VERSION to MAJOR.MINOR).
 DJANGO_BPP_POSTGRESQL_VERSION=$EXT_PG_VERSION
 DJANGO_BPP_POSTGRESQL_VERSION_MAJOR=$EXT_PG_VERSION
 EOF

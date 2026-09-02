@@ -1670,6 +1670,26 @@ test_rclone_single_source_of_truth() {
         'rclone_fix_config_owner' "$REPO_DIR/scripts/rclone-config.sh"
 }
 
+# Wycina blok JEDNEGO serwisu z pliku compose (od "  <svc>:" do nastepnego
+# klucza na tym samym wcieciu) i zdejmuje linie komentarzy. Bez tego asercje
+# na pliku compose nie umieja pasc: docker-compose.backup.yml jest gesto
+# komentowany i te same stringi ('/var/run/docker.sock', 'pipefail') wystepuja
+# w komentarzach nad asertowanymi liniami, a wzorce wspolne dla obu serwisow
+# ('env_file: ...') trafiaja w sasiedni serwis. Udowodnione mutacyjnie:
+# usuniecie mountu socketu, `(set -o pipefail)` z healthchecku i env_file
+# z backup-runnera dawalo 0 FAIL na wersji grepujacej caly plik.
+svc_block() {
+    awk -v s="^  $1:" '$0 ~ s {inb=1; next} inb && /^  [a-z]/ {exit} inb' "$2" \
+        | grep -v '^[[:space:]]*#'
+}
+
+# Asercja na tresci bloku serwisu (dopasowanie DOSLOWNE, grep -F).
+assert_svc_contains() {
+    local name="$1" needle="$2" block="$3"
+    if printf '%s\n' "$block" | grep -qF -- "$needle"; then pass "$name"
+    else fail "$name (brak '$needle' w bloku serwisu, bez komentarzy)"; fi
+}
+
 test_backup_runner_is_orchestrator() {
     yellow "=== Test: backup-runner jest orkiestratorem, nie kombajnem ==="
 
@@ -1680,24 +1700,35 @@ test_backup_runner_is_orchestrator() {
     else
         pass "backup-runner nie instaluje niczego w runtime"
     fi
-    assert_file_contains "orkiestrator ma docker.sock" \
-        '/var/run/docker.sock' "$yml"
-    assert_file_contains "orkiestrator ma media do tarowania" \
-        'media:/mediaroot:ro' "$yml"
+
+    # Wszystkie asercje na bloku serwisu backup-runner BEZ komentarzy
+    # (svc_block wyzej) - grep po calym pliku nie umial pasc.
+    local runner
+    runner="$(svc_block backup-runner "$yml")"
+    if [ -z "$runner" ]; then
+        fail "svc_block nie znalazl serwisu backup-runner w $yml"
+        return
+    fi
+    pass "svc_block znalazl serwis backup-runner"
+    assert_svc_contains "orkiestrator ma docker.sock" \
+        '/var/run/docker.sock:/var/run/docker.sock' "$runner"
+    assert_svc_contains "orkiestrator ma media do tarowania" \
+        'media:/mediaroot:ro' "$runner"
     # Bez tego mountu `[ ! -f "$RCLONE_CONFIG" ]` w kroku 4 cyklu jest prawdziwe
     # ZAWSZE i cykl pada co noc na fail rclone-config-missing 3.
-    assert_file_contains "orkiestrator widzi config rclone (:ro)" \
-        '/config/rclone:ro' "$yml"
-    assert_file_contains "orkiestrator dostaje COMPOSE_PROJECT_NAME" \
-        'COMPOSE_PROJECT_NAME' "$yml"
+    assert_svc_contains "orkiestrator widzi config rclone (:ro)" \
+        '/config/rclone:ro' "$runner"
+    assert_svc_contains "orkiestrator dostaje COMPOSE_PROJECT_NAME" \
+        'COMPOSE_PROJECT_NAME' "$runner"
     # Bez env_file cykl czyta same defaulty. Najgrozniejsze: operator
     # z DJANGO_BPP_RCLONE_KEEP_MONTHS= (udokumentowany wylacznik) dostaje
-    # WLACZONE kasowanie zdalnych kopii.
+    # WLACZONE kasowanie zdalnych kopii. Serwis `rclone` ma wlasny env_file,
+    # wiec asercja MUSI byc zakotwiczona w bloku backup-runnera.
     # shellcheck disable=SC2016  # to WZORZEC grep-a: ${...} ma zostac literalne
-    assert_file_contains "orkiestrator ma env_file" \
-        'env_file: ${BPP_CONFIGS_DIR}/.env' "$yml"
-    assert_file_contains "healthcheck sonduje socket" 'docker version' "$yml"
-    assert_file_contains "healthcheck sonduje pipefail" 'pipefail' "$yml"
+    assert_svc_contains "orkiestrator ma env_file" \
+        'env_file: ${BPP_CONFIGS_DIR}/.env' "$runner"
+    assert_svc_contains "healthcheck sonduje socket" 'docker version' "$runner"
+    assert_svc_contains "healthcheck sonduje pipefail" '(set -o pipefail)' "$runner"
 }
 
 test_rclone_config_mount_writable() {
@@ -1722,20 +1753,34 @@ test_rclone_config_mount_writable() {
     # Od orkiestratora (Zadanie 3) sa DWA mounty tego samego katalogu w tym
     # pliku: `rclone` (serwis, ktory pisze token/config) ma go RW, a
     # `backup-runner` (orkiestrator, ktory tylko sprawdza `[ -f ... ]` przed
-    # wysylka) ma go CELOWO :ro. Sprawdzenie nie moze wiec byc blankietowym
-    # "nigdzie w pliku nie ma :ro" — musi trafic w KONKRETNY mount serwisu
-    # rclone (koncowka linii bez sufiksu, kotwiczona `$`), inaczej legalny
-    # mount orkiestratora zawsze zapala falszywy alarm.
+    # wysylka) ma go CELOWO :ro. Sprawdzenie nie moze wiec byc ani blankietowym
+    # "nigdzie w pliku nie ma :ro" (legalny mount orkiestratora zapalalby
+    # falszywy alarm), ani "gdziekolwiek w pliku jest mount bez :ro" — mutacja
+    # ZAMIANY ROL (orkiestrator RW, serwis rclone :ro) przechodzila na zielono,
+    # a to jest dokladnie regresja, dla ktorej ten test istnieje. Obie asercje
+    # sa wiec kotwiczone w blokach serwisow przez svc_block.
     local yml="$REPO_DIR/docker-compose.backup.yml"
 
     # shellcheck disable=SC2016  # to WZORZEC grep-a: ${...} ma zostac literalne
     assert_file_contains "config rclone jest montowany" \
         '${BPP_CONFIGS_DIR}/rclone:/config/rclone' "$yml"
 
-    if grep -qE '/config/rclone$' "$yml"; then
+    local rclone_svc runner
+    rclone_svc="$(svc_block rclone "$yml")"
+    runner="$(svc_block backup-runner "$yml")"
+    if [ -z "$rclone_svc" ] || [ -z "$runner" ]; then
+        fail "svc_block nie znalazl serwisu rclone/backup-runner w $yml"
+        return
+    fi
+    if printf '%s\n' "$rclone_svc" | grep -qE '/config/rclone$'; then
         pass "serwis rclone: config montowany read-write (bez sufiksu :ro)"
     else
         fail "serwis rclone: brak mountu /config/rclone bez :ro — make rclone-config nie zapisze pliku"
+    fi
+    if printf '%s\n' "$runner" | grep -qF '/config/rclone:ro'; then
+        pass "backup-runner: config montowany :ro (zapis robi wylacznie serwis rclone)"
+    else
+        fail "backup-runner: mount /config/rclone musi miec :ro — orkiestrator tylko sprawdza [ -f ]"
     fi
 }
 

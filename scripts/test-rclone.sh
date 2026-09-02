@@ -567,10 +567,17 @@ echo "6. Uruchomienie pod busybox ash"
 # Shebang sprawdzamy na hoscie (head+grep na widocznym pliku) - nie trzeba do
 # tego dockera, w przeciwienstwie do e2e nizej. Dziala niezaleznie od tego,
 # czy docker jest dostepny.
-for s in backup-cycle.sh rclone-sync.sh rclone-config.sh; do
+# Takze obie biblioteki: shebang jest tam informacyjny (sa sourcowane), ale
+# powrot do `#!/usr/bin/env bash` szedlby w parze z wyjeciem dyrektywy
+# `shellcheck shell=sh` - a ona jest JEDYNYM egzekutorem POSIX-owosci
+# (e2e pod busyboksem bashizmow nie wykryje, bash-compat).
+for s in backup-cycle.sh rclone-sync.sh rclone-config.sh lib-rclone.sh lib-container.sh; do
     head_rc=0
     head -1 "$REPO_DIR/scripts/$s" | grep -q '^#!/bin/sh$' || head_rc=$?
     assert_eq "0" "$head_rc" "$s ma shebang #!/bin/sh"
+    head_rc=0
+    grep -q '^# shellcheck shell=sh$' "$REPO_DIR/scripts/$s" || head_rc=$?
+    assert_eq "0" "$head_rc" "$s deklaruje shellcheck shell=sh (jedyny egzekutor POSIX)"
 done
 
 # Przy definitywnej porazce e2e nizej zostawal tylko kod wyjscia, bez
@@ -587,7 +594,10 @@ show_ash_output_on_fail() {
 if ! command -v docker >/dev/null 2>&1 || ! docker info >/dev/null 2>&1; then
     echo "  SKIP: brak dzialajacego dockera (e2e pod busybox ash)"
 else
-    ASH_IMAGE="${BPP_ASH_TEST_IMAGE:-docker:cli}"
+    # Default DOKLADNIE taki jak pin w docker-compose.backup.yml
+    # (${BPP_ORCHESTRATOR_IMAGE:-docker:28-cli}) - z golym `docker:cli`
+    # testowalismy domyslnie inny obraz, niz jedzie na produkcje.
+    ASH_IMAGE="${BPP_ASH_TEST_IMAGE:-docker:28-cli}"
     ash_bin="$TEST_ROOT/ash-bin"
     mkdir -p "$ash_bin"
     # Atrapy: skrypty maja dojsc do konca bez prawdziwej bazy i bez sieci.
@@ -615,18 +625,29 @@ MOCK
     # ponizszego printf), a dla rclone-config.sh to WARUNEK KONIECZNY, zeby
     # doszlo do rclone_fix_config_owner (chown/chmod dzialaja tylko na
     # istniejacym pliku).
+    #
+    # `lsf` zwraca jeden starozytny miesiac i biezacy: z pustym lsf (albo
+    # z KEEP_MONTHS=0, jak do tej pory) retencja zdalna NIGDY nie wykonywala
+    # sie pod busyboksem, a to wlasnie w niej siedzi _ym_index - jedyna
+    # funkcja przepisana specjalnie pod ash. Kazde wywolanie laduje w
+    # /work/rclone-calls.log, zeby asercje mogly potwierdzic purge.
     cat > "$ash_bin/rclone" <<'MOCK'
 #!/bin/sh
+echo "rclone $*" >> /work/rclone-calls.log
+sub="$1"
 conf=""
 while [ $# -gt 0 ]; do
     case "$1" in --config) conf="$2"; shift 2 ;; *) shift ;; esac
 done
 [ -n "$conf" ] && printf '[backup_enc]\ntype = local\n' > "$conf"
+case "$sub" in
+    lsf) printf '2020-01/\n%s/\n' "$(date +%Y-%m)" ;;
+esac
 exit 0
 MOCK
-    for t in curl jq; do
-        printf '#!/bin/sh\nexit 0\n' > "$ash_bin/$t"
-    done
+    # Celowo BEZ atrap curl/jq: cykl ich juz nie potrzebuje (notyfikacja
+    # idzie przez `docker exec appserver python`), a martwa atrapa maskowalaby
+    # powrot notyfikacji do curla - e2e byloby zielone mimo regresji.
     # docker: backup-cycle.sh adresuje dbserver/rclone po labelach compose
     # (bpp_container -> `docker ps --filter label=...`) i wykonuje pg_dump
     # oraz rclone przez `docker exec` - w tym kontenerze testowym nie ma
@@ -672,6 +693,7 @@ MOCK
     mkdir -p "$ash_work/backup" "$ash_work/media" "$ash_work/config"
     printf '[backup_enc]\ntype = local\n' > "$ash_work/config/rclone.conf"
     ash_log="$ash_work/backup-cycle.log"
+    : > "$ash_work/rclone-calls.log"
 
     # NIE dodawac tu retry na `docker run`. Wczesniejsza wersja tej sekcji
     # miala retry "na wypadek" wyscigu bind-mountu - zweryfikowane empirycznie
@@ -697,7 +719,7 @@ MOCK
         -e DJANGO_BPP_DB_USER=u -e DJANGO_BPP_DB_NAME=n \
         -e DJANGO_BPP_DB_PASSWORD=p \
         -e COMPOSE_PROJECT_NAME=testash \
-        -e DJANGO_BPP_RCLONE_KEEP_MONTHS=0 \
+        -e DJANGO_BPP_RCLONE_KEEP_MONTHS=1 \
         "$ASH_IMAGE" /scripts/backup-cycle.sh 2>&1)" && ash_rc=0 || ash_rc=$?
     assert_eq "0" "$ash_rc" "backup-cycle.sh dochodzi do konca pod busybox ash"
     show_ash_output_on_fail "$ash_rc" "$ash_out" "backup-cycle.sh"
@@ -714,6 +736,19 @@ MOCK
         "MUTACYJNY: udany cykl NIE zglasza sie przez on_exit jako unexpected-error"
     assert_contains "$ASH_LOG" "Backup OK on" \
         "udany cykl zostawia w logu komunikat sukcesu"
+
+    # Retencja zdalna musi FAKTYCZNIE wykonac sie pod busyboksem: to w niej
+    # siedzi _ym_index - jedyna funkcja przepisana specjalnie pod ash - a
+    # poprzednia wersja tego przebiegu (KEEP_MONTHS=0, puste lsf) nigdy jej
+    # tam nie uruchamiala. KEEP_MONTHS=1 + zamockowane `rclone lsf` (2020-01
+    # i biezacy miesiac) oznaczaja dokladnie jedno purge najstarszego.
+    ASH_CALLS="$(cat "$ash_work/rclone-calls.log" 2>/dev/null || true)"
+    assert_contains "$ASH_CALLS" "purge backup_enc:2020-01" \
+        "retencja zdalna wykonuje sie pod ash: purge najstarszego miesiaca"
+    assert_eq "1" "$(printf '%s\n' "$ASH_CALLS" | grep -c '^rclone purge ' || true)" \
+        "pod ash: dokladnie jedno purge (biezacy miesiac nietkniety)"
+    assert_contains "$ASH_LOG" "retencja zdalna: usunieto 2020-01" \
+        "log cyklu pod ash potwierdza usuniecie 2020-01"
 
     # --- rclone-sync.sh - realne uruchomienie pod ash, nie tylko shebang ---
     sync_out="$(docker run --rm \
@@ -824,6 +859,61 @@ MOCK_YM=2026-08 ROLLBAR_TOKEN_ENV=1 MOCK_FAIL_ON=exec-appserver MOCK_FAIL_ON_STE
 assert_eq "1" "$CYCLE_RC" "padly appserver NIE zmienia kodu wyjscia (1, nie sklobrowane)"
 assert_contains "$(cat "$CYCLE_LOG")" "FAIL: pg_dump" \
     "log nadal pokazuje prawdziwa przyczyne (pg_dump), nie notyfikacje"
+
+# ==========================================================================
+# 9. fail() przy zepsutym zapisie logu (profil: pelny dysk)
+# ==========================================================================
+echo
+echo "9. fail() przy zepsutym logu"
+
+# Spec §4 kontrakt 1: kazda komenda w sciezce awaryjnej ma `|| true`.
+# Realny wyzwalacz to pelny dysk: `tar czf` pada z braku miejsca, rusza
+# fail "db-tar" 1, a `log` pada z TEGO SAMEGO powodu (pisze przez tee do
+# pliku na tym samym dysku). Bez `|| true` `set -e` urywa funkcje na `log`:
+# notyfikacja NIE wychodzi (choc kanal docker exec appserver -> HTTPS dysku
+# nie potrzebuje i jest sprawny), `exit "$code"` nie zostaje osiagniety,
+# a kod wyjscia jest klobrowany na 1. Dokladnie profil "lokalne kopie sa,
+# o awarii nikt sie nie dowie".
+#
+# Test uruchamia PRAWDZIWA definicje fail() wycieta z backup-cycle.sh
+# w harnessie odtwarzajacym warunki skryptu (set -eu -o pipefail,
+# trap '' PIPE) z padajacym `log`. Grep po zrodle by tego nie przypial:
+# `|| true` moze zniknac z jednej linii, a wzorzec dalej bedzie w pliku.
+FAIL_FN="$(awk '/^fail\(\) \{/{f=1} f{print} f && /^\}/{exit}' "$CYCLE")"
+if [ -z "$FAIL_FN" ]; then
+    fail "nie udalo sie wyciac fail() z backup-cycle.sh (zmienil sie uklad pliku?)"
+else
+    pass "definicja fail() wycieta z backup-cycle.sh do harnessu"
+fi
+
+FAIL_HARNESS="$TEST_ROOT/fail-harness.sh"
+NOTIFY_MARKER="$TEST_ROOT/notify-called"
+rm -f "$NOTIFY_MARKER"
+{
+    printf '%s\n' 'set -eu'
+    printf '%s\n' 'set -o pipefail'
+    printf '%s\n' "trap '' PIPE"
+    printf '%s\n' 'LOG=/dev/null'
+    printf '%s\n' 'BPP_INTENDED_EXIT=0'
+    # log pada jak przy ENOSPC: status bledny.
+    printf '%s\n' 'log() { return 1; }'
+    # Atrapa notify CELOWO zwraca 1 (choc prawdziwa gwarantuje 0): dzieki
+    # temu test pilnuje `|| true` na OBU liniach fail() - bez tego wyjecie
+    # `|| true` z linii notify_rollbar byloby niewykrywalne.
+    printf 'notify_rollbar() { : > "%s"; return 1; }\n' "$NOTIFY_MARKER"
+    printf '%s\n' "$FAIL_FN"
+    printf '%s\n' 'fail "rclone-copy" 3'
+} > "$FAIL_HARNESS"
+
+FAIL_HARNESS_RC=0
+bash "$FAIL_HARNESS" >/dev/null 2>&1 || FAIL_HARNESS_RC=$?
+assert_eq "3" "$FAIL_HARNESS_RC" \
+    "MUTACYJNY: zepsuty log nie klobruje kodu wyjscia fail() (3, nie 1)"
+if [ -f "$NOTIFY_MARKER" ]; then
+    pass "MUTACYJNY: notyfikacja Rollbar wychodzi mimo zepsutego logu"
+else
+    fail "notify_rollbar w ogole sie nie wykonal - zepsuty log urwal fail()"
+fi
 
 echo
 echo "=================================="
