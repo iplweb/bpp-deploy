@@ -1,0 +1,2806 @@
+
+<!doctype html>
+<html lang="pl" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Dokumentacja wdrożeniowa systemu BPP (Bibliografia Publikacji Pracowników) — orkiestracja Docker Compose, monitoring, backupy i konfiguracja.">
+      
+      
+      
+        <link rel="canonical" href="https://iplweb.github.io/bpp-deploy/eksploatacja/aktualizacje/">
+      
+      
+        <link rel="prev" href="../komendy/">
+      
+      
+        <link rel="next" href="../przerwa-techniczna/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>Aktualizacje i wersje obrazów - BPP Deploy — dokumentacja</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#aktualizacje-i-wersje-obrazow" class="md-skip">
+          Przejdź do treści
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+<header class="md-header" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Nagłówek">
+    <a href="../.." title="BPP Deploy — dokumentacja" class="md-header__button md-logo" aria-label="BPP Deploy — dokumentacja" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            BPP Deploy — dokumentacja
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Aktualizacje i wersje obrazów
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Tryb ciemny"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Tryb ciemny" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m17.75 4.09-2.53 1.94.91 3.06-2.63-1.81-2.63 1.81.91-3.06-2.53-1.94L12.44 4l1.06-3 1.06 3zm3.5 6.91-1.64 1.25.59 1.98-1.7-1.17-1.7 1.17.59-1.98L15.75 11l2.06-.05L18.5 9l.69 1.95zm-2.28 4.95c.83-.08 1.72 1.1 1.19 1.85-.32.45-.66.87-1.08 1.27C15.17 23 8.84 23 4.94 19.07c-3.91-3.9-3.91-10.24 0-14.14.4-.4.82-.76 1.27-1.08.75-.53 1.93.36 1.85 1.19-.27 2.86.69 5.83 2.89 8.02a9.96 9.96 0 0 0 8.02 2.89m-1.64 2.02a12.08 12.08 0 0 1-7.8-3.47c-2.17-2.19-3.33-5-3.49-7.82-2.81 3.14-2.7 7.96.31 10.98 3.02 3.01 7.84 3.12 10.98.31"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Tryb jasny"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Tryb jasny" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 7a5 5 0 0 1 5 5 5 5 0 0 1-5 5 5 5 0 0 1-5-5 5 5 0 0 1 5-5m0 2a3 3 0 0 0-3 3 3 3 0 0 0 3 3 3 3 0 0 0 3-3 3 3 0 0 0-3-3m0-7 2.39 3.42C13.65 5.15 12.84 5 12 5s-1.65.15-2.39.42zM3.34 7l4.16-.35A7.2 7.2 0 0 0 5.94 8.5c-.44.74-.69 1.5-.83 2.29zm.02 10 1.76-3.77a7.131 7.131 0 0 0 2.38 4.14zM20.65 7l-1.77 3.79a7.02 7.02 0 0 0-2.38-4.15zm-.01 10-4.14.36c.59-.51 1.12-1.14 1.54-1.86.42-.73.69-1.5.83-2.29zM12 22l-2.41-3.44c.74.27 1.55.44 2.41.44.82 0 1.63-.17 2.37-.44z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Szukaj" placeholder="Szukaj" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Szukaj">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Wyczyść" aria-label="Wyczyść" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Inicjowanie wyszukiwania
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/iplweb/bpp-deploy" title="Przejdź do repozytorium" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    iplweb/bpp-deploy
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+            
+<nav class="md-tabs" aria-label="Zakładki" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../.." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Start
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../instalacja/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Instalacja
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../konfiguracja/architektura/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Konfiguracja
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    
+    
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="../komendy/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Eksploatacja
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../monitoring/przeglad/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Monitoring i logi
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../architektura/uslugi/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Architektura
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../rozwiazywanie-problemow/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Rozwiązywanie problemów
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../rozwoj/testy/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Rozwój pakietu
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ul>
+  </div>
+</nav>
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Nawigacja" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="BPP Deploy — dokumentacja" class="md-nav__button md-logo" aria-label="BPP Deploy — dokumentacja" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    BPP Deploy — dokumentacja
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/iplweb/bpp-deploy" title="Przejdź do repozytorium" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    iplweb/bpp-deploy
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Start
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../instalacja/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Instalacja
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_2" id="__nav_2_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Instalacja
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../instalacja/linux/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Linux
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../instalacja/macos/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    macOS
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../instalacja/windows/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Windows
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../instalacja/pierwsze-uruchomienie/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pierwsze uruchomienie
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Konfiguracja
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Konfiguracja
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../konfiguracja/architektura/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architektura konfiguracji
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../konfiguracja/struktura-katalogow/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Struktura katalogów
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../konfiguracja/ssl/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    SSL (manual / Let's Encrypt)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../konfiguracja/multi-host/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Multi-host
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../konfiguracja/limity-zasobow/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Limity zasobów
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../konfiguracja/postgresql/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PostgreSQL — wersje i upgrade
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Eksploatacja
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Eksploatacja
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../komendy/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Najważniejsze komendy
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Aktualizacje i wersje obrazów
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Aktualizacje i wersje obrazów
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Spis treści">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Spis treści
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#problem-ruchomy-tag-latest" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Problem: ruchomy tag latest
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#make-zaspawaj-wersje-przypiecie-wersji" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        make zaspawaj-wersje — przypięcie wersji
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#make-test-upgrade-proba-generalna-migracji" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        make test-upgrade — próba generalna migracji
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#zalecany-przepyw-aktualizacji" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Zalecany przepływ aktualizacji
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#powrot-po-nieudanej-aktualizacji" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Powrót po nieudanej aktualizacji
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#automatyczna-aktualizacja-make-autoupdate" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Automatyczna aktualizacja (make autoupdate)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Automatyczna aktualizacja (make autoupdate)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#uruchomienie-pod-screen-zalecane" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Uruchomienie pod screen (zalecane)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#samorestart-petli" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Co odświeża się samo, a co jest zamrożone
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#straznik-w-cronie-make-setup-autoupdate-cron" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Strażnik w cronie (make setup-autoupdate-cron)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Strażnik w cronie (make setup-autoupdate-cron)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#log-straznika" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Log strażnika
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#konfiguracja-zmienne-srodowiskowe-env" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Konfiguracja (zmienne środowiskowe / .env)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#wspoistnienie-z-zaspawana-wersja" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Współistnienie z zaspawaną wersją
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#zabezpieczenia" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Zabezpieczenia
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#zobacz-tez" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Zobacz też
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../przerwa-techniczna/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Przerwa techniczna z ostrzeżeniem
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../baza-danych/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Baza danych
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../migracja-collation-stock-pg/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Migracja bazy na stockowy postgres
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../backup-i-rclone/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Backup i rclone
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../przenosiny-serwera/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Przenosiny serwera
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../wydanie/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Wydanie
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Monitoring i logi
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Monitoring i logi
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../monitoring/przeglad/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Przegląd
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../monitoring/logowanie/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Logowanie
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../monitoring/netdata-alerty/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Netdata i alerty ntfy
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../monitoring/slow-queries/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Wolne zapytania (slow queries)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../monitoring/dashboardy-grafany/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Dashboardy Grafany
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architektura
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Architektura
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architektura/uslugi/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Usługi i przepływ danych
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architektura/rate-limiting/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Rate limiting (nginx)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architektura/utwardzenie-brzegu/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Utwardzenie brzegu (nginx)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architektura/waf/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    WAF (ModSecurity + OWASP CRS)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architektura/healthchecks-autoheal/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Healthchecks i autoheal
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architektura/zadania-ofelia/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Zadania okresowe (Ofelia)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../rozwiazywanie-problemow/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Rozwiązywanie problemów
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_8" >
+        
+          
+          <label class="md-nav__link" for="__nav_8" id="__nav_8_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Rozwój pakietu
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_8_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_8">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Rozwój pakietu
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../rozwoj/testy/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Testy
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../rozwoj/pre-commit/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pre-commit hooks
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../rozwoj/backwards-compatibility/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Backwards compatibility
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../rozwoj/pulapki-grafany/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pułapki — dashboardy Grafany
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../rozwoj/pulapki-alloy/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pułapki — pipeline Alloy
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../rozwoj/pulapki-wdrozenia/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pułapki — wdrożenie i auto-update
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../rozwoj/pulapki-kompresji/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pułapki — kompresja odpowiedzi
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Spis treści">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Spis treści
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#problem-ruchomy-tag-latest" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Problem: ruchomy tag latest
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#make-zaspawaj-wersje-przypiecie-wersji" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        make zaspawaj-wersje — przypięcie wersji
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#make-test-upgrade-proba-generalna-migracji" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        make test-upgrade — próba generalna migracji
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#zalecany-przepyw-aktualizacji" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Zalecany przepływ aktualizacji
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#powrot-po-nieudanej-aktualizacji" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Powrót po nieudanej aktualizacji
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#automatyczna-aktualizacja-make-autoupdate" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Automatyczna aktualizacja (make autoupdate)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Automatyczna aktualizacja (make autoupdate)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#uruchomienie-pod-screen-zalecane" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Uruchomienie pod screen (zalecane)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#samorestart-petli" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Co odświeża się samo, a co jest zamrożone
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#straznik-w-cronie-make-setup-autoupdate-cron" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Strażnik w cronie (make setup-autoupdate-cron)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Strażnik w cronie (make setup-autoupdate-cron)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#log-straznika" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Log strażnika
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#konfiguracja-zmienne-srodowiskowe-env" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Konfiguracja (zmienne środowiskowe / .env)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#wspoistnienie-z-zaspawana-wersja" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Współistnienie z zaspawaną wersją
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#zabezpieczenia" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Zabezpieczenia
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#zobacz-tez" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Zobacz też
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+    <a href="https://github.com/iplweb/bpp-deploy/edit/main/docs/eksploatacja/aktualizacje.md" title="Edytuj tę stronę" class="md-content__button md-icon" rel="edit">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"/></svg>
+    </a>
+  
+  
+
+
+<h1 id="aktualizacje-i-wersje-obrazow">Aktualizacje i wersje obrazów<a class="headerlink" href="#aktualizacje-i-wersje-obrazow" title="Permanent link">&para;</a></h1>
+<p>Jak bezpiecznie aktualizować obrazy <code>iplweb/bpp_*</code> na działającej instalacji:
+przypięcie wersji (<code>make zaspawaj-wersje</code>), próba generalna migracji na kopii
+produkcyjnej bazy (<code>make test-upgrade</code>) i zalecany przepływ aktualizacji.</p>
+<h2 id="problem-ruchomy-tag-latest">Problem: ruchomy tag <code>latest</code><a class="headerlink" href="#problem-ruchomy-tag-latest" title="Permanent link">&para;</a></h2>
+<p>Domyślnie obrazy <code>iplweb/bpp_*</code> jadą na tagu <code>latest</code>
+(<code>${DOCKER_VERSION:-latest}</code> w plikach compose). To wygodne, ale ma dwie
+konsekwencje:</p>
+<ul>
+<li><strong>każdy <code>make pull</code> może podmienić wersję</strong> — także "przy okazji", gdy
+  chodziło tylko o restart;</li>
+<li><strong>nie wiadomo, co dokładnie jest wdrożone</strong> — dwa hosty robiące deploy
+  w odstępie godziny mogą dostać różne obrazy, a po awarii trudno wskazać
+  wersję, do której należałoby wrócić.</li>
+</ul>
+<p>Obrazy spoza rodziny iplweb (nginx, redis, grafana, netdata, …) są przypięte
+na sztywno w plikach compose i nie podlegają temu mechanizmowi; PostgreSQL ma
+własną zmienną <code>DJANGO_BPP_POSTGRESQL_VERSION</code>
+(<a href="../../konfiguracja/postgresql/">PostgreSQL — wersje i upgrade</a>).</p>
+<h2 id="make-zaspawaj-wersje-przypiecie-wersji"><code>make zaspawaj-wersje</code> — przypięcie wersji<a class="headerlink" href="#make-zaspawaj-wersje-przypiecie-wersji" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>make<span class="w"> </span>zaspawaj-wersje<span class="w">                  </span><span class="c1"># wersja z działającego appservera</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>make<span class="w"> </span>zaspawaj-wersje<span class="w"> </span><span class="nv">TAG</span><span class="o">=</span><span class="m">202606</span>.1386<span class="w">  </span><span class="c1"># jawny tag</span>
+</code></pre></div>
+<p>Target utrwala w <code>$BPP_CONFIGS_DIR/.env</code> zmienną
+<code>DOCKER_VERSION=&lt;tag CalVer&gt;</code> odpowiadającą wersji, na której <strong>faktycznie
+chodzi</strong> kontener <code>appserver</code>. Celowo nie patrzy na lokalny tag <code>latest</code>:
+po <code>make pull</code> bez recreate lokalny <code>latest</code> może już wskazywać nowszy,
+nieprzetestowany obraz — zaspawanie ma przybić stan faktyczny produkcji,
+nie stan cache'u obrazów.</p>
+<p>Wersja jest rozwiązywana z digestu działającego kontenera przez API Docker
+Huba (tagi CalVer postaci <code>RRRRMM.NNNN</code>, np. <code>202606.1386</code>). Przy okazji
+target sprawdza, czy pozostałe kontenery iplweb (<code>authserver</code>,
+<code>workerserver</code>, <code>denorm-queue</code>, <code>celerybeat</code>) chodzą na tej samej wersji —
+rozjazd to tylko ostrzeżenie (wyrówna go następne <code>make up</code>).</p>
+<p>Po zaspawaniu:</p>
+<ul>
+<li><code>make restart</code>, awaryjny recreate i nocne restarty Ofelii trzymają się
+  przypiętej wersji — nic nie wjedzie "samo";</li>
+<li>nowa wersja wymaga <strong>jawnej decyzji</strong>:</li>
+</ul>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>make<span class="w"> </span>zaspawaj-wersje<span class="w"> </span><span class="nv">TAG</span><span class="o">=</span>&lt;nowy&gt;<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>make<span class="w"> </span>pull<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>make<span class="w"> </span>up
+</code></pre></div>
+<p>Nic nie jest restartowane w momencie zaspawania — pin obowiązuje od
+następnej operacji compose. Host bez zaspawania (brak <code>DOCKER_VERSION</code>
+w <code>.env</code>) działa po staremu, na <code>latest</code>.</p>
+<h2 id="make-test-upgrade-proba-generalna-migracji"><code>make test-upgrade</code> — próba generalna migracji<a class="headerlink" href="#make-test-upgrade-proba-generalna-migracji" title="Permanent link">&para;</a></h2>
+<p>Najczęstszy scenariusz katastrofy przy aktualizacji to nowy obraz, którego
+migracje bazodanowe nie przechodzą — wykrywany dopiero w trakcie deployu,
+gdy stare kontenery już nie działają. <code>test-upgrade</code> wykrywa go <strong>obok</strong>
+produkcji, na świeżej kopii produkcyjnych danych:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>make<span class="w"> </span>test-upgrade<span class="w">                  </span><span class="c1"># kandydat = najnowszy tag CalVer z Docker Huba</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>make<span class="w"> </span>test-upgrade<span class="w"> </span><span class="nv">TAG</span><span class="o">=</span><span class="m">202606</span>.1386<span class="w">  </span><span class="c1"># jawny kandydat</span>
+</code></pre></div>
+<p>Przebieg:</p>
+<ol>
+<li><strong>Kandydat</strong> — obraz pobierany <strong>po tagu wersji</strong>, nigdy przez <code>:latest</code>
+   (lokalny <code>latest</code>, na którym chodzi produkcja, pozostaje nietknięty).</li>
+<li><strong>Kontrola miejsca</strong> — wymagane ≈ 2,5× rozmiaru bazy (dump + rozpakowanie</li>
+<li>shadow-wolumen); brak miejsca przerywa próbę zanim cokolwiek ruszy.
+   Wymuszenie pominięcia: <code>SKIP_DISK_CHECK=1 make test-upgrade</code>.</li>
+<li><strong>Backup</strong> — świeży <code>make db-backup</code>; błąd backupu przerywa całość.</li>
+<li><strong>Shadow stack</strong> — <code>bpp-shadow-dbserver</code> (ta sama wersja PostgreSQL co
+   produkcja) + <code>bpp-shadow-redis</code> na osobnej sieci dockerowej <code>bpp-shadow</code>,
+   poza projektem Compose, z przyciętymi limitami zasobów.</li>
+<li><strong>Restore</strong> dumpa do shadow-bazy (<code>pg_restore -j</code>).</li>
+<li><strong>Migracja</strong> — <code>manage.py migrate</code> obrazem-kandydatem z nadpisanym
+   entrypointem: nic poza migracją się nie uruchamia.</li>
+</ol>
+<p>Wynik:</p>
+<ul>
+<li><strong>Sukces (exit 0)</strong> — komunikat, pełne sprzątnięcie shadow stacka.
+  Produkcja przez cały czas była nietknięta.</li>
+<li><strong>Porażka (exit 1)</strong> — shadow stack <strong>zostaje</strong> do inspekcji:</li>
+</ul>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>docker<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>-it<span class="w"> </span>bpp-shadow-dbserver<span class="w"> </span>psql<span class="w"> </span>-U<span class="w"> </span><span class="nv">$DJANGO_BPP_DB_USER</span><span class="w"> </span>-d<span class="w"> </span><span class="nv">$DJANGO_BPP_DB_NAME</span>
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>make<span class="w"> </span>test-upgrade-clean<span class="w">   </span><span class="c1"># sprzątnięcie po obejrzeniu</span>
+</code></pre></div>
+<p>Gwarancje: próba nie dotyka kontenerów ani wolumenów produkcji, nie zmienia
+lokalnego tagu <code>latest</code>, nie zapisuje niczego do <code>.env</code>. Jedyny koszt to
+obciążenie CPU/IO podczas dump+restore — na małych hostach uruchamiaj poza
+godzinami szczytu.</p>
+<p>Limity zasobów shadow stacka można nadpisać zmiennymi środowiskowymi:
+<code>SHADOW_DB_MEM</code> (domyślnie <code>1g</code>), <code>SHADOW_DB_CPUS</code> (<code>1.0</code>),
+<code>SHADOW_REDIS_MEM</code> (<code>256m</code>), <code>SHADOW_MIGRATE_MEM</code> (<code>2g</code>),
+<code>PARALLEL_JOBS</code> (<code>4</code>, liczba wątków pg_restore).</p>
+<h2 id="zalecany-przepyw-aktualizacji">Zalecany przepływ aktualizacji<a class="headerlink" href="#zalecany-przepyw-aktualizacji" title="Permanent link">&para;</a></h2>
+<p>Na zaspawanym hoście:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>make<span class="w"> </span>test-upgrade<span class="w">                          </span><span class="c1"># 1. migracje kandydata przechodzą?</span>
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>make<span class="w"> </span>zaspawaj-wersje<span class="w"> </span><span class="nv">TAG</span><span class="o">=</span>&lt;kandydat&gt;<span class="w">        </span><span class="c1"># 2. przypnij nową wersję</span>
+<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>make<span class="w"> </span>pull<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>make<span class="w"> </span>up<span class="w">                       </span><span class="c1"># 3. właściwy deploy (health-gate --wait)</span>
+</code></pre></div>
+<p>Kolejność jest istotna: dopiero po udanej próbie generalnej przypinamy
+kandydata i dotykamy produkcji. <code>make up</code> używa <code>--wait</code>, więc niewstający
+appserver zwróci błąd zamiast cicho zostawić niedziałający stack.</p>
+<h2 id="powrot-po-nieudanej-aktualizacji">Powrót po nieudanej aktualizacji<a class="headerlink" href="#powrot-po-nieudanej-aktualizacji" title="Permanent link">&para;</a></h2>
+<p>Zaspawanie czyni ręczny rollback przewidywalnym: stara wersja jest zapisana
+w historii <code>.env</code> (i w outputach <code>zaspawaj-wersje</code>), a świeży dump leży
+w katalogu backupów.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>make<span class="w"> </span>zaspawaj-wersje<span class="w"> </span><span class="nv">TAG</span><span class="o">=</span>&lt;poprzedni&gt;<span class="w">       </span><span class="c1"># wróć do poprzedniej wersji obrazów</span>
+<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>make<span class="w"> </span>pull<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>make<span class="w"> </span>up
+<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a>make<span class="w"> </span>restore<span class="w">                               </span><span class="c1"># tylko gdy migracja zdążyła zmienić schemę</span>
+</code></pre></div>
+<p><code>make restore</code> cofa też dane wpisane po backupie — używaj go wyłącznie, gdy
+nowa migracja faktycznie zmieniła schemę w sposób niekompatybilny ze starym
+obrazem. Szczegóły restore: <a href="../backup-i-rclone/">Backup i rclone</a>.</p>
+<h2 id="automatyczna-aktualizacja-make-autoupdate">Automatyczna aktualizacja (<code>make autoupdate</code>)<a class="headerlink" href="#automatyczna-aktualizacja-make-autoupdate" title="Permanent link">&para;</a></h2>
+<p>Zamiast ręcznego <code>git pull &amp;&amp; make run</code> po każdej nowej publikacji, host może
+sam co jakiś czas sprawdzać, czy jest co wdrożyć, i wdrażać to bez logowania.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>make<span class="w"> </span>autoupdate
+</code></pre></div>
+<p><code>make autoupdate</code> uruchamia <strong>pętlę</strong>: co <code>AUTOUPDATE_INTERVAL</code> sekund
+(domyślnie <code>7200</code> = 2 h) woła <code>scripts/autoupdate.sh</code>, który wykonuje <strong>jeden
+cykl</strong>:</p>
+<ol>
+<li><code>git fetch</code> — czy <code>origin/main</code> wyprzedza lokalny HEAD (i czy fast-forward
+   jest możliwy);</li>
+<li><code>docker compose pull</code> — czy któryś obraz zmienił <strong>digest</strong> (działa też dla
+   ruchomego <code>latest</code>, bo porównujemy digesty, nie tagi). Log wymienia obraz
+   i kierunek zmiany, np. <code>iplweb/bpp_appserver:latest  a1b2c3d4e5f6 -&gt; 9a8b7c6d5e4f</code>;</li>
+<li>jeśli <strong>jest</strong> nowy commit <strong>lub</strong> nowy obraz → opcjonalny backup bazy →
+   <code>git pull --ff-only</code> → <code>make run</code>. Jeśli <strong>nie</strong> ma zmian → cykl kończy się
+   po cichu, nic nie jest restartowane.</li>
+</ol>
+<div class="admonition note">
+<p class="admonition-title">Samo zniknięcie tagu to nie jest nowsza wersja</p>
+<p>W logu może pojawić się linia w rodzaju:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>mcuadros/ofelia:0.3.21: sam TAG BRAK -&gt; 254bae8e1785 — to nie jest nowsza wersja, pomijam.
+</code></pre></div>
+<p>Oznacza, że obraz <strong>stracił lokalny tag</strong>, a <code>pull</code> mu go przywrócił — sam
+obraz cały czas był na dysku (widać po tym, że pull trwa sekundy: nie ma
+czego ściągać). Robi to <code>docker system prune -af</code> z końca <code>make up</code>: obrazu
+używanego przez działający kontener nie potrafi skasować, więc zdejmuje
+z niego referencję.</p>
+<p>Do sierpnia 2026 autoupdate liczył to jako nową wersję i <strong>wdrażał
+produkcję od nowa co cykl, w nieskończoność</strong> — objawiało się jako „Wykryto
+nowszy obraz Docker." przy obrazie, który nowszy nie był. Pomijanie takich
+przejść niczego nie gubi: prawdziwie nowy obraz zawsze daje
+<code>ID_stare -&gt; ID_nowe</code>, a nowa usługa w <code>docker-compose.*.yml</code> przychodzi
+razem z commitem, więc deploy odpala się ścieżką „nowy commit".</p>
+</div>
+<h3 id="uruchomienie-pod-screen-zalecane">Uruchomienie pod <code>screen</code> (zalecane)<a class="headerlink" href="#uruchomienie-pod-screen-zalecane" title="Permanent link">&para;</a></h3>
+<p>Pętla musi działać niezależnie od Twojej sesji SSH — najprościej pod nazwaną
+sesją <code>screen</code>. Jest do tego gotowy target:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>make<span class="w"> </span>screen-with-autoupdate<span class="w">   </span><span class="c1"># start pętli w tle, w sesji screen 'bpp-autoupdate'</span>
+<a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a>screen<span class="w"> </span>-r<span class="w"> </span>bpp-autoupdate<span class="w">      </span><span class="c1"># podgląd (Ctrl-A D = odłącz)</span>
+</code></pre></div>
+<p><code>make screen-with-autoupdate</code> jest <strong>idempotentny</strong>: gdy sesja już działa, nie
+uruchamia drugiej. Nazwę sesji można zmienić przez <code>AUTOUPDATE_SCREEN_NAME</code>.
+Zatrzymanie: <code>screen -S bpp-autoupdate -X quit</code>.</p>
+<h3 id="samorestart-petli">Co odświeża się samo, a co jest zamrożone<a class="headerlink" href="#samorestart-petli" title="Permanent link">&para;</a></h3>
+<p>Po <code>git pull</code> <strong>prawie wszystko</strong> działa od razu, bez dotykania sesji:</p>
+<table>
+<thead>
+<tr>
+<th>Element</th>
+<th>Odświeża się sam?</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>scripts/autoupdate.sh</code></td>
+<td><strong>Tak</strong> — pętla woła go świeżo w każdej iteracji</td>
+</tr>
+<tr>
+<td>pozostałe skrypty, <code>defaults/*</code>, pliki compose</td>
+<td><strong>Tak</strong> — używa ich <code>make run</code> w trakcie deployu</td>
+</tr>
+<tr>
+<td><strong>treść pętli</strong> (<code>mk/deployment.mk</code>) i <strong><code>AUTOUPDATE_INTERVAL</code></strong></td>
+<td><strong>Nie</strong> — <code>make autoupdate</code> rozwinął je przy starcie i ten proces żyje dalej</td>
+</tr>
+</tbody>
+</table>
+<p>Ostatni wiersz załatwia <strong>samorestart</strong>: gdy <code>git pull</code> zmieni <code>Makefile</code> albo
+<code>mk/deployment.mk</code>, cykl kończy deploy, po czym <strong>zamyka własną sesję screen</strong> —
+a strażnik z crona podnosi ją w nowej wersji (do 15 minut).</p>
+<div class="admonition warning">
+<p class="admonition-title">Samorestart wymaga strażnika</p>
+<p>Mechanizm uruchamia się <strong>tylko</strong> gdy w crontabie stoi wpis
+<code># BPP-AUTOUPDATE</code> (zakłada go <code>make setup-autoupdate-cron</code>) <strong>i</strong> pętla
+naprawdę działa pod <code>screen</code>. Bez tego nie ma kto jej wskrzesić, więc
+zamiast zabić sesję skrypt wypisuje ostrzeżenie i prosi o ręczne:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>screen<span class="w"> </span>-S<span class="w"> </span>bpp-autoupdate<span class="w"> </span>-X<span class="w"> </span>quit<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>make<span class="w"> </span>screen-with-autoupdate
+</code></pre></div>
+<p>Cicha śmierć pętli byłaby gorsza niż praca na starym ciele pętli — dlatego
+ten warunek jest twardy. Sprawdzenie: <code>crontab -l | grep BPP-AUTOUPDATE</code>.</p>
+</div>
+<p>Komunikat o zamknięciu sesji trafia <strong>także</strong> do logu strażnika
+(<code>AUTOUPDATE_CRON_LOG</code>, domyślnie <code>.autoupdate-cron.log</code> w katalogu repo) — bufor
+okna <code>screen</code> ginie razem z sesją, więc bez tego nie byłoby śladu, dlaczego pętla
+zniknęła. Wyłącznik: <code>AUTOUPDATE_SELF_RESTART=0</code>.</p>
+<p>Odpowiednik ręczny (gdy wolisz sam zarządzać sesją):</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>screen<span class="w"> </span>-dmS<span class="w"> </span>bpp-autoupdate<span class="w"> </span>make<span class="w"> </span>autoupdate
+</code></pre></div>
+<p><code>make autoupdate</code> nie demonizuje się sam — to celowo najprostsza forma:
+widoczna, podpinana, bez uprawnień roota. Żeby pętla przeżyła restart hosta
+<strong>i</strong> padnięcie sesji, zainstaluj strażnika w cronie (niżej).</p>
+<h3 id="straznik-w-cronie-make-setup-autoupdate-cron">Strażnik w cronie (<code>make setup-autoupdate-cron</code>)<a class="headerlink" href="#straznik-w-cronie-make-setup-autoupdate-cron" title="Permanent link">&para;</a></h3>
+<p>Sama sesja <code>screen</code> nie wstaje po restarcie hosta, a gdy padnie (OOM,
+przypadkowe <code>screen -X quit</code>, zabity proces), auto-aktualizacja milknie i nikt
+się o tym nie dowie — host po cichu przestaje się aktualizować. Jedno polecenie
+instaluje w crontabie użytkownika wpis-strażnik, który tego pilnuje:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a>make<span class="w"> </span>setup-autoupdate-cron<span class="w">    </span><span class="c1"># zainstaluj wpis (domyślnie co 15 minut)</span>
+<a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a>make<span class="w"> </span>remove-autoupdate-cron<span class="w">   </span><span class="c1"># usuń wpis</span>
+<a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a>make<span class="w"> </span>test-autoupdate-cron<span class="w">     </span><span class="c1"># unit-testy skryptu instalującego</span>
+</code></pre></div>
+<p>Zainstalowany wpis to jedna linia postaci:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a>*/15 * * * * cd '/opt/bpp-deploy' &amp;&amp; PATH='…' make screen-with-autoupdate &gt;&gt; '…/autoupdate-cron.log' 2&gt;&amp;1  # BPP-AUTOUPDATE
+</code></pre></div>
+<p>Ponieważ <code>make screen-with-autoupdate</code> jest <strong>idempotentny</strong> (nie startuje
+drugiej sesji, gdy pierwsza żyje), jeden okresowy wpis pokrywa <strong>zarówno</strong>
+restart hosta, <strong>jak i</strong> padnięcie sesji. To główna przewaga nad zalecanym
+wcześniej wpisem <code>@reboot</code>, który reaguje wyłącznie na restart.</p>
+<p>We wpisie zamrażany jest <strong>minimalny</strong> <code>PATH</code> — same katalogi, w których leżą
+<code>make</code>, <code>docker</code>, <code>git</code>, <code>screen</code> i <code>bash</code>, plus standardowe systemowe. Powód
+jest dwojaki: cron startuje zadania z jałowym <code>PATH=/usr/bin:/bin</code>, w którym te
+binarki bywają niewidoczne, ale wklejenie całego <code>PATH</code> powłoki też jest złe —
+crony z rodziny Vixie (Debian, Ubuntu, <code>cronie</code>) tną komendę powyżej ok. 1000
+znaków, a rozbudowany <code>PATH</code> (<code>nvm</code>, <code>pyenv</code>, <code>asdf</code>, homebrew) sam potrafi mieć
+kilka tysięcy. Skrypt pilnuje tego limitu i odmówi instalacji zbyt długiego
+wpisu, zamiast zapisać uszkodzony.</p>
+<p><code>make remove-autoupdate-cron</code> usuwa wyłącznie linie oznaczone markerem
+<code># BPP-AUTOUPDATE</code>. <strong>Nie ubija</strong> przy tym działającej sesji — jeśli chcesz
+zatrzymać także pętlę, zrób to osobno:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a>make<span class="w"> </span>remove-autoupdate-cron
+<a id="__codelineno-13-2" name="__codelineno-13-2" href="#__codelineno-13-2"></a>screen<span class="w"> </span>-S<span class="w"> </span>bpp-autoupdate<span class="w"> </span>-X<span class="w"> </span>quit
+</code></pre></div>
+<p>Instalacja (i usuwanie) przepisuje cały crontab użytkownika, więc przed zapisem
+powstaje kopia zapasowa <code>crontab.bak.&lt;timestamp&gt;</code> w katalogu logu strażnika.
+Cudze wpisy w crontabie są zachowywane — filtrowany jest tylko marker
+<code># BPP-AUTOUPDATE</code>. Ponowna instalacja (także ze zmienionym harmonogramem)
+podmienia wpis, nie dubluje go.</p>
+<h4 id="log-straznika">Log strażnika<a class="headerlink" href="#log-straznika" title="Permanent link">&para;</a></h4>
+<p>Wyjście wpisu trafia do <code>AUTOUPDATE_CRON_LOG</code>, domyślnie
+<code>$BPP_CONFIGS_DIR/logs/autoupdate-cron.log</code> (katalog jest zakładany przy
+instalacji). Przy żywej sesji strażnik dopisuje dokładnie 2 linie na tick
+(„sesja już działa" + podpowiedź <code>screen -r</code>), czyli ~9,6 kB na dobę przy
+domyślnym <code>*/15</code> — <strong>ok. 3,5 MB rocznie</strong>. Wyjście właściwego deploya tam nie
+idzie: <code>screen -dmS</code> odłącza sesję, więc logi <code>make run</code> zostają w buforze
+screena.</p>
+<p>Rotacji logu <strong>celowo nie ma</strong> — przy tym tempie przyrostu logrotate byłby
+nieproporcjonalny. Ręczne wyjście awaryjne, gdy plik urośnie:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a>truncate<span class="w"> </span>-s<span class="w"> </span><span class="m">0</span><span class="w"> </span><span class="s2">"</span><span class="nv">$BPP_CONFIGS_DIR</span><span class="s2">/logs/autoupdate-cron.log"</span>
+</code></pre></div>
+<div class="admonition warning">
+<p class="admonition-title">Sesja wskrzeszona przez crona nie ma agenta SSH</p>
+<p>Gdy strażnik restartuje pętlę, sesja dziedziczy <strong>środowisko crona</strong> —
+bez <code>SSH_AUTH_SOCK</code> i z minimalnym zestawem zmiennych. Jeśli <code>origin</code>
+repozytorium jest po SSH z kluczem chronionym passphrase w agencie,
+<code>git fetch</code> w <code>scripts/autoupdate.sh</code> zawiedzie. Skrypt traktuje to
+<strong>miękko</strong>: loguje ostrzeżenie i pomija część gitową — auto-aktualizacja
+po cichu degraduje do „tylko nowe obrazy Docker", inaczej niż sesja
+odpalona ręcznie z Twojej powłoki. Dla nienadzorowanej aktualizacji ustaw
+<code>origin</code> po <strong>HTTPS</strong> albo użyj klucza <strong>bez passphrase</strong>.</p>
+</div>
+<div class="admonition tip">
+<p class="admonition-title">Wolisz własny wpis w crontabie?</p>
+<p>Ręczny wariant nadal działa — dopisz do <code>crontab -e</code> linię wołającą ten sam
+idempotentny target (<code>@reboot</code> pokrywa wtedy tylko restart hosta, nie crash
+sesji):</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a>@reboot cd /ścieżka/do/bpp-deploy &amp;&amp; make screen-with-autoupdate
+</code></pre></div>
+<p>Ten sam <code>scripts/autoupdate.sh</code> można też wołać bezpośrednio z crona lub
+z timera <code>systemd</code> — logika jednego cyklu jest oddzielona od harmonogramu.</p>
+</div>
+<h3 id="konfiguracja-zmienne-srodowiskowe-env">Konfiguracja (zmienne środowiskowe / <code>.env</code>)<a class="headerlink" href="#konfiguracja-zmienne-srodowiskowe-env" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Zmienna</th>
+<th>Domyślnie</th>
+<th>Znaczenie</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>AUTOUPDATE_INTERVAL</code></td>
+<td><code>7200</code></td>
+<td>Odstęp między cyklami w sekundach.</td>
+</tr>
+<tr>
+<td><code>AUTOUPDATE_DB_BACKUP</code></td>
+<td><code>0</code> (wył.)</td>
+<td><code>1</code> = <code>make db-backup</code> <strong>przed</strong> każdym auto-deployem. Gdy backup się nie uda, deploy jest przerywany (fail-safe).</td>
+</tr>
+<tr>
+<td><code>AUTOUPDATE_SCREEN_NAME</code></td>
+<td><code>bpp-autoupdate</code></td>
+<td>Nazwa sesji <code>screen</code> używana przez <code>make screen-with-autoupdate</code>.</td>
+</tr>
+<tr>
+<td><code>AUTOUPDATE_WARNING_MINUTES</code></td>
+<td>— (wył.)</td>
+<td>Gdy &gt; 0, auto-deploy najpierw wywiesza baner na tyle minut, potem blokuje serwis, wdraża i odblokowuje. Szczegóły: <a href="../przerwa-techniczna/">Przerwa techniczna z ostrzeżeniem</a>.</td>
+</tr>
+<tr>
+<td><code>AUTOUPDATE_CRON_SCHEDULE</code></td>
+<td><code>*/15 * * * *</code></td>
+<td>Harmonogram wpisu-strażnika instalowanego przez <code>make setup-autoupdate-cron</code>. Akceptuje pięć pól cronowych albo makro (<code>@reboot</code>, <code>@hourly</code>, <code>@daily</code>, <code>@midnight</code>, <code>@weekly</code>, <code>@monthly</code>, <code>@yearly</code>, <code>@annually</code>).</td>
+</tr>
+<tr>
+<td><code>AUTOUPDATE_CRON_LOG</code></td>
+<td><code>$BPP_CONFIGS_DIR/logs/autoupdate-cron.log</code></td>
+<td>Plik, do którego strażnik dopisuje swoje wyjście; w tym samym katalogu ląduje kopia zapasowa crontaba.</td>
+</tr>
+</tbody>
+</table>
+<p>Wartości można ustawić w <code>$BPP_CONFIGS_DIR/.env</code> albo doraźnie w środowisku,
+np. <code>AUTOUPDATE_INTERVAL=3600 make autoupdate</code> czy
+<code>AUTOUPDATE_CRON_SCHEDULE='*/5 * * * *' make setup-autoupdate-cron</code>.</p>
+<div class="admonition note">
+<p class="admonition-title">Nadpisanie w <code>.env</code> trafia też do kontenerów</p>
+<p><code>$BPP_CONFIGS_DIR/.env</code> jest wciągany hurtowo przez <code>env_file</code>, więc
+zmienne <code>AUTOUPDATE_*</code> ustawione tam wylądują również w środowisku
+kontenerów. Jest to nieszkodliwe (żadna usługa ich nie czyta), ale warto
+o tym wiedzieć, oglądając <code>docker compose exec … env</code>. Alternatywa:
+podać wartość doraźnie w wywołaniu <code>make</code>.</p>
+</div>
+<div class="admonition warning">
+<p class="admonition-title">Auto-deploy uruchamia migracje bazy bez nadzoru</p>
+<p><code>make run</code> odpala migracje Django automatycznie. Auto-update robi to <strong>bez
+człowieka przy klawiaturze</strong>. Backup przed deployem jest domyślnie
+<strong>wyłączony</strong> (zakłada się, że wystarcza nocny backup) — jeśli chcesz
+dodatkowej ochrony, ustaw <code>AUTOUPDATE_DB_BACKUP=1</code>. Przed włączeniem
+auto-update na produkcji warto raz przejść ręcznie przez
+<a href="#make-test-upgrade-proba-generalna-migracji"><code>make test-upgrade</code></a>, by
+upewnić się, że migracje kandydata przechodzą.</p>
+</div>
+<h3 id="wspoistnienie-z-zaspawana-wersja">Współistnienie z zaspawaną wersją<a class="headerlink" href="#wspoistnienie-z-zaspawana-wersja" title="Permanent link">&para;</a></h3>
+<p>Jeśli host ma przypięte <code>DOCKER_VERSION</code> (patrz
+<a href="#make-zaspawaj-wersje-przypiecie-wersji"><code>make zaspawaj-wersje</code></a>), auto-update
+<strong>nie</strong> wciągnie nowszego obrazu „samo": <code>docker compose pull</code> ściąga tylko
+przypięty tag, więc wyzwalaczem pozostają wtedy wyłącznie nowe commity na
+<code>origin/main</code>. Zmianę wersji nadal robisz świadomie przez <code>make zaspawaj-wersje
+TAG=&lt;nowy&gt;</code>. Na hoście bez zaspawania (goły <code>latest</code>) auto-update reaguje na
+każdy nowy obraz.</p>
+<h3 id="zabezpieczenia">Zabezpieczenia<a class="headerlink" href="#zabezpieczenia" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Lock</strong> (<code>.autoupdate.lock.d</code>) — dwa cykle się nie nałożą, a ręczny
+  <code>make run</code> w trakcie nie zderzy się z auto-deployem.</li>
+<li><strong><code>git pull --ff-only</code></strong> — jeśli lokalny <code>main</code> rozjechał się z <code>origin/main</code>
+  (ktoś commitował na hoście), auto-update <strong>nie</strong> robi merge/rebase, tylko
+  loguje ostrzeżenie i pomija część gitową — nie psuje drzewa.</li>
+<li><strong>Health-gate</strong> jest w cyklu wyłączony (<code>BPP_SKIP_HEALTH_GATE=1</code>), bo
+  interaktywny prompt bramki zdrowia zablokowałby pętlę. Stan usług po deployu
+  sprawdzisz jak zwykle: <code>make health</code> lub <code>make doctor</code>.</li>
+</ul>
+<h2 id="zobacz-tez">Zobacz też<a class="headerlink" href="#zobacz-tez" title="Permanent link">&para;</a></h2>
+<ul>
+<li><a href="../komendy/">Najważniejsze komendy</a> — skrócona referencja targetów</li>
+<li><a href="../backup-i-rclone/">Backup i rclone</a> — skąd bierze się dump używany przez próbę</li>
+<li><a href="../../konfiguracja/postgresql/">PostgreSQL — wersje i upgrade</a> — upgrade samej bazy</li>
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Powrót do góry
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+    <div class="md-copyright__highlight">
+      MIT · IPL Web
+    </div>
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.instant", "navigation.tracking", "navigation.tabs", "navigation.sections", "navigation.top", "navigation.indexes", "toc.follow", "search.suggest", "search.highlight", "content.code.copy", "content.action.edit"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Skopiowano do schowka", "clipboard.copy": "Kopiuj do schowka", "search.result.more.one": "1 wi\u0119cej na tej stronie", "search.result.more.other": "# wi\u0119cej na tej stronie", "search.result.none": "Brak wynik\u00f3w wyszukiwania", "search.result.one": "Wyniki wyszukiwania: 1", "search.result.other": "Wyniki wyszukiwania: #", "search.result.placeholder": "Zacznij pisa\u0107, aby szuka\u0107", "search.result.term.missing": "Brak", "select.version": "Wybierz wersj\u0119"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>
