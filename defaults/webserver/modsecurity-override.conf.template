@@ -559,3 +559,79 @@ SecAction \
     pass,\
     t:none,\
     ctl:ruleRemoveById=953110"
+
+# ---------------------------------------------------------------------------
+# 10011: tytul raportu multiseek — nazwa jednostki to nie wywolanie PHP
+# ---------------------------------------------------------------------------
+# ZGLOSZENIE 2026-09-13 (publikacje.up.lublin.pl): "Szukaj publikacji" na
+# stronie jednostki -> natychmiast zerwane polaczenie. Access log:
+#
+#   "POST /bpp/build_search/ HTTP/2.0" 444 0
+#
+# audit log:
+#
+#   933210 PHP Injection Attack: Variable Function Call Found
+#     Matched Data: [09.2024...] (WBIOTECH) found within ARGS:suggested-title:
+#     Katedra Inzynierii i Technologii Zboz [09.2024...] (WBIOTECH)
+#   949110 Inbound Anomaly Score Exceeded (Total Score: 10)
+#
+# SKAD TA WARTOSC: szablony browse/{jednostka,autor,zrodlo,uczelnia}.html
+# wstawiaja do pola `suggested-title` `{{ obiekt }}`, czyli __str__ modelu.
+# Dla jednostki to `nazwa` + " (skrot wydzialu)", a nazwa bywa z data
+# w nawiasie kwadratowym. 933210 szuka `[...]` albo `(...)`, po ktorym stoi
+# `(...)` — w PHP to `$f['x']('arg')`, w bibliografii kazda nazwa z data
+# i skrotem. Score 10, bo formularz wysyla pole DWA razy (ukryte + edytowalny
+# "Tytul raportu"), a kazde trafienie to 5 pkt przy progu 5.
+#
+# DRUGI ENDPOINT, TO SAMO POLE: w wynikach tytul da sie edytowac, co POST-uje
+# `value` na /bpp/update-multiseek-title/. Ten sam ciag blokuje sie tam
+# identycznie — sprawdzone w make test-waf, nie spekulacja.
+#
+# DLACZEGO NIE `ctl:ruleRemoveTargetById=933210`: to WOLNY TEKST. Uzytkownik
+# wpisuje tytul sam, a domyslna wartoscia sa nazwy jednostek, autorow
+# i czasopism z calej bazy — nawiasy, sredniki, kropki, apostrofy. Ta sama
+# natura danych co streszczenia w 10009, gdzie wyliczanka ID przegrala trzy
+# razy w jedenascie dni.
+#
+# DLACZEGO NIE `ctl:ruleEngine=DetectionOnly` jak w 10009: granica 10009
+# biegnie po uwierzytelnieniu, a tu jej nie ma — oba endpointy sa ANONIMOWE
+# i `@csrf_exempt` (BuildSearch, zeby strony jednostek wchodzily do cache).
+# Pozostale pola (jednostka, autor, zrodlo, rok, typ) i reszta zadania maja
+# zostac chronione w pelni.
+#
+# ZAKRES = SINKI. Zdejmujemy rodziny, dla ktorych ta wartosc nie ma dokad
+# trafic, i zostawiamy te, dla ktorej ma:
+#   - tytul idzie przez nh3.clean do SESJI (SESSION_ENGINE = cache, czyli
+#     Redis, nie SQL), a stamtad do naglowka wynikow i eksportow. Nie trafia
+#     do powloki, pliku, include'a, PHP ani surowego SQL-a, wiec 930 (LFI),
+#     931 (RFI), 932 (RCE), 933 (PHP) i 942 (SQLi) nie maja tu czego chronic;
+#   - ale jest renderowany `|safe` (multiseek/title.html), a endpoint jest
+#     csrf_exempt, wiec obca strona moze podstawic tytul do sesji ofiary.
+#     Jedyna ochrona w aplikacji to wtedy nh3 — dlatego 941 (XSS) ZOSTAJE
+#     jako druga warstwa. Pilnuje tego asercja kontrolna w test-waf.sh.
+#
+# `ctl:ruleRemoveTargetByTag` zdejmuje rodzine WYLACZNIE z tych dwoch
+# argumentow: ten sam ciag w polu `jednostka` albo w `suggested-title` na
+# innej sciezce dalej blokuje (kontrole w test-waf.sh). Oba argumenty sa
+# wymienione dla obu sciezek, bo `value` na build_search i `suggested-title`
+# na update-multiseek-title widoki ignoruja — dwie osobne reguly nic by nie
+# zawezily.
+#
+# `REQUEST_FILENAME`, nie `REQUEST_URI` — z tego samego powodu co w 10009:
+# query string nie moze domknac wzorca na cudzej sciezce.
+SecRule REQUEST_FILENAME "@rx ^/bpp/(?:build_search|update-multiseek-title)/$" \
+    "id:10011,\
+    phase:1,\
+    pass,\
+    nolog,\
+    t:none,\
+    ctl:ruleRemoveTargetByTag=attack-lfi;ARGS:suggested-title,\
+    ctl:ruleRemoveTargetByTag=attack-rfi;ARGS:suggested-title,\
+    ctl:ruleRemoveTargetByTag=attack-rce;ARGS:suggested-title,\
+    ctl:ruleRemoveTargetByTag=attack-injection-php;ARGS:suggested-title,\
+    ctl:ruleRemoveTargetByTag=attack-sqli;ARGS:suggested-title,\
+    ctl:ruleRemoveTargetByTag=attack-lfi;ARGS:value,\
+    ctl:ruleRemoveTargetByTag=attack-rfi;ARGS:value,\
+    ctl:ruleRemoveTargetByTag=attack-rce;ARGS:value,\
+    ctl:ruleRemoveTargetByTag=attack-injection-php;ARGS:value,\
+    ctl:ruleRemoveTargetByTag=attack-sqli;ARGS:value"

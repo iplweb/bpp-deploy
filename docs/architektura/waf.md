@@ -148,7 +148,7 @@ we własnej regule, bo wykonuje się w trakcie transakcji.
 Zakres ID `1-99999` jest zarezerwowany dla reguł lokalnych (CRS używa
 `900000-999999`).
 
-Obecnie jest ich dziesięć:
+Obecnie jest ich jedenaście:
 
 - **`id:10001` — healthcheck poza audytem.** Healthcheck Dockera
   (`curl http://127.0.0.1:80/healthz` co 10 s) zapalał regułę `920350`
@@ -223,6 +223,14 @@ Obecnie jest ich dziesięć:
   w nim pełnoprawnym tokenem (ukośniki to znaki niesłowne). Zgłoszenie
   2026-08-12: `/api/v1/zrodlo/` zwracało uciętą odpowiedź. W BPP nie ma PHP,
   więc reguła nie ma tu czego chronić. Szczegóły: [DOI z `fopen`](#doi-fopen).
+
+- **`id:10011` — tytuł raportu multiseek bez reguł, które nie mają tu sinka.**
+  Pola `suggested-title` (`/bpp/build_search/`) i `value`
+  (`/bpp/update-multiseek-title/`) nie są skanowane rodzinami 930/931/932/933/942,
+  bo tytuł trafia wyłącznie do sesji i do HTML-a. **XSS (941) zostaje.**
+  Zgłoszenie 2026-09-13: „Szukaj publikacji" na stronie jednostki
+  `… [09.2024...] (WBIOTECH)` → `933210` → zerwane połączenie. Szczegóły:
+  [Tytuł raportu multiseek](#tytul-raportu).
 
 Reguły 10002 i 10003 schodzą dla swoich ścieżek do `ctl:ruleEngine=DetectionOnly`:
 trafienia nadal trafiają do audit logu (i posłużą do napisania precyzyjnych
@@ -808,6 +816,97 @@ i `932115` działają bez zmian.
     globalne byłoby martwym kodem. Wyjątkiem jest `942100`, które strzela
     273× na `/bpp/autorzy` — ale to inny problem, z własnym wyzwalaczem,
     i nie załatwia go wykluczenie dla `/admin/`.
+
+    **Stan na 2026-08-23, jedna instancja (`bpp.umlub.pl`).** 2026-09-13
+    `933210` zablokowało na `publikacje.up.lublin.pl` publiczne
+    `/bpp/build_search/` — inna uczelnia, inne nazwy jednostek. Patrz
+    [reguła 10011](#tytul-raportu).
+
+## Tytuł raportu multiseek — reguła 10011 {#tytul-raportu}
+
+Pola niosące **tytuł raportu wyszukiwania** nie są skanowane regułami, dla
+których ta wartość nie ma dokąd trafić. Ochrona przed XSS zostaje.
+
+### Objaw
+
+Na stronie jednostki (autora, źródła, uczelni) przycisk **„Szukaj publikacji"**
+albo **„Pokaż wszystkie publikacje"** kończy się natychmiast zerwanym
+połączeniem — bez komunikatu, bez śladu w logach Django:
+
+```text
+"POST /bpp/build_search/ HTTP/2.0" 444 0 254 0.000 - "https://…/bpp/jednostka/Katedra-Inzynierii-i-Technologii-Zboz-092024/"
+```
+
+Audit log:
+
+```text
+933210  PHP Injection Attack: Variable Function Call Found
+        Matched Data: [09.2024...] (WBIOTECH) found within ARGS:suggested-title:
+        Katedra Inżynierii i Technologii Zbóż [09.2024...] (WBIOTECH)
+949110  Inbound Anomaly Score Exceeded (Total Score: 10)
+```
+
+Blokowały się wyłącznie strony, których obiekt ma w nazwie taki wzorzec.
+Pozostałe działały, więc zgłoszenie brzmiało „nie działa dla tej jednej katedry".
+
+### Przyczyna
+
+Szablony `browse/{jednostka,autor,zrodlo,uczelnia}.html` wkładają do pola
+`suggested-title` `{{ obiekt }}`, czyli `__str__` modelu. Dla jednostki to
+`nazwa` + ` (skrót wydziału)`, a nazwa bywa zakończona datą w nawiasie
+kwadratowym. `933210` szuka `[…]` albo `(…)`, po którym stoi `(…)`. W PHP to
+`$f['x']('arg')`, a w bibliografii — każda nazwa z datą i skrótem.
+
+Score wynosi **10**, nie 5, bo formularz wyszukiwania wysyła pole **dwa razy**
+(ukryte i edytowalne „Tytuł raportu"). Każde trafienie daje 5 pkt przy progu 5.
+
+Ten sam tytuł można potem edytować w wynikach. To `POST` pola `value` na
+`/bpp/update-multiseek-title/` i blokuje się tam identycznie.
+
+### Dlaczego zakres wyznaczają sinki
+
+| Rodzina | Tag | Zdjęta z tytułu? | Dlaczego |
+|---|---|---|---|
+| 930 LFI | `attack-lfi` | tak | tytuł nie jest ścieżką pliku |
+| 931 RFI | `attack-rfi` | tak | tytuł nie jest pobierany ani includowany |
+| 932 RCE | `attack-rce` | tak | nie trafia do powłoki |
+| 933 PHP | `attack-injection-php` | tak | w BPP nie ma PHP |
+| 942 SQLi | `attack-sqli` | tak | sesja siedzi w Redisie (`SESSION_ENGINE = cache`), nie w SQL-u |
+| **941 XSS** | `attack-xss` | **nie** | tytuł jest renderowany `|safe` |
+
+XSS zostaje, bo to **jedyny realny sink**. Tytuł przechodzi przez `nh3.clean`,
+ale potem jest renderowany `|safe` (`multiseek/title.html`). Oba endpointy są
+przy tym `@csrf_exempt`, więc obca strona może podstawić tytuł do sesji
+ofiary. WAF jest tu drugą warstwą za `nh3` i powinien nią zostać.
+
+### Dlaczego nie inne warianty
+
+- **`ctl:ruleRemoveTargetById=933210`.** Tytuł to wolny tekst: wpisuje go
+  użytkownik, a domyślnie są to nazwy jednostek, autorów i czasopism z całej
+  bazy. Dane mają tę samą naturę co streszczenia w
+  [10009](#formularze-admina), gdzie lista ID przegrała trzy razy
+  w jedenaście dni.
+- **`ctl:ruleEngine=DetectionOnly` na ścieżce, jak w 10009.** Granica 10009
+  biegnie po uwierzytelnieniu, a tu jej nie ma. Oba endpointy są anonimowe,
+  więc pozostałe pola (`jednostka`, `autor`, `zrodlo`, `rok`, `typ`) mają
+  zostać w pełni chronione.
+
+### Cena i kontrole w `make test-waf`
+
+| Wynik | Przypadek |
+|---|---|
+| PASS | nazwa jednostki z produkcji na `/bpp/build_search/` i na `/bpp/update-multiseek-title/` |
+| PASS — `CENA:` | realne RCE i SQLi w tytule raportu |
+| BLOK | XSS w `suggested-title` i w `value` |
+| BLOK | ten sam ciąg w polu `jednostka` (wykluczenie dotyczy argumentu, nie ścieżki) |
+| BLOK | `suggested-title` na innej ścieżce (wykluczenie dotyczy ścieżki, nie nazwy pola) |
+
+!!! tip "Po stronie BPP da się to załatwić u źródła"
+    Domyślny tytuł nie musi jechać z przeglądarki. Widok może ustalić go sam
+    z PK (`jednostka`, `autor`, `zrodlo`), a pole „Tytuł raportu" może być
+    puste, z nazwą jako `placeholder`. Wtedy WAF widzi nazwę tylko wtedy, gdy
+    użytkownik świadomie ją wpisze. Reguła 10011 zostaje i tak, bo tytuł
+    wpisany ręcznie nadal może zawierać nawiasy.
 
 ## Logi WAF-a w Grafanie
 

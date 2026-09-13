@@ -669,6 +669,58 @@ for para in "PASS|FP 932130: streszczenie 'p < (0,05)'|$ADMIN_CHANGE|streszczeni
 done
 
 # --------------------------------------------------------------------------
+# Regula 10011: tytul raportu multiseek (`suggested-title`, `value`)
+# --------------------------------------------------------------------------
+# Zgloszenie 2026-09-13 (publikacje.up.lublin.pl): "Szukaj publikacji" na
+# stronie jednostki -> 444. Szablon wstawia do `suggested-title` nazwe
+# jednostki, a ta brzmi "... [09.2024...] (WBIOTECH)" — `[...]` + `(...)`
+# to dla 933210 wywolanie funkcji PHP. Uzasadnienie w komentarzu przy 10011.
+#
+# TRZY GRUPY, jak przy 10009:
+#   1. FALSZYWE ALARMY — oba endpointy zapisujace tytul.
+#   2. CENA — rodziny zdjete z tych dwoch pol (RCE, SQLi). Oczekiwany PASS.
+#   3. KONTROLE — trzy granice naraz: XSS w tytule DALEJ blokowany (to jedyny
+#      realny sink: tytul jest renderowany `|safe`), to samo w INNYM polu tego
+#      samego endpointu dalej blokowane, i to samo pole na INNEJ sciezce dalej
+#      blokowane. Bez nich PASS-y przeszlyby tak samo po wylaczeniu calego CRS.
+echo
+printf "%-6s %-46s %s\n" "WYNIK" "TYTUL RAPORTU MULTISEEK (10011)" "SZCZEGOLY"
+printf "%s\n" "----------------------------------------------------------------------------------"
+JEDNOSTKA_PROD='Katedra Inżynierii i Technologii Zbóż [09.2024...] (WBIOTECH)'
+for para in "PASS|FP 933210 prod: nazwa jednostki '[..] (..)'|bpp/build_search/|suggested-title=$JEDNOSTKA_PROD" \
+            "PASS|FP 933210: edycja tytulu w multiseek|bpp/update-multiseek-title/|value=$JEDNOSTKA_PROD" \
+            "PASS|CENA: realne RCE w tytule raportu|bpp/build_search/|suggested-title=x; cat /etc/passwd; echo \$(id)" \
+            "PASS|CENA: realne SQLi w tytule raportu|bpp/update-multiseek-title/|value=' UNION ALL SELECT NULL,NULL-- a" \
+            "BLOK|kontrola: XSS w suggested-title|bpp/build_search/|suggested-title=<script>alert(1)</script>" \
+            "BLOK|kontrola: XSS w value|bpp/update-multiseek-title/|value=<script>alert(1)</script>" \
+            "BLOK|kontrola: ten sam ciag w polu jednostka|bpp/build_search/|jednostka=$JEDNOSTKA_PROD" \
+            "BLOK|kontrola: suggested-title na innej sciezce|bpp/szukaj/|suggested-title=$JEDNOSTKA_PROD"; do
+    IFS='|' read -r oczek opis sciezka cialo <<< "$para"
+    LACZNIE=$((LACZNIE + 1))
+    kod=$(curl -sk --http1.1 -o /dev/null -w '%{http_code}' --max-time 8 \
+        --resolve "$HOST_NAME:$PORT:127.0.0.1" \
+        -X POST --data-urlencode "$cialo" \
+        "https://$HOST_NAME:$PORT/$sciezka" 2>/dev/null)
+    rc=$?
+    if [ "$rc" -eq 52 ] || [ "$rc" -eq 56 ] || [ "$rc" -eq 92 ]; then
+        faktyczny="BLOK"; szczegol="polaczenie zerwane (curl $rc)"
+    elif [ "$rc" -ne 0 ]; then
+        faktyczny="BLAD"; szczegol="curl $rc"
+    elif [ "$kod" = "403" ]; then
+        faktyczny="BLOK"; szczegol="HTTP 403 od ModSecurity"
+    else
+        faktyczny="PASS"; szczegol="HTTP $kod"
+    fi
+    if [ "$faktyczny" = "$oczek" ]; then
+        printf "  \033[32mOK\033[0m   %-46s %s\n" "$opis" "$szczegol"
+    else
+        printf "  \033[31mFAIL\033[0m %-46s oczekiwano %s, jest %s (%s)\n" \
+            "$opis" "$oczek" "$faktyczny" "$szczegol"
+        BLEDY=$((BLEDY + 1))
+    fi
+done
+
+# --------------------------------------------------------------------------
 # Przypadek osobny: legalne zadanie po HTTP/3
 # --------------------------------------------------------------------------
 # Nie siedzi w tablicy PRZYPADKI, bo tamte strzelaja `curl --http1.1` Z HOSTA,
