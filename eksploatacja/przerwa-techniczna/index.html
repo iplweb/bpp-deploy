@@ -1,0 +1,2636 @@
+
+<!doctype html>
+<html lang="pl" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Dokumentacja wdrożeniowa systemu BPP (Bibliografia Publikacji Pracowników) — orkiestracja Docker Compose, monitoring, backupy i konfiguracja.">
+      
+      
+      
+        <link rel="canonical" href="https://iplweb.github.io/bpp-deploy/eksploatacja/przerwa-techniczna/">
+      
+      
+        <link rel="prev" href="../aktualizacje/">
+      
+      
+        <link rel="next" href="../baza-danych/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>Przerwa techniczna z ostrzeżeniem - BPP Deploy — dokumentacja</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#przerwa-techniczna-z-ostrzezeniem" class="md-skip">
+          Przejdź do treści
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+<header class="md-header" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Nagłówek">
+    <a href="../.." title="BPP Deploy — dokumentacja" class="md-header__button md-logo" aria-label="BPP Deploy — dokumentacja" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            BPP Deploy — dokumentacja
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Przerwa techniczna z ostrzeżeniem
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Tryb ciemny"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Tryb ciemny" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m17.75 4.09-2.53 1.94.91 3.06-2.63-1.81-2.63 1.81.91-3.06-2.53-1.94L12.44 4l1.06-3 1.06 3zm3.5 6.91-1.64 1.25.59 1.98-1.7-1.17-1.7 1.17.59-1.98L15.75 11l2.06-.05L18.5 9l.69 1.95zm-2.28 4.95c.83-.08 1.72 1.1 1.19 1.85-.32.45-.66.87-1.08 1.27C15.17 23 8.84 23 4.94 19.07c-3.91-3.9-3.91-10.24 0-14.14.4-.4.82-.76 1.27-1.08.75-.53 1.93.36 1.85 1.19-.27 2.86.69 5.83 2.89 8.02a9.96 9.96 0 0 0 8.02 2.89m-1.64 2.02a12.08 12.08 0 0 1-7.8-3.47c-2.17-2.19-3.33-5-3.49-7.82-2.81 3.14-2.7 7.96.31 10.98 3.02 3.01 7.84 3.12 10.98.31"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Tryb jasny"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Tryb jasny" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 7a5 5 0 0 1 5 5 5 5 0 0 1-5 5 5 5 0 0 1-5-5 5 5 0 0 1 5-5m0 2a3 3 0 0 0-3 3 3 3 0 0 0 3 3 3 3 0 0 0 3-3 3 3 0 0 0-3-3m0-7 2.39 3.42C13.65 5.15 12.84 5 12 5s-1.65.15-2.39.42zM3.34 7l4.16-.35A7.2 7.2 0 0 0 5.94 8.5c-.44.74-.69 1.5-.83 2.29zm.02 10 1.76-3.77a7.131 7.131 0 0 0 2.38 4.14zM20.65 7l-1.77 3.79a7.02 7.02 0 0 0-2.38-4.15zm-.01 10-4.14.36c.59-.51 1.12-1.14 1.54-1.86.42-.73.69-1.5.83-2.29zM12 22l-2.41-3.44c.74.27 1.55.44 2.41.44.82 0 1.63-.17 2.37-.44z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Szukaj" placeholder="Szukaj" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Szukaj">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Wyczyść" aria-label="Wyczyść" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Inicjowanie wyszukiwania
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/iplweb/bpp-deploy" title="Przejdź do repozytorium" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    iplweb/bpp-deploy
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+            
+<nav class="md-tabs" aria-label="Zakładki" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../.." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Start
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../instalacja/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Instalacja
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../konfiguracja/architektura/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Konfiguracja
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    
+    
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="../komendy/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Eksploatacja
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../monitoring/przeglad/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Monitoring i logi
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../architektura/uslugi/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Architektura
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../rozwiazywanie-problemow/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Rozwiązywanie problemów
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../rozwoj/testy/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Rozwój pakietu
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ul>
+  </div>
+</nav>
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Nawigacja" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="BPP Deploy — dokumentacja" class="md-nav__button md-logo" aria-label="BPP Deploy — dokumentacja" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    BPP Deploy — dokumentacja
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/iplweb/bpp-deploy" title="Przejdź do repozytorium" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    iplweb/bpp-deploy
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Start
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../instalacja/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Instalacja
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_2" id="__nav_2_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Instalacja
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../instalacja/linux/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Linux
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../instalacja/macos/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    macOS
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../instalacja/windows/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Windows
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../instalacja/pierwsze-uruchomienie/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pierwsze uruchomienie
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Konfiguracja
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Konfiguracja
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../konfiguracja/architektura/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architektura konfiguracji
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../konfiguracja/struktura-katalogow/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Struktura katalogów
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../konfiguracja/ssl/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    SSL (manual / Let's Encrypt)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../konfiguracja/multi-host/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Multi-host
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../konfiguracja/limity-zasobow/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Limity zasobów
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../konfiguracja/postgresql/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PostgreSQL — wersje i upgrade
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Eksploatacja
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Eksploatacja
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../komendy/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Najważniejsze komendy
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../aktualizacje/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Aktualizacje i wersje obrazów
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Przerwa techniczna z ostrzeżeniem
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Przerwa techniczna z ostrzeżeniem
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Spis treści">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Spis treści
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#szybki-start" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Szybki start
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#co-widzi-uzytkownik" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Co widzi użytkownik
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#komendy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Komendy
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Komendy">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#parametry" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Parametry
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#regulacja-powrotu-w-trakcie-przerwy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Regulacja powrotu w trakcie przerwy
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#zabezpieczenie-na-wypadek-padnietej-sesji" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Zabezpieczenie na wypadek padniętej sesji
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#gdy-cos-pojdzie-nie-tak" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Gdy coś pójdzie nie tak
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#multi-host" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Multi-host
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#nienadzorowana-aktualizacja-z-ostrzezeniem" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Nienadzorowana aktualizacja z ostrzeżeniem
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#testy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Testy
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#zobacz-tez" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Zobacz też
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../baza-danych/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Baza danych
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../migracja-collation-stock-pg/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Migracja bazy na stockowy postgres
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../backup-i-rclone/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Backup i rclone
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../przenosiny-serwera/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Przenosiny serwera
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../wydanie/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Wydanie
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Monitoring i logi
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Monitoring i logi
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../monitoring/przeglad/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Przegląd
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../monitoring/logowanie/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Logowanie
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../monitoring/netdata-alerty/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Netdata i alerty ntfy
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../monitoring/slow-queries/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Wolne zapytania (slow queries)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../monitoring/dashboardy-grafany/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Dashboardy Grafany
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architektura
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Architektura
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architektura/uslugi/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Usługi i przepływ danych
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architektura/rate-limiting/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Rate limiting (nginx)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architektura/utwardzenie-brzegu/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Utwardzenie brzegu (nginx)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architektura/waf/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    WAF (ModSecurity + OWASP CRS)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architektura/healthchecks-autoheal/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Healthchecks i autoheal
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architektura/zadania-ofelia/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Zadania okresowe (Ofelia)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../rozwiazywanie-problemow/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Rozwiązywanie problemów
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_8" >
+        
+          
+          <label class="md-nav__link" for="__nav_8" id="__nav_8_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Rozwój pakietu
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_8_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_8">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Rozwój pakietu
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../rozwoj/testy/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Testy
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../rozwoj/pre-commit/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pre-commit hooks
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../rozwoj/backwards-compatibility/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Backwards compatibility
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../rozwoj/pulapki-grafany/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pułapki — dashboardy Grafany
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../rozwoj/pulapki-alloy/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pułapki — pipeline Alloy
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../rozwoj/pulapki-wdrozenia/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pułapki — wdrożenie i auto-update
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../rozwoj/pulapki-kompresji/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pułapki — kompresja odpowiedzi
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Spis treści">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Spis treści
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#szybki-start" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Szybki start
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#co-widzi-uzytkownik" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Co widzi użytkownik
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#komendy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Komendy
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Komendy">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#parametry" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Parametry
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#regulacja-powrotu-w-trakcie-przerwy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Regulacja powrotu w trakcie przerwy
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#zabezpieczenie-na-wypadek-padnietej-sesji" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Zabezpieczenie na wypadek padniętej sesji
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#gdy-cos-pojdzie-nie-tak" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Gdy coś pójdzie nie tak
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#multi-host" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Multi-host
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#nienadzorowana-aktualizacja-z-ostrzezeniem" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Nienadzorowana aktualizacja z ostrzeżeniem
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#testy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Testy
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#zobacz-tez" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Zobacz też
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+    <a href="https://github.com/iplweb/bpp-deploy/edit/main/docs/eksploatacja/przerwa-techniczna.md" title="Edytuj tę stronę" class="md-content__button md-icon" rel="edit">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"/></svg>
+    </a>
+  
+  
+
+
+<h1 id="przerwa-techniczna-z-ostrzezeniem">Przerwa techniczna z ostrzeżeniem<a class="headerlink" href="#przerwa-techniczna-z-ostrzezeniem" title="Permanent link">&para;</a></h1>
+<p>Zwykły <code>make run</code> kładzie serwis na kilka minut <strong>bez uprzedzenia</strong>. Użytkownik trafia
+w środek wdrożenia, dostaje stronę „konserwacja" i nie wie, czy to awaria, czy plan.</p>
+<p><code>make run-with-warning</code> prowadzi całe wdrożenie tak, żeby ludzie wiedzieli z góry:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>make pull  →  baner „za 5 minut przerwa"  →  odcięcie  →  make run  →  odblokowanie
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>   (bez wpływu           (5–10 min)          (503 ze stroną      (strona wraca)
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>  na użytkowników)                            przerwy)
+</code></pre></div>
+<p>Obrazy pobierane są <strong>przed</strong> wywieszeniem banera — pobieranie nie dotyka działającej
+instalacji, więc okno ostrzeżenia to czysty czas na uprzedzenie ludzi, a realna
+niedostępność ≈ czas samego <code>make run</code>.</p>
+<div class="admonition info">
+<p class="admonition-title">Wymagany obraz BPP z <code>django-countdown &gt;= 0.3.0</code></p>
+<p>Banerem i blokadą zarządza aplikacja <code>django-countdown</code> wbudowana w obraz BPP.
+Na starszym obrazie <code>make run-with-warning</code> wypisze ostrzeżenie i zrobi
+<strong>zwykłe wdrożenie</strong> (bez uprzedzenia użytkowników) — nie zatrzyma się.
+Pozostałe komendy zgłoszą wtedy błąd.</p>
+</div>
+<h2 id="szybki-start">Szybki start<a class="headerlink" href="#szybki-start" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="c1"># typowa sesja: 5 minut ostrzeżenia, deklarowany powrót 10 minut po odcięciu</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>make<span class="w"> </span>run-with-warning
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="c1"># dłuższe uprzedzenie i dłuższe okno serwisowe</span>
+<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>make<span class="w"> </span>run-with-warning<span class="w"> </span><span class="nv">MINUTES</span><span class="o">=</span><span class="m">15</span><span class="w"> </span><span class="nv">SERVICE</span><span class="o">=</span><span class="m">30</span><span class="w"> </span><span class="nv">MESSAGE</span><span class="o">=</span><span class="s2">"Aktualizacja modułu raportów"</span>
+</code></pre></div>
+<p>Pod <code>screen</code> (zalecane przy pracy zdalnej — sesja przeżyje zerwane połączenie):</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>screen<span class="w"> </span>-dmS<span class="w"> </span>bpp-deploy<span class="w"> </span>make<span class="w"> </span>run-with-warning<span class="w"> </span><span class="nv">MINUTES</span><span class="o">=</span><span class="m">10</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>screen<span class="w"> </span>-r<span class="w"> </span>bpp-deploy<span class="w">          </span><span class="c1"># podgląd; odłączenie: Ctrl-A D</span>
+</code></pre></div>
+<p>Sesja wypisuje statusy z upływem czasu:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>[+00:00] === FAZA 1: pobieranie obrazow (bez wplywu na uzytkownikow) ===
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>[+07:12] pull OK
+<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>[+07:12] === FAZA 2: ostrzezenie ===
+<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>[+07:12] ostrzezenie WLACZONE
+<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a>         odciecie:            14:35:00
+<a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a>         deklarowany powrot:  14:45:00
+<a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a>[+07:42] do odciecia 4 min 30 s ...
+<a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a>[+12:12] === FAZA 3: przerwa techniczna ===
+<a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a>[+12:12] strona ZABLOKOWANA (503 ze strona przerwy)
+<a id="__codelineno-3-10" name="__codelineno-3-10" href="#__codelineno-3-10"></a>[+14:33] make run OK (2 min 21 s)
+<a id="__codelineno-3-11" name="__codelineno-3-11" href="#__codelineno-3-11"></a>[+14:38] wszystkie uslugi zdrowe
+<a id="__codelineno-3-12" name="__codelineno-3-12" href="#__codelineno-3-12"></a>[+14:38] === FAZA 4: koniec ===
+<a id="__codelineno-3-13" name="__codelineno-3-13" href="#__codelineno-3-13"></a>[+14:38] ostrzezenie ZDJETE — strona dostepna
+<a id="__codelineno-3-14" name="__codelineno-3-14" href="#__codelineno-3-14"></a>[+14:38] laczny czas sesji 14 min 38 s, niedostepnosc 2 min 26 s
+</code></pre></div>
+<h2 id="co-widzi-uzytkownik">Co widzi użytkownik<a class="headerlink" href="#co-widzi-uzytkownik" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Faza</th>
+<th>Zwykły użytkownik</th>
+<th>Zalogowany superuser</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Baner (przed odcięciem)</td>
+<td>Pasek z komunikatem i tykającym licznikiem do przerwy</td>
+<td>To samo</td>
+</tr>
+<tr>
+<td>Blokada (po odcięciu)</td>
+<td>Strona przerwy, HTTP <strong>503</strong>, z godziną powrotu</td>
+<td>Serwis działa normalnie (można dokończyć pracę)</td>
+</tr>
+<tr>
+<td>Trwa <code>make run</code></td>
+<td>Statyczna strona „konserwacja" (502 z nginxa — Django nie żyje)</td>
+<td>To samo</td>
+</tr>
+<tr>
+<td>Po zdjęciu</td>
+<td>Serwis działa</td>
+<td>Serwis działa</td>
+</tr>
+</tbody>
+</table>
+<p>Blokada <strong>nie obejmuje</strong> <code>/admin/</code>, <code>/static/</code> i <code>/media/</code> — to celowe: panel admina
+musi być dostępny, żeby dało się dokończyć robotę.</p>
+<h2 id="komendy">Komendy<a class="headerlink" href="#komendy" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Komenda</th>
+<th>Działanie</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>make run-with-warning</code></td>
+<td>Pełna sesja: pull → baner → odcięcie → <code>make run</code> → odblokowanie</td>
+</tr>
+<tr>
+<td><code>make enable-site-down-warning</code></td>
+<td>Sam baner, bez wdrożenia (np. gdy chcesz uprzedzić i zrobić coś ręcznie)</td>
+</tr>
+<tr>
+<td><code>make disable-site-down-warning</code></td>
+<td>Zdejmuje baner i blokadę — <strong>awaryjne odblokowanie strony</strong></td>
+</tr>
+<tr>
+<td><code>make extend-site-down-warning MINUTES=+10</code></td>
+<td>Przesuwa deklarowany powrót o 10 minut (<code>MINUTES=-5</code> ściąga o 5)</td>
+</tr>
+<tr>
+<td><code>make status-site-down-warning</code></td>
+<td>Stan przerwy; <code>JSON=1</code> daje dane maszynowe</td>
+</tr>
+</tbody>
+</table>
+<h3 id="parametry">Parametry<a class="headerlink" href="#parametry" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Parametr</th>
+<th>Zmienna w <code>.env</code></th>
+<th>Domyślnie</th>
+<th>Znaczenie</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>MINUTES</code></td>
+<td><code>SITE_DOWN_WARNING_MINUTES</code></td>
+<td><code>5</code></td>
+<td>Ile minut wisi baner, zanim strona zostanie odcięta</td>
+</tr>
+<tr>
+<td><code>SERVICE</code></td>
+<td><code>SITE_DOWN_SERVICE_MINUTES</code></td>
+<td><code>10</code></td>
+<td>Deklarowana długość przerwy (liczona <strong>od odcięcia</strong>)</td>
+</tr>
+<tr>
+<td><code>MESSAGE</code></td>
+<td><code>SITE_DOWN_WARNING_MESSAGE</code></td>
+<td><code>Planowana przerwa techniczna — aktualizacja systemu</code></td>
+<td>Nagłówek banera i strony przerwy (max 200 znaków)</td>
+</tr>
+<tr>
+<td><code>LONG_DESCRIPTION</code></td>
+<td><code>SITE_DOWN_LONG_DESCRIPTION</code></td>
+<td>—</td>
+<td>Dłuższy tekst, pokazywany tylko na stronie przerwy</td>
+</tr>
+<tr>
+<td><code>SITE_IDS</code></td>
+<td><code>SITE_DOWN_SITE_IDS</code></td>
+<td>—</td>
+<td>Lista id witryn przy multi-hoście (patrz niżej)</td>
+</tr>
+</tbody>
+</table>
+<p>Parametr podany przy <code>make</code> wygrywa z <code>.env</code>, <code>.env</code> wygrywa z wartością domyślną.
+Wszystkie zmienne są nowe i mają wartości domyślne — <strong>stary <code>.env</code> działa bez zmian</strong>.</p>
+<h2 id="regulacja-powrotu-w-trakcie-przerwy">Regulacja powrotu w trakcie przerwy<a class="headerlink" href="#regulacja-powrotu-w-trakcie-przerwy" title="Permanent link">&para;</a></h2>
+<p>Sesja <strong>nic nie czyta z klawiatury</strong> — strumieniuje wyjście <code>make run</code> w oryginale.
+Gdy okazuje się, że wdrożenie potrwa dłużej (albo skończyło się szybciej),
+zmieniasz deklarowany powrót <strong>z innego okna</strong>:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>make<span class="w"> </span>status-site-down-warning<span class="w">              </span><span class="c1"># gdzie jesteśmy</span>
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>make<span class="w"> </span>extend-site-down-warning<span class="w"> </span><span class="nv">MINUTES</span><span class="o">=</span>+10<span class="w">  </span><span class="c1"># "wracamy 10 minut później"</span>
+<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>make<span class="w"> </span>extend-site-down-warning<span class="w"> </span><span class="nv">MINUTES</span><span class="o">=</span>-5<span class="w">   </span><span class="c1"># "wracamy 5 minut wcześniej"</span>
+</code></pre></div>
+<p>Pod <code>screen</code>: <code>Ctrl-A C</code> otwiera nowe okno, <code>Ctrl-A "</code> przełącza między nimi.</p>
+<p>Zmieniany jest <strong>wyłącznie moment powrotu</strong>. Godzina odcięcia jest obietnicą złożoną
+użytkownikom, którzy widzieli ją na banerze, i sesja jej nie rusza.</p>
+<h2 id="zabezpieczenie-na-wypadek-padnietej-sesji">Zabezpieczenie na wypadek padniętej sesji<a class="headerlink" href="#zabezpieczenie-na-wypadek-padnietej-sesji" title="Permanent link">&para;</a></h2>
+<p>Dopóki sesja żyje, co 60 sekund podtrzymuje deklarowany powrót tak, żeby był
+<strong>nie bliżej niż 5 minut od teraz</strong>:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>moment powrotu = max(to, co zadeklarował operator, teraz + 5 min)
+</code></pre></div>
+<p>Dzięki temu:</p>
+<ul>
+<li>dopóki wdrożenie mieści się w obietnicy, użytkownik widzi <strong>stabilną godzinę
+  powrotu</strong> i nic z tej mechaniki nie zauważa;</li>
+<li>gdy wdrożenie się przeciąga, godzina przesuwa się co 5 minut — uczciwie, bo
+  faktycznie jeszcze nie wróciliśmy;</li>
+<li>gdy sesja zginie (<code>kill -9</code>, OOM, restart hosta), nikt już nie podtrzymuje
+  terminu i <strong>strona odblokuje się sama</strong> najpóźniej po 5 minutach.</li>
+</ul>
+<div class="admonition warning">
+<p class="admonition-title">Świadomy kompromis</p>
+<p>Ten mechanizm chroni przed „nikt nie zauważył, że serwis został zamknięty na
+zawsze". Nie chroni przed odwrotnym przypadkiem: jeśli padnie <strong>cały host</strong>
+w środku migracji, serwis otworzy się na wpół zmigrowanej bazie. Wybraliśmy
+wariant, w którym wcześniejsze otwarcie jest przeżywalne, a nienadzorowane
+trwałe zamknięcie nie.</p>
+</div>
+<h2 id="gdy-cos-pojdzie-nie-tak">Gdy coś pójdzie nie tak<a class="headerlink" href="#gdy-cos-pojdzie-nie-tak" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Sytuacja</th>
+<th>Zachowanie sesji</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Błąd <code>make pull</code> (faza 1)</td>
+<td>Przerwanie, nic się jeszcze nie stało</td>
+</tr>
+<tr>
+<td>Ctrl-C w trakcie banera (faza 2)</td>
+<td>Baner <strong>zdejmowany</strong>, czysty koniec — użytkownicy nic nie tracą</td>
+</tr>
+<tr>
+<td>Błąd <code>make run</code> (faza 3)</td>
+<td>Blokada <strong>zostaje</strong>, kod wyjścia ≠ 0, instrukcja na ekranie</td>
+</tr>
+<tr>
+<td>Usługa <code>unhealthy</code> po wdrożeniu</td>
+<td>Traktowane jak błąd — blokada zostaje</td>
+</tr>
+<tr>
+<td>Ctrl-C po odcięciu</td>
+<td>Blokada zostaje (stack w nieznanym stanie)</td>
+</tr>
+</tbody>
+</table>
+<p>Po odcięciu blokada zostaje <strong>celowo</strong>: lepiej pokazać stronę przerwy niż na wpół
+zaktualizowany serwis. Gdy sesja padła, heartbeat nie bije, więc blokada wygaśnie
+sama za ≤ 5 minut. Jeśli potrzebujesz więcej czasu na naprawę:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>make<span class="w"> </span>extend-site-down-warning<span class="w"> </span><span class="nv">MINUTES</span><span class="o">=</span>+30<span class="w">   </span><span class="c1"># kup sobie pół godziny</span>
+<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>make<span class="w"> </span>status-site-down-warning<span class="w">               </span><span class="c1"># sprawdź stan</span>
+<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a>make<span class="w"> </span>disable-site-down-warning<span class="w">              </span><span class="c1"># gotowe — otwórz serwis</span>
+</code></pre></div>
+<h2 id="multi-host">Multi-host<a class="headerlink" href="#multi-host" title="Permanent link">&para;</a></h2>
+<p>Przy <a href="../../konfiguracja/multi-host/">multi-hoście</a> (<code>DJANGO_BPP_HOSTNAMES</code>) jedna
+instalacja obsługuje wiele domen, a każda z nich jest osobną witryną w bazie.
+Baner i blokada są zakładane <strong>per witryna</strong>, więc bez wskazania listy zablokujesz
+tylko witrynę bieżącą, a pozostałe domeny zostaną otwarte.</p>
+<p>Podaj listę id witryn:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>make<span class="w"> </span>run-with-warning<span class="w"> </span><span class="nv">SITE_IDS</span><span class="o">=</span><span class="s2">"1 2 3"</span>
+</code></pre></div>
+<p>albo na stałe w <code>$BPP_CONFIGS_DIR/.env</code>:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="nv">SITE_DOWN_SITE_IDS</span><span class="o">=</span><span class="m">1</span><span class="w"> </span><span class="m">2</span><span class="w"> </span><span class="m">3</span>
+</code></pre></div>
+<p>Id witryn zobaczysz w panelu admina (<em>Witryny</em>) albo przez
+<code>make status-site-down-warning JSON=1</code>, gdy przerwa jest już aktywna.</p>
+<p><code>make disable-site-down-warning</code> działa zawsze na <strong>wszystkich</strong> witrynach — gdy
+serwis leży, nie chcesz najpierw ustalać, która domena zawiniła.</p>
+<h2 id="nienadzorowana-aktualizacja-z-ostrzezeniem">Nienadzorowana aktualizacja z ostrzeżeniem<a class="headerlink" href="#nienadzorowana-aktualizacja-z-ostrzezeniem" title="Permanent link">&para;</a></h2>
+<p><a href="../aktualizacje/#automatyczna-aktualizacja-make-autoupdate">Auto-update</a> może
+uprzedzać użytkowników tak samo. W <code>$BPP_CONFIGS_DIR/.env</code>:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="nv">AUTOUPDATE_WARNING_MINUTES</span><span class="o">=</span><span class="m">10</span>
+</code></pre></div>
+<p>Wtedy każdy automatyczny deploy zaczyna się od 10-minutowego banera. Puste albo <code>0</code>
+= zachowanie dotychczasowe (wdrożenie bez uprzedzenia). Pętla nie zatrzymuje się,
+gdy obraz nie wspiera przerwy — robi wtedy zwykłe wdrożenie.</p>
+<h2 id="testy">Testy<a class="headerlink" href="#testy" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>make<span class="w"> </span>test-deploy-with-warning
+</code></pre></div>
+<p>Sprawdza kolejność faz, przekazanie <code>BPP_SKIP_HEALTH_GATE=1</code>, zachowanie przy błędzie
+wdrożenia, przerwanie w fazie banera, bicie heartbeatu i degradację na starym obrazie.
+Nie wymaga <code>.env</code>, Dockera ani sieci — wszystko na mockach.</p>
+<h2 id="zobacz-tez">Zobacz też<a class="headerlink" href="#zobacz-tez" title="Permanent link">&para;</a></h2>
+<ul>
+<li><a href="../komendy/">Najważniejsze komendy</a></li>
+<li><a href="../aktualizacje/">Aktualizacje i wersje obrazów</a></li>
+<li><a href="../../konfiguracja/multi-host/">Multi-host</a></li>
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Powrót do góry
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+    <div class="md-copyright__highlight">
+      MIT · IPL Web
+    </div>
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.instant", "navigation.tracking", "navigation.tabs", "navigation.sections", "navigation.top", "navigation.indexes", "toc.follow", "search.suggest", "search.highlight", "content.code.copy", "content.action.edit"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Skopiowano do schowka", "clipboard.copy": "Kopiuj do schowka", "search.result.more.one": "1 wi\u0119cej na tej stronie", "search.result.more.other": "# wi\u0119cej na tej stronie", "search.result.none": "Brak wynik\u00f3w wyszukiwania", "search.result.one": "Wyniki wyszukiwania: 1", "search.result.other": "Wyniki wyszukiwania: #", "search.result.placeholder": "Zacznij pisa\u0107, aby szuka\u0107", "search.result.term.missing": "Brak", "select.version": "Wybierz wersj\u0119"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>
