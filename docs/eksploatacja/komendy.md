@@ -263,6 +263,9 @@ make screen-with-autoupdate   # Odpal pętlę auto-update w tle, w sesji screen
 make setup-autoupdate-cron    # Wpis cron pilnujący pętli (przeżywa reboot i crash sesji)
 make remove-autoupdate-cron   # Usuń wpis cron auto-aktualizacji
 make test-autoupdate-cron     # Unit-testy scripts/setup-autoupdate-cron.sh
+make git-bez-klucza           # origin po HTTPS — git fetch bez agenta/klucza SSH (push nadal SSH)
+make git-na-klucz             # origin z powrotem po SSH
+make test-git-remote          # Unit-testy scripts/git-remote.sh
 ```
 
 Pełny opis przepływu bezpiecznej aktualizacji (pinowanie wersji, shadow stack,

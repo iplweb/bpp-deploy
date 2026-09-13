@@ -1,4 +1,4 @@
-.PHONY: all run refresh up up-quick up-appserver up-webserver stop rmrf restart restart-appserver health check-quic validate-env-quotes fix-env-quotes test-validate-env-quotes test-upgrade test-upgrade-clean autoupdate screen-with-autoupdate test-autoupdate setup-autoupdate-cron remove-autoupdate-cron test-autoupdate-cron \
+.PHONY: all run refresh up up-quick up-appserver up-webserver stop rmrf restart restart-appserver health check-quic validate-env-quotes fix-env-quotes test-validate-env-quotes test-upgrade test-upgrade-clean autoupdate screen-with-autoupdate test-autoupdate setup-autoupdate-cron remove-autoupdate-cron test-autoupdate-cron git-bez-klucza git-na-klucz test-git-remote \
        run-with-warning enable-site-down-warning disable-site-down-warning extend-site-down-warning status-site-down-warning test-deploy-with-warning
 
 all: run
@@ -204,6 +204,18 @@ test-autoupdate-cron:
 # Unit-testy scripts/autoupdate.sh (mock git/docker/make, bez sieci/dockera).
 test-autoupdate:
 	@bash scripts/test-autoupdate.sh
+
+# Adres origin: HTTPS (pobieranie bez agenta/klucza SSH — petla auto-update pod
+# screenem agenta nie ma) albo z powrotem SSH. Logika: scripts/git-remote.sh.
+git-bez-klucza:
+	@bash scripts/git-remote.sh https
+
+git-na-klucz:
+	@bash scripts/git-remote.sh ssh
+
+# Unit-testy scripts/git-remote.sh (prawdziwy git na repo tymczasowych, bez sieci).
+test-git-remote:
+	@bash scripts/test-git-remote.sh
 
 # Proba generalna aktualizacji: backup -> shadow stack (dbserver+redis poza
 # projektem Compose) -> restore -> migrate obrazem-kandydatem. Produkcja

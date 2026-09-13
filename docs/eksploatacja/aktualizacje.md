@@ -189,6 +189,27 @@ screen -r bpp-autoupdate      # podgląd (Ctrl-A D = odłącz)
 uruchamia drugiej. Nazwę sesji można zmienić przez `AUTOUPDATE_SCREEN_NAME`.
 Zatrzymanie: `screen -S bpp-autoupdate -X quit`.
 
+!!! warning "Pętla pod `screen` nie ma Twojego agenta SSH"
+    Jeśli repozytorium jest sklonowane po SSH (`git@github.com:…`), a klucz
+    pochodzi z przekierowanego agenta, `git fetch` w pętli kończy się
+    `Permission denied (publickey)`. W logu cyklu widać wtedy tylko
+    `OSTRZEZENIE: 'git fetch' nieudany — pomijam sprawdzenie commitow.` —
+    nowe **obrazy** nadal są wdrażane, ale nowe **commity** nie docierają nigdy.
+
+    Repozytorium publiczne (jak `iplweb/bpp-deploy`) nie potrzebuje do
+    pobierania żadnego klucza:
+
+    ```bash
+    make git-bez-klucza   # origin po HTTPS; push (jeśli go używasz) zostaje po SSH
+    make git-na-klucz     # powrót do SSH
+    ```
+
+    Obie komendy biorą host i ścieżkę z obecnego adresu (fork działa tak samo)
+    i po zmianie sprawdzają połączenie bez żadnych pytań o hasło czy login.
+    Dla repozytorium **prywatnego** załóż na serwerze deploy key (klucz tylko
+    do odczytu, bez hasła) — nie token PAT, bo wygasa i auto-update umiera po
+    cichu w dniu wygaśnięcia.
+
 ### Co odświeża się samo, a co jest zamrożone {#samorestart-petli}
 
 Po `git pull` **prawie wszystko** działa od razu, bez dotykania sesji:

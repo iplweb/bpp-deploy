@@ -28,6 +28,9 @@ jobs:
       - name: Auto-update (mocki)
         run: ./scripts/test-autoupdate.sh
 
+      - name: Remote gita HTTPS/SSH (bez sieci)
+        run: ./scripts/test-git-remote.sh
+
       - name: Wdrozenie z ostrzezeniem (mocki)
         run: ./scripts/test-deploy-with-warning.sh
 
