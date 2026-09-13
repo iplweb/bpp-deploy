@@ -107,6 +107,52 @@ wykonanie `trap EXIT`**, więc katalog-lock trzeba zwolnić, a `trap` wyczyści�
     jako jedyny ślad po tym, że host przestał się aktualizować. Pilnuje tego
     jawna asercja w `scripts/test-autoupdate.sh`.
 
+### Osierocony lock: przejmuj tylko martwego właściciela
+
+Na produkcji (2026-09-10) cykl się nie dokończył, a pętla przez dwie doby
+kończyła każdą iterację na „inny cykl trwa". Które przerwania osierocają lock
+(zmierzone na bashu 5.2, katalog-lock + `trap EXIT`):
+
+| Przerwanie | Lock |
+|---|---|
+| SIGHUP (`screen -X quit`, zamknięcie terminala), SIGTERM (`kill`) | zwolniony — `trap EXIT` się wykonuje |
+| SIGKILL (`kill -9`, OOM killer) | **osierocony** |
+| restart / awaria hosta | **osierocony** — katalog leży na dysku |
+
+Dlatego lock ma plik `owner` (`pid`, `boot`, `started`), a przejęcie następuje
+tylko po **dowodzie** śmierci właściciela: inny identyfikator rozruchu, brak
+procesu o tym PID albo PID zajęty przez proces, który nie jest `autoupdate.sh`.
+Każdy z tych warunków, a także pozostałe bezpieczniki niżej, ma w
+`scripts/test-autoupdate.sh` test, który gaśnie po jego usunięciu (sprawdzone
+mutacjami).
+
+Decyzje, których nie należy „upraszczać":
+
+- **Żywego właściciela nie przejmujemy po wieku** — ponad
+  `AUTOUPDATE_LOCK_MAX_AGE_MINUTES` tylko ostrzegamy. Deploy może jeszcze trwać,
+  a przejęcie oznaczałoby dwa równoległe `make run`. Wiek decyduje sam wyłącznie
+  o locku **bez** pliku `owner` (starsza wersja skryptu), bo tam nie ma PID-u
+  do sprawdzenia.
+- **Sam `kill -0` nie wystarcza** — PID po restarcie hosta (albo po dniach
+  pracy) bywa nadany innemu procesowi. Stąd identyfikator rozruchu i porównanie
+  komendy procesu.
+- **Pusty wynik `ps` znaczy „nie ma procesu" tylko, gdy `ps` działa** — skrypt
+  najpierw pyta `ps` o własny PID. Bez tej sondy brak/niekompatybilny `ps`
+  (np. busybox bez `-p`) sprawiłby, że każdy żywy lock wyglądałby na martwy.
+- **Przejęcie pod osobną blokadą** (`<lock>.takeover`, też `mkdir`) z ponowną
+  oceną pod nią — bez niej dwa procesy mogą naraz uznać lock za martwy, a drugi
+  skasuje świeży lock pierwszego. Osierocona blokada przejmowania (starsza niż
+  minuta) jest usuwana, inaczej ten sam błąd wróciłby piętro wyżej.
+- **Żadnego `rm -rf` na katalogu locka** — usuwamy tylko `owner`/`owner.tmp`
+  i robimy `rmdir`. Pomyłkowy `AUTOUPDATE_LOCK_DIR` wskazujący na cudzy katalog
+  kończy się błędem `rmdir`, a nie jego skasowaniem.
+- **`owner` zapisywany przez plik tymczasowy + `mv`** — czytający widzi plik
+  pełny albo żaden, nigdy pusty w połowie zapisu.
+- **Zwolnienie musi skasować `owner`, zanim zrobi `rmdir`** — sam `rmdir` na
+  niepustym katalogu po cichu zawodzi. Każdy cykl zostawiałby wtedy lock, który
+  następny przejmowałby jako „martwy" — błąd schowany za mechanizmem, który
+  miał go łapać.
+
 ### Nie próbuj zamiast tego przerywać pętli kodem wyjścia
 
 Kuszące „niech `while` zrobi `break`, a strażnik podniesie" **nie może zadziałać**:

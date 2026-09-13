@@ -325,6 +325,7 @@ truncate -s 0 "$BPP_CONFIGS_DIR/logs/autoupdate-cron.log"
 | `AUTOUPDATE_INTERVAL` | `7200` | Odstęp między cyklami w sekundach. |
 | `AUTOUPDATE_DB_BACKUP` | `0` (wył.) | `1` = `make db-backup` **przed** każdym auto-deployem. Gdy backup się nie uda, deploy jest przerywany (fail-safe). |
 | `AUTOUPDATE_SCREEN_NAME` | `bpp-autoupdate` | Nazwa sesji `screen` używana przez `make screen-with-autoupdate`. |
+| `AUTOUPDATE_LOCK_MAX_AGE_MINUTES` | `120` | Po tylu minutach trwający cykl jest zgłaszany w logu jako **wiszący** (z PID-em i podpowiedzią, co sprawdzić). Locka żywego procesu auto-update **nie przejmuje** — patrz [Zabezpieczenia](#zabezpieczenia). |
 | `AUTOUPDATE_WARNING_MINUTES` | — (wył.) | Gdy > 0, auto-deploy najpierw wywiesza baner na tyle minut, potem blokuje serwis, wdraża i odblokowuje. Szczegóły: [Przerwa techniczna z ostrzeżeniem](przerwa-techniczna.md). |
 | `AUTOUPDATE_CRON_SCHEDULE` | `*/15 * * * *` | Harmonogram wpisu-strażnika instalowanego przez `make setup-autoupdate-cron`. Akceptuje pięć pól cronowych albo makro (`@reboot`, `@hourly`, `@daily`, `@midnight`, `@weekly`, `@monthly`, `@yearly`, `@annually`). |
 | `AUTOUPDATE_CRON_LOG` | `$BPP_CONFIGS_DIR/logs/autoupdate-cron.log` | Plik, do którego strażnik dopisuje swoje wyjście; w tym samym katalogu ląduje kopia zapasowa crontaba. |
@@ -361,8 +362,19 @@ każdy nowy obraz.
 
 ### Zabezpieczenia
 
-- **Lock** (`.autoupdate.lock.d`) — dwa cykle się nie nałożą, a ręczny
-  `make run` w trakcie nie zderzy się z auto-deployem.
+- **Lock** (`.autoupdate.lock.d`) — dwa cykle auto-update się nie nałożą.
+  Ręcznego `make run` lock **nie** sprawdza — nie wdrażaj ręcznie, gdy w
+  `screen -r bpp-autoupdate` trwa cykl.
+- **Osierocony lock przejmowany sam** — cykl przerwany przez `kill -9`, OOM
+  killera albo restart hosta nie zdąży zwolnić locka. Kolejny cykl rozpoznaje
+  to po pliku `owner` w katalogu locka (PID, rozruch hosta, czas startu) i
+  przejmuje lock, gdy właściciel na pewno nie żyje. W logu:
+  `Osierocony lock …: proces PID 1234 nie zyje — przejmuje.` Katalogu nie
+  trzeba już kasować ręcznie.
+- **Wiszący cykl jest zgłaszany, nie zabijany** — gdy lock trzyma **żywy**
+  proces dłużej niż `AUTOUPDATE_LOCK_MAX_AGE_MINUTES` (domyślnie 120 min),
+  każdy kolejny cykl loguje `UWAGA: ten cykl trwa juz N min` z PID-em. Sprawdź
+  `pstree -p <PID>`; jeśli proces wisi, `kill <PID>` — następny cykl ruszy sam.
 - **`git pull --ff-only`** — jeśli lokalny `main` rozjechał się z `origin/main`
   (ktoś commitował na hoście), auto-update **nie** robi merge/rebase, tylko
   loguje ostrzeżenie i pomija część gitową — nie psuje drzewa.

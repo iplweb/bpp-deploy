@@ -13,6 +13,11 @@
 # Zmienne srodowiskowe (wszystkie z domyslnymi):
 #   AUTOUPDATE_DB_BACKUP=1     -> `make db-backup` przed deployem (domyslnie wyl.)
 #   AUTOUPDATE_LOCK_DIR=<dir>   -> nadpisanie katalogu locka (glownie do testow)
+#   AUTOUPDATE_LOCK_MAX_AGE_MINUTES=120 -> po tylu minutach trwajacy cykl jest
+#                                  glosno zglaszany jako wiszacy (lock zywego
+#                                  procesu NIE jest przejmowany), a lock bez
+#                                  pliku owner uznawany za osierocony
+#   AUTOUPDATE_BOOT_ID=<id>     -> nadpisanie identyfikatora rozruchu (testy)
 #   AUTOUPDATE_WARNING_MINUTES  -> gdy > 0, deploy idzie przez sesje z
 #                                  ostrzezeniem (baner N minut -> blokada ->
 #                                  deploy -> odblokowanie). Puste/0 = jak dotad.
@@ -35,13 +40,155 @@ LOCK_DIR="${AUTOUPDATE_LOCK_DIR:-$REPO_DIR/.autoupdate.lock.d}"
 log() { printf '%s  %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*"; }
 
 # --- Lock (mkdir jest atomowy i przenosny; flock nie ma na macOS) ------------
-# Zajety lock: inny cykl trwa albo trwa reczny deploy — nie nakladamy sie.
-if ! mkdir "$LOCK_DIR" 2>/dev/null; then
-	log "Inny cykl auto-update trwa (lock: $LOCK_DIR) — pomijam."
-	exit 0
+# Zajety lock: inny cykl auto-update trwa — nie nakladamy sie. (Reczny `make run`
+# locka NIE sprawdza.)
+#
+# OSIEROCONY LOCK. SIGKILL (OOM killer, kill -9) i restart hosta omijaja
+# `trap EXIT`, a katalog zostaje na dysku — kazdy kolejny cykl konczylby sie na
+# "inny cykl trwa", az ktos zajrzy do screena (produkcja, 2026-09-10: dwie doby).
+# Dlatego w locku lezy plik `owner` (pid, rozruch hosta, start), a zajety lock
+# przejmujemy TYLKO, gdy da sie wykazac, ze wlasciciel nie zyje: inny rozruch,
+# martwy PID albo PID nalezacy juz do innego procesu. Zywego wlasciciela nie
+# ruszamy nigdy — ponad AUTOUPDATE_LOCK_MAX_AGE_MINUTES tylko glosno ostrzegamy:
+# deploy moze jeszcze trwac, a dwa rownolegle sa gorsze niz jeden stojacy.
+LOCK_MAX_AGE_MINUTES="${AUTOUPDATE_LOCK_MAX_AGE_MINUTES:-120}"
+case "$LOCK_MAX_AGE_MINUTES" in
+	''|*[!0-9]*)
+		log "OSTRZEZENIE: AUTOUPDATE_LOCK_MAX_AGE_MINUTES='$LOCK_MAX_AGE_MINUTES' to nie liczba minut — przyjmuje 120."
+		LOCK_MAX_AGE_MINUTES=120 ;;
+esac
+
+# Rozny po kazdym starcie hosta — PID z locka sprzed restartu nie zostanie
+# wziety za zywy, gdy system nada ten numer innemu procesowi.
+boot_id() {
+	if [ -n "${AUTOUPDATE_BOOT_ID:-}" ]; then
+		printf '%s' "$AUTOUPDATE_BOOT_ID"
+	elif [ -r /proc/sys/kernel/random/boot_id ]; then
+		cat /proc/sys/kernel/random/boot_id
+	else
+		# macOS. Gdy i tego brak: puste, a porownanie rozruchu jest pomijane
+		# (zostaje sprawdzenie PID) — celowo nie przerywamy cyklu.
+		sysctl -n kern.boottime 2>/dev/null || true
+	fi
+}
+
+owner_field() {
+	awk -F= -v k="$1" '$1 == k { sub(/^[^=]*=/, ""); print; exit }' "$LOCK_DIR/owner" 2>/dev/null
+}
+
+lock_acquire() {
+	mkdir "$LOCK_DIR" 2>/dev/null || return 1
+	# Przez plik tymczasowy + mv: czytajacy widzi plik pelny albo zaden.
+	if ! { printf 'pid=%s\nboot=%s\nstarted=%s\n' "$$" "$(boot_id)" "$(date +%s)" > "$LOCK_DIR/owner.tmp" \
+		&& mv "$LOCK_DIR/owner.tmp" "$LOCK_DIR/owner"; }; then
+		log "OSTRZEZENIE: nie moge zapisac $LOCK_DIR/owner — po awarii lock zwolni dopiero limit $LOCK_MAX_AGE_MINUTES min."
+	fi
+	return 0
+}
+
+# Bez `rm -rf`: kasujemy wylacznie wlasne pliki, wiec pomylkowy
+# AUTOUPDATE_LOCK_DIR wskazujacy na cudzy katalog skonczy sie na bledzie rmdir.
+lock_remove() {
+	rm -f "$LOCK_DIR/owner" "$LOCK_DIR/owner.tmp"
+	[ -d "$LOCK_DIR" ] || return 0
+	rmdir "$LOCK_DIR" 2>/dev/null && return 0
+	log "OSTRZEZENIE: nie moge usunac $LOCK_DIR (zawiera obce pliki?)."
+	return 1
+}
+
+lock_release() {
+	# Cudzego locka nie zwalniamy.
+	if [ -f "$LOCK_DIR/owner" ] && [ "$(owner_field pid)" != "$$" ]; then
+		return 0
+	fi
+	lock_remove
+}
+
+# 0 + $lock_stale_reason, gdy wlasciciel na pewno nie zyje; 1, gdy zyje albo
+# nie da sie tego rozstrzygnac.
+lock_is_stale() {
+	lock_stale_reason=""
+	owner_pid="$(owner_field pid)"
+	case "$owner_pid" in
+		''|*[!0-9]*)
+			# Brak wlasciciela: lock ze starszej wersji skryptu albo SIGKILL
+			# miedzy mkdir a zapisem pliku. Zostaje sam wiek katalogu.
+			if [ -n "$(find "$LOCK_DIR" -maxdepth 0 -mmin +"$LOCK_MAX_AGE_MINUTES" 2>/dev/null)" ]; then
+				lock_stale_reason="lock bez wlasciciela starszy niz $LOCK_MAX_AGE_MINUTES min"
+				return 0
+			fi
+			return 1 ;;
+	esac
+
+	owner_boot="$(owner_field boot)"
+	current_boot="$(boot_id)"
+	if [ -n "$owner_boot" ] && [ -n "$current_boot" ] && [ "$owner_boot" != "$current_boot" ]; then
+		lock_stale_reason="zalozony przed restartem hosta przez PID $owner_pid"
+		return 0
+	fi
+
+	# Pusty wynik `ps` znaczy "nie ma procesu" tylko wtedy, gdy `ps` w ogole
+	# dziala — inaczej brak ps wzielibysmy za martwego wlasciciela.
+	[ -n "$(ps -p "$$" -o args= 2>/dev/null)" ] || return 1
+	owner_args="$(ps -p "$owner_pid" -o args= 2>/dev/null)"
+	if [ -z "$owner_args" ]; then
+		lock_stale_reason="proces PID $owner_pid nie zyje"
+		return 0
+	fi
+	case "$owner_args" in
+		*autoupdate.sh*) return 1 ;;
+	esac
+	lock_stale_reason="PID $owner_pid nalezy juz do innego procesu ($owner_args)"
+	return 0
+}
+
+# Przejecie pod osobna blokada (tez mkdir): bez niej dwa procesy moglyby naraz
+# uznac lock za martwy, a drugi skasowalby SWIEZY lock pierwszego. Pod blokada
+# stan sprawdzamy jeszcze raz.
+lock_take_over() {
+	takeover="$LOCK_DIR.takeover"
+	if [ -n "$(find "$takeover" -maxdepth 0 -mmin +1 2>/dev/null)" ]; then
+		log "Usuwam osierocona blokade przejmowania ($takeover)."
+		rmdir "$takeover" 2>/dev/null || log "OSTRZEZENIE: nie moge usunac $takeover."
+	fi
+	mkdir "$takeover" 2>/dev/null || return 1
+
+	rc=1
+	if lock_acquire; then
+		rc=0
+	elif lock_is_stale && lock_remove && lock_acquire; then
+		rc=0
+	fi
+	rmdir "$takeover" 2>/dev/null || log "OSTRZEZENIE: nie moge usunac $takeover."
+	return "$rc"
+}
+
+if ! lock_acquire; then
+	if lock_is_stale; then
+		log "Osierocony lock $LOCK_DIR: $lock_stale_reason — przejmuje."
+		if ! lock_take_over; then
+			log "Inny cykl auto-update trwa albo wlasnie przejmuje lock ($LOCK_DIR) — pomijam."
+			exit 0
+		fi
+	else
+		owner_pid="$(owner_field pid)"
+		started="$(owner_field started)"
+		log "Inny cykl auto-update trwa (lock: $LOCK_DIR${owner_pid:+, PID $owner_pid}) — pomijam."
+		case "$started" in
+			''|*[!0-9]*) ;;
+			*)
+				wiek=$(( ($(date +%s) - started) / 60 ))
+				if [ "$wiek" -gt "$LOCK_MAX_AGE_MINUTES" ]; then
+					log "UWAGA: ten cykl trwa juz $wiek min — dluzej niz limit $LOCK_MAX_AGE_MINUTES min (AUTOUPDATE_LOCK_MAX_AGE_MINUTES)."
+					log "  Lock NIE jest przejmowany, bo proces zyje: $(ps -p "$owner_pid" -o args= 2>/dev/null)"
+					log "  Na czym stoi: pstree -p $owner_pid"
+					log "  Jesli wisi: kill $owner_pid (w ostatecznosci kill -9) — nastepny cykl przejmie lock sam."
+				fi ;;
+		esac
+		exit 0
+	fi
 fi
-# shellcheck disable=SC2064  # rozwiazujemy LOCK_DIR teraz, celowo
-trap "rmdir '$LOCK_DIR' 2>/dev/null || true" EXIT
+trap lock_release EXIT
 
 cd "$REPO_DIR" || { log "BLAD: nie moge wejsc do $REPO_DIR."; exit 1; }
 
@@ -256,6 +403,6 @@ log "Koncze sesje screen '$sesja' — straznik podniesie petle w nowej wersji (d
 # komunikatem "inny cykl auto-update trwa" — auto-update bylby martwy, a jedynym
 # sladem jedna linijka w logu.
 trap - EXIT
-rmdir "$LOCK_DIR" 2>/dev/null || true
+lock_release
 
 exec screen -S "$sesja" -X quit

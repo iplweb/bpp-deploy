@@ -121,9 +121,18 @@ chmod +x "$MOCK_BIN/screen"
 
 # --- Mock make --------------------------------------------------------------
 # Zapisuje cel do MARKER. db-backup moze zwrocic blad (MOCK_BACKUP_FAIL=1).
+#
+# Przy `make run` zapisuje tez zawartosc pliku wlasciciela locka oraz komende
+# procesu o zapisanym PID — tak sprawdzamy, ze lock w TRAKCIE cyklu wskazuje
+# na zywy autoupdate.sh (inaczej kazdy trwajacy cykl wygladalby na osierocony).
 cat > "$MOCK_BIN/make" <<'EOF'
 #!/bin/sh
 echo "make-$1" >> "$MARKER"
+if [ "$1" = "run" ] && [ -f "${AUTOUPDATE_LOCK_DIR:-}/owner" ]; then
+	sed 's/^/owner-/' "$AUTOUPDATE_LOCK_DIR/owner" >> "$MARKER"
+	owner_pid="$(sed -n 's/^pid=//p' "$AUTOUPDATE_LOCK_DIR/owner")"
+	printf 'owner-args=%s\n' "$(ps -p "$owner_pid" -o args= 2>/dev/null)" >> "$MARKER"
+fi
 if [ "$1" = "db-backup" ] && [ "${MOCK_BACKUP_FAIL:-0}" = "1" ]; then
 	exit 1
 fi
@@ -131,8 +140,16 @@ exit 0
 EOF
 chmod +x "$MOCK_BIN/make"
 
+# Procesy-atrapy wlascicieli locka (testy 17+). Ubijane w cleanup.
+HOLDER_PIDS=""
+
 # shellcheck disable=SC2317  # wywolywane przez trap
-cleanup() { rm -rf "$TEST_ROOT"; }
+cleanup() {
+	for p in $HOLDER_PIDS; do
+		kill "$p" 2>/dev/null || true  # atrapa mogla juz zniknac — to nie blad
+	done
+	rm -rf "$TEST_ROOT"
+}
 trap cleanup EXIT
 
 PASS=0
@@ -192,6 +209,7 @@ echo "== Testy scripts/autoupdate.sh =="
 MOCK_GIT_REMOTE=AAA MOCK_IMAGE_CHANGE=0 run_cycle
 assert_not_deployed "brak zmian -> brak make run"
 assert_exit 0 "brak zmian -> exit 0"
+if [ -e "$LAST_LOCK_DIR" ]; then fail "zwykly koniec cyklu zostawil lock ($LAST_LOCK_DIR)"; else pass "zwykly koniec cyklu zwalnia lock"; fi
 
 # 2. Nowy obraz -> deploy (bez git pull, bo commit ten sam).
 MOCK_GIT_REMOTE=AAA MOCK_IMAGE_CHANGE=1 run_cycle
@@ -313,6 +331,129 @@ LOCK_EXIT=$?
 set -e
 if [ "$LOCK_EXIT" = "0" ]; then pass "lock zajety -> exit 0"; else fail "lock zajety -> exit 0 (otrzymano $LOCK_EXIT)"; fi
 if grep -q "make-run" "$MARKER" 2>/dev/null; then fail "lock zajety -> nie powinien deployowac"; else pass "lock zajety -> brak make run"; fi
+
+# 17-26. Osierocony lock.
+#
+# REGRESJA Z PRODUKCJI (2026-09-10). Cykl nie dokonczyl sie (SIGKILL albo
+# restart hosta — oba omijaja `trap EXIT`), katalog locka zostal na dysku
+# i kazdy nastepny cykl przez dwie doby konczyl sie na "inny cykl trwa".
+# Lock trzyma wiec plik `owner` (pid, rozruch, start), a zajety lock jest
+# przejmowany tylko wtedy, gdy DA SIE WYKAZAC, ze wlasciciel nie zyje.
+# Zywego wlasciciela NIGDY nie przejmujemy — nawet ponad limit wieku tylko
+# ostrzegamy (deploy moze jeszcze trwac; dwa rownolegle bylyby gorsze).
+
+# Cykl z lockiem przygotowanym przez test. $1 = katalog locka. Wyjscie w $OUT.
+# Rozruch hosta podstawiony na sztywno, zeby testy nie zalezaly od platformy.
+run_with_lock() {
+	export MARKER="$TEST_ROOT/marker.$$.$RANDOM"
+	OUT="$TEST_ROOT/out.$$.$RANDOM"
+	: > "$MARKER"
+	set +e
+	env -u MAKE -u MAKEFLAGS PATH="$MOCK_BIN:$PATH" MARKER="$MARKER" \
+		STATE_FILE="$TEST_ROOT/state.$$.$RANDOM" \
+		AUTOUPDATE_LOCK_DIR="$1" AUTOUPDATE_BOOT_ID="rozruch-A" \
+		MOCK_IMAGE_CHANGE=1 \
+		bash "$SCRIPT" >"$OUT" 2>&1
+	RUN_EXIT=$?
+	set -e
+}
+
+# $1=katalog $2=pid $3=rozruch $4=start (epoch)
+make_lock() {
+	mkdir -p "$1"
+	printf 'pid=%s\nboot=%s\nstarted=%s\n' "$2" "$3" "$4" > "$1/owner"
+}
+
+out_has() { grep -q "$1" "$OUT" 2>/dev/null; }
+
+assert_lock_kept() {
+	if [ -f "$1/owner" ] && grep -qx "pid=$2" "$1/owner"; then pass "$3"; else fail "$3 (lock wlasciciela $2 zniknal lub zostal nadpisany)"; fi
+}
+
+NOW="$(date +%s)"
+
+# Atrapa zywego cyklu: proces, ktorego komenda zawiera `autoupdate.sh`.
+mkdir -p "$TEST_ROOT/holder"
+printf 'while :; do sleep 1; done\n' > "$TEST_ROOT/holder/autoupdate.sh"
+bash "$TEST_ROOT/holder/autoupdate.sh" &
+HOLDER_PID=$!
+# Zywy proces, ale NIE autoupdate.sh (PID uzyty ponownie przez system).
+sleep 300 &
+OTHER_PID=$!
+HOLDER_PIDS="$HOLDER_PID $OTHER_PID"
+# PID na pewno martwy.
+sh -c 'exit 0' &
+DEAD_PID=$!
+wait "$DEAD_PID" || true  # kod wyjscia atrapy bez znaczenia, liczy sie tylko to, ze nie zyje
+
+# 17. W trakcie cyklu lock wskazuje na zywy autoupdate.sh. Bez tego pliku
+# kazdy trwajacy cykl wygladalby dla nastepnego na lock bez wlasciciela.
+MOCK_IMAGE_CHANGE=1 run_cycle
+if marker_has "^owner-pid=[0-9][0-9]*$"; then pass "lock w trakcie cyklu ma pid wlasciciela"; else fail "lock w trakcie cyklu nie ma pid wlasciciela"; fi
+if marker_has "^owner-boot=."; then pass "lock w trakcie cyklu ma identyfikator rozruchu"; else fail "lock w trakcie cyklu nie ma identyfikatora rozruchu"; fi
+if marker_has "^owner-started=[0-9][0-9]*$"; then pass "lock w trakcie cyklu ma czas startu"; else fail "lock w trakcie cyklu nie ma czasu startu"; fi
+if marker_has "^owner-args=.*autoupdate\.sh"; then pass "pid w locku to proces autoupdate.sh"; else fail "pid w locku nie wskazuje na autoupdate.sh"; fi
+
+# 18. Zywy wlasciciel, ten sam rozruch, swiezy -> pomijamy, lock nietkniety.
+L="$TEST_ROOT/l18.d"; make_lock "$L" "$HOLDER_PID" rozruch-A "$NOW"
+run_with_lock "$L"
+if marker_has "make-run"; then fail "zywy wlasciciel -> nie powinien deployowac"; else pass "zywy wlasciciel -> brak make run"; fi
+assert_exit 0 "zywy wlasciciel -> exit 0"
+assert_lock_kept "$L" "$HOLDER_PID" "zywy wlasciciel -> lock nietkniety"
+if out_has "limit"; then fail "swiezy zywy wlasciciel -> nie powinno byc ostrzezenia o limicie"; else pass "swiezy zywy wlasciciel -> bez ostrzezenia o limicie"; fi
+
+# 19. Zywy wlasciciel ponad limit (180 min > 120) -> TYLKO ostrzezenie.
+L="$TEST_ROOT/l19.d"; make_lock "$L" "$HOLDER_PID" rozruch-A "$((NOW - 180 * 60))"
+run_with_lock "$L"
+if marker_has "make-run"; then fail "zywy wlasciciel ponad limit -> nie powinien deployowac"; else pass "zywy wlasciciel ponad limit -> brak make run"; fi
+assert_lock_kept "$L" "$HOLDER_PID" "zywy wlasciciel ponad limit -> lock nietkniety"
+if out_has "limit" && out_has "$HOLDER_PID"; then pass "zywy wlasciciel ponad limit -> ostrzezenie z PID"; else fail "zywy wlasciciel ponad limit -> brak ostrzezenia z PID"; fi
+
+# 20. Limit z AUTOUPDATE_LOCK_MAX_AGE_MINUTES: 30 min przy limicie 10 -> ostrzezenie.
+L="$TEST_ROOT/l20.d"; make_lock "$L" "$HOLDER_PID" rozruch-A "$((NOW - 30 * 60))"
+AUTOUPDATE_LOCK_MAX_AGE_MINUTES=10 run_with_lock "$L"
+if out_has "limit"; then pass "AUTOUPDATE_LOCK_MAX_AGE_MINUTES obnizony -> ostrzezenie"; else fail "AUTOUPDATE_LOCK_MAX_AGE_MINUTES ignorowany"; fi
+
+# 21. Zywy PID z INNEGO rozruchu -> host wstawal, lock martwy -> przejecie.
+L="$TEST_ROOT/l21.d"; make_lock "$L" "$HOLDER_PID" rozruch-B "$NOW"
+run_with_lock "$L"
+if marker_has "make-run"; then pass "lock sprzed restartu hosta -> przejecie i deploy"; else fail "lock sprzed restartu hosta -> brak przejecia"; fi
+# Powod w logu jest czescia kontraktu — to jedyna wskazowka dla operatora,
+# DLACZEGO lock zniknal. Bez tych asercji galezie "martwy PID" i "inny proces"
+# bylyby nierozroznialne (obie przejmuja).
+if out_has "restartem hosta"; then pass "lock sprzed restartu hosta -> powod w logu"; else fail "lock sprzed restartu hosta -> brak powodu w logu"; fi
+
+# 22. Martwy PID -> przejecie.
+L="$TEST_ROOT/l22.d"; make_lock "$L" "$DEAD_PID" rozruch-A "$NOW"
+run_with_lock "$L"
+if marker_has "make-run"; then pass "martwy wlasciciel -> przejecie i deploy"; else fail "martwy wlasciciel -> brak przejecia"; fi
+if out_has "PID $DEAD_PID nie zyje"; then pass "martwy wlasciciel -> powod w logu"; else fail "martwy wlasciciel -> brak powodu w logu"; fi
+if [ -e "$L" ]; then fail "po przejeciu lock nie zostal zwolniony na koncu cyklu"; else pass "po przejeciu lock zwolniony na koncu cyklu"; fi
+if ls -d "$L".* >/dev/null 2>&1; then fail "przejecie zostawilo smieci ($(ls -d "$L".*))"; else pass "przejecie nie zostawia smieci"; fi
+
+# 23. PID zyje, ale to inny proces niz autoupdate.sh -> przejecie.
+L="$TEST_ROOT/l23.d"; make_lock "$L" "$OTHER_PID" rozruch-A "$NOW"
+run_with_lock "$L"
+if marker_has "make-run"; then pass "PID zajety przez inny proces -> przejecie i deploy"; else fail "PID zajety przez inny proces -> brak przejecia"; fi
+if out_has "PID $OTHER_PID nalezy juz do innego procesu"; then pass "PID zajety przez inny proces -> powod w logu"; else fail "PID zajety przez inny proces -> brak powodu w logu"; fi
+
+# 24. Lock bez pliku owner (starsza wersja skryptu), starszy niz limit -> przejecie.
+L="$TEST_ROOT/l24.d"; mkdir -p "$L"; touch -t 202001010000 "$L"
+run_with_lock "$L"
+if marker_has "make-run"; then pass "stary lock bez wlasciciela -> przejecie i deploy"; else fail "stary lock bez wlasciciela -> brak przejecia"; fi
+
+# 25. Ktos inny wlasnie przejmuje (swiezy katalog przejmowania) -> pomijamy.
+# Bez tej blokady dwa procesy mogly uznac lock za martwy naraz, a drugi
+# przenioslby w bok SWIEZY lock pierwszego — i oba wdrazalyby rownolegle.
+L="$TEST_ROOT/l25.d"; make_lock "$L" "$DEAD_PID" rozruch-A "$NOW"; mkdir -p "$L.takeover"
+run_with_lock "$L"
+if marker_has "make-run"; then fail "przejmowanie w toku -> nie powinien deployowac"; else pass "przejmowanie w toku -> brak make run"; fi
+
+# 26. Osierocona blokada przejmowania (starsza niz minuta) nie moze zablokowac
+# przejecia na zawsze — to bylby ten sam blad pietro wyzej.
+L="$TEST_ROOT/l26.d"; make_lock "$L" "$DEAD_PID" rozruch-A "$NOW"; mkdir -p "$L.takeover"; touch -t 202001010000 "$L.takeover"
+run_with_lock "$L"
+if marker_has "make-run"; then pass "osierocona blokada przejmowania -> przejecie i deploy"; else fail "osierocona blokada przejmowania -> brak przejecia"; fi
 
 echo ""
 echo "Wynik: $PASS PASS, $FAIL FAIL"
