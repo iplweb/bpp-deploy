@@ -148,7 +148,7 @@ we własnej regule, bo wykonuje się w trakcie transakcji.
 Zakres ID `1-99999` jest zarezerwowany dla reguł lokalnych (CRS używa
 `900000-999999`).
 
-Obecnie jest ich jedenaście:
+Obecnie jest ich dwanaście:
 
 - **`id:10001` — healthcheck poza audytem.** Healthcheck Dockera
   (`curl http://127.0.0.1:80/healthz` co 10 s) zapalał regułę `920350`
@@ -194,8 +194,8 @@ Obecnie jest ich jedenaście:
   chronić, za to ma gwarantowane fałszywe alarmy. Szczegóły:
   [Dlaczego Grafana jest wyjęta w całości](#grafana-poza-waf).
 
-- **`id:10007` — `931100` („RFI: URL Parameter using IP Address") wyłączone na
-  `/o/` i `/.well-known/`.** Reguła blokowała
+- **`id:10007` — `931100` („RFI: URL Parameter using IP Address") i `934110`
+  (SSRF, od CRS 4.29) wyłączone na `/o/` i `/.well-known/`.** Reguła blokowała
   `redirect_uri=http://127.0.0.1:<port>/callback`, czyli pętlę zwrotną, na
   której odbiera kod każdy klient OAuth bez własnej domeny — CLI, skrypt,
   serwer MCP. Oba prefiksy to jedna powierzchnia logowania i **trzymamy je
@@ -231,6 +231,14 @@ Obecnie jest ich jedenaście:
   Zgłoszenie 2026-09-13: „Szukaj publikacji" na stronie jednostki
   `… [09.2024...] (WBIOTECH)` → `933210` → zerwane połączenie. Szczegóły:
   [Tytuł raportu multiseek](#tytul-raportu).
+
+- **`id:10012` — ciasteczko PostHoga z dashboardu Netdaty poza CRS.**
+  Frontend Netdaty zapisuje na całą domenę ciasteczko
+  `ph_phc_…_posthog` z JSON-em analitycznym; na CRS 4.25 klucz
+  `$initial_person_info` zapalał `942290` i **cała witryna** przestawała
+  działać dla tej przeglądarki na rok. Serwer tego ciasteczka nie czyta, więc
+  zdejmujemy z niego cały CRS — i tylko z niego. Szczegóły:
+  [Ciasteczko PostHoga z Netdaty](#ciasteczko-posthoga).
 
 Reguły 10002 i 10003 schodzą dla swoich ścieżek do `ctl:ruleEngine=DetectionOnly`:
 trafienia nadal trafiają do audit logu (i posłużą do napisania precyzyjnych
@@ -575,15 +583,30 @@ WAF-a ani w dashboardzie ModSecurity** — w odróżnieniu od blokady `931100`.
 Osobne przypadki w `make test-waf` pilnują teraz obu rzeczy naraz: że discovery
 jest osiągalne i że `.git/config` mimo to dalej jest blokowany.
 
+### CRS 4.29: ta sama pętla zwrotna, nowa reguła — `934110` (SSRF)
+
+Obraz `owasp/modsecurity-crs:nginx` z 2026-09-24 przyniósł CRS 4.29, w którym
+adres `http://127.0.0.1` łapie już nie `931100`, tylko `934110` („Possible
+Server Side Request Forgery"). Zapala się na **każdym** kroku logowania:
+`redirect_uri` na `/o/authorize/` i `/o/token/`,
+`json.redirect_uris.array_0` w DCR, a także `resource=` w discovery
+(`/.well-known/oauth-protected-resource`) — przypadek, na który 10007 była
+przygotowana zawczasu. `make test-waf` wykrył to od razu: cztery przypadki
+OAuth na czerwono.
+
+Reguła 10007 zdejmuje więc **obie**: `931100` zostaje dla instalacji, które
+jeszcze nie pobrały nowego obrazu (tag jest pływający, każda instalacja
+przechodzi na nowy CRS przy własnym `make pull`), `934110` jest dla 4.29+.
+
 ### Dlaczego wolno to wyłączyć
 
-RFI polega na tym, że **serwer** pobiera zasób spod adresu podanego przez
-atakującego. `django-oauth-toolkit` nigdy nie odpytuje `redirect_uri` —
+RFI i SSRF polegają na tym, że **serwer** pobiera zasób spod adresu podanego
+przez atakującego. `django-oauth-toolkit` nigdy nie odpytuje `redirect_uri` —
 porównuje go ze zbiorem URI zarejestrowanych dla klienta i najwyżej odsyła 302.
-Reguła `931100` nie ma tu czego chronić.
+Reguły `931100` i `934110` nie mają tu czego chronić.
 
-Zakres jest przy tym najwęższy z wszystkich naszych wykluczeń: **jedna reguła,
-jeden prefiks**. Nie `ruleEngine=Off` jak w 10006 i nie całe rodziny jak
+Zakres jest przy tym jeden z najwęższych: **dwie reguły tej samej natury
+(adres w argumencie), jedna powierzchnia**. Nie `ruleEngine=Off` jak w 10006 i nie całe rodziny jak
 w 10004 — na `/o/` nadal w pełni obowiązują 941 (XSS), 942 (SQLi), 930 (LFI),
 932 (RCE) i blokada progowa `949110`.
 
@@ -898,8 +921,12 @@ ofiary. WAF jest tu drugą warstwą za `nh3` i powinien nią zostać.
 | PASS | nazwa jednostki z produkcji na `/bpp/build_search/` i na `/bpp/update-multiseek-title/` |
 | PASS — `CENA:` | realne RCE i SQLi w tytule raportu |
 | BLOK | XSS w `suggested-title` i w `value` |
-| BLOK | ten sam ciąg w polu `jednostka` (wykluczenie dotyczy argumentu, nie ścieżki) |
-| BLOK | `suggested-title` na innej ścieżce (wykluczenie dotyczy ścieżki, nie nazwy pola) |
+| BLOK | realne RCE z grupy CENA w polu `jednostka` (wykluczenie dotyczy argumentu, nie ścieżki) |
+| BLOK | to samo RCE w `suggested-title` na innej ścieżce (wykluczenie dotyczy ścieżki, nie nazwy pola) |
+
+Kontrole granic używają payloadu z grupy CENA, a nie nazwy jednostki: CRS 4.29
+przestał łapać `[..] (..)` w `933210`, więc na nowym obrazie kontrola na
+nazwie jednostki przechodziła, niczego nie dowodząc.
 
 !!! tip "Po stronie BPP da się to załatwić u źródła"
     Domyślny tytuł nie musi jechać z przeglądarki. Widok może ustalić go sam
@@ -907,6 +934,73 @@ ofiary. WAF jest tu drugą warstwą za `nh3` i powinien nią zostać.
     puste, z nazwą jako `placeholder`. Wtedy WAF widzi nazwę tylko wtedy, gdy
     użytkownik świadomie ją wpisze. Reguła 10011 zostaje i tak, bo tytuł
     wpisany ręcznie nadal może zawierać nawiasy.
+
+## Ciasteczko PostHoga z Netdaty — reguła 10012 {#ciasteczko-posthoga}
+
+### Objaw
+
+Po wejściu w `/netdata/` przeglądarka **nie otwiera już żadnej strony**
+serwisu — `GET /` też kończy się `444`, a w logach Django nie ma nic.
+Inna przeglądarka albo okno prywatne działa normalnie. Zgłoszenie
+2026-09-25 (`bpp.ihit.waw.pl`), w audit logu:
+
+```
+942290 Finds basic MongoDB SQL injection attempts
+Matched Data: $in found within REQUEST_COOKIES:ph_phc_hnhlqe6D2Q4IcQNrFItaqdXJAxQ8RcHkPAFAp74pubv_posthog:
+{"$device_id":"…","$sesid":[…],"$initial_person_info":{…},"$user_state":"anonymous"}
+```
+
+### Przyczyna
+
+Dashboard Netdaty (frontend ich chmury, serwowany przez agenta) ma wbudowanego
+PostHoga. `DISABLE_TELEMETRY=1` w compose wyłącza telemetrię **agenta**, nie
+tego skryptu. PostHog zapisuje na **całą domenę** ciasteczko z JSON-em,
+w którym klucze zaczynają się od `$`. Na CRS 4.25 wzorzec `942290` nie miał
+granicy słowa, więc `$in` z początku `$initial_person_info` liczył się jako
+operator MongoDB `$in` — 5 pkt przy progu 5. Przeglądarka wysyła ciasteczko
+z **każdym** żądaniem, a PostHog ustawia je na rok.
+
+**Doraźnie:** usunąć dane witryny w przeglądarce (Safari: Ustawienia →
+Prywatność → Zarządzaj danymi witryn).
+
+### Dlaczego wykluczenie, skoro CRS 4.29 to naprawił
+
+CRS 4.29 dopisał do wzorca `942290` `\b` i ta konkretna wartość przestała
+się zapalać. Wykluczenie zostaje, bo:
+
+- tag obrazu jest pływający — instalacje przechodzą na 4.29 każda przy swoim
+  `make pull`, do tego czasu 4.25 blokuje;
+- to JSON analityczny z `$`-kluczami i pełnymi URL-ami; kolejna zmiana
+  dowolnej rodziny (942, 931, 934, 941) może zrobić to samo, a objaw jest
+  najgorszy z możliwych — cała witryna martwa dla jednej przeglądarki.
+
+### Zakres i dlaczego wolno
+
+Cały CRS (`ctl:ruleRemoveTargetByTag=OWASP_CRS`), ale **wyłącznie** dla tego
+jednego ciasteczka. Ani Django, ani agent Netdaty go nie czytają — to stan
+klienta PostHoga, payload nie ma dokąd trafić.
+
+!!! warning "Dokładna nazwa, nie regex — i to nie z wyboru"
+    Lekser akcji `ctl` w libmodsecurity v3.0.16 odrzuca w celu znaki `^`,
+    `\`, `+` i `[` — nginx nie wstaje (`Expecting an action, got:
+    ^ph_phc_…`). Zakotwiczonego wzorca nie da się zapisać, a regex bez kotwic
+    łapałby także `x_ph_phc_…_posthog`. Środek nazwy to klucz projektu PostHoga
+    zaszyty we frontendzie Netdaty. **Objaw, że go zmienili:** znów „po wejściu
+    w `/netdata/` nic nie działa", a w audit logu inna nazwa ciasteczka.
+    Wtedy dopisać drugą akcję `ctl` z nową nazwą; starej nie usuwać, bo
+    przeglądarki trzymają ciasteczko rok.
+
+### Kontrole w `make test-waf`
+
+| Wynik | Przypadek |
+|---|---|
+| PASS | wartość z produkcji na `/` i na `/admin/login/` (na 4.29 już tylko regresja) |
+| PASS — `CENA:` | realne SQLi w ciasteczku PostHoga |
+| BLOK | to samo SQLi w `sessionid` i w `csrftoken` obok ciasteczka PostHoga |
+| BLOK | nazwa z przedrostkiem `x_` i z przyrostkiem `_x` |
+
+Kontrole celowo **nie** używają wartości z produkcji — na 4.29 ona nigdzie
+nie blokuje, więc kontrola na niej przechodziłaby niczego nie dowodząc.
 
 ## Logi WAF-a w Grafanie
 

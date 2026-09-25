@@ -326,6 +326,16 @@ SecRule REQUEST_URI "@rx ^/grafana(/|$)" \
 # w test-waf.sh — wykluczenie, ktore niczego nie wylacza, jest gorsze niz
 # zadne, bo test przechodzi tak samo po skasowaniu reguly.
 #
+# 934110 (SSRF) — DOPISANA 2026-09-25 przy przejsciu na CRS 4.29: ta wersja
+# lapie `http://127.0.0.1` w KAZDYM kroku logowania (`redirect_uri` na
+# authorize/token, `json.redirect_uris.array_0` w DCR, `resource=` na
+# discovery — przypadek przewidziany wyzej wlasnie sie ziscil), a 931100 na
+# tych samych zadaniach juz sie nie zapala. Uzasadnienie jest identyczne:
+# SSRF to SERWER pobierajacy adres od atakujacego, a DOT ani discovery zadnego
+# z tych adresow nie pobieraja. 931100 zostaje na liscie, bo instalacja
+# z obrazem sprzed 4.29 dalej jej potrzebuje — tag jest plywajacy i kazda
+# instalacja przechodzi na nowy CRS przy WLASNYM `make pull`.
+#
 # UWAGA NA `.` W REGEXPIE: kropka w `\.well-known` MUSI byc escapowana. Bez
 # tego wzorzec `^/(o|.well-known)/` lapie takze `/Xwell-known/` — i, co
 # grozniejsze, kazdy prefiks jednoznakowy, bo `.` to dowolny znak.
@@ -334,7 +344,8 @@ SecRule REQUEST_URI "@rx ^/(o|\.well-known)/" \
     phase:1,\
     pass,\
     nolog,\
-    ctl:ruleRemoveById=931100"
+    ctl:ruleRemoveById=931100,\
+    ctl:ruleRemoveById=934110"
 
 # ---------------------------------------------------------------------------
 # 10008: `accept-charset` znika z listy naglowkow zakazanych (920450)
@@ -635,3 +646,46 @@ SecRule REQUEST_FILENAME "@rx ^/bpp/(?:build_search|update-multiseek-title)/$" \
     ctl:ruleRemoveTargetByTag=attack-rce;ARGS:value,\
     ctl:ruleRemoveTargetByTag=attack-injection-php;ARGS:value,\
     ctl:ruleRemoveTargetByTag=attack-sqli;ARGS:value"
+
+# ---------------------------------------------------------------------------
+# 10012: ciasteczko PostHoga z dashboardu Netdaty wyjete spod CRS
+# ---------------------------------------------------------------------------
+# ZGLOSZENIE 2026-09-25 (bpp.ihit.waw.pl): po wizycie w /netdata/ przegladarka
+# nie otwiera JUZ ZADNEJ strony serwisu — nawet `GET /` konczy sie 444, a
+# w Django nie ma zadnego sladu. Frontend Netdaty ma wbudowanego PostHoga
+# (DISABLE_TELEMETRY=1 w compose wylacza telemetrie AGENTA, nie tego JS-a)
+# i zapisuje na CALA domene ciasteczko `ph_phc_<klucz projektu>_posthog`
+# z JSON-em. Klucz `$initial_person_info` zaczyna sie od `$in`, co regula
+# 942290 ("MongoDB injection") w CRS 4.25 brala za operator `$in` — 5 pkt przy
+# progu 5. Ciasteczko zyje rok, wiec blokada tez, a jedynym ratunkiem bylo
+# reczne czyszczenie danych witryny.
+#
+# CRS 4.29 dopisal do wzorca 942290 `\b` i ten konkretny przypadek sam zniknal.
+# Wykluczenie zostaje mimo to: (1) tag obrazu jest plywajacy i instalacje
+# przechodza na 4.29 kazda przy swoim `make pull`; (2) to JSON analityczny,
+# w ktorym `$`-klucze i pelne URL-e sa normalna trescia, wiec nastepna zmiana
+# dowolnej rodziny (942, 931, 934, 941) moze zrobic to samo — a objaw jest
+# najgorszy z mozliwych: cala witryna martwa dla konkretnej przegladarki.
+#
+# ZAKRES: CALY CRS (tag OWASP_CRS), ale WYLACZNIE dla tego jednego ciasteczka.
+# To bezpieczne, bo po stronie serwera NIKT go nie czyta — ani Django, ani
+# agent Netdaty; to stan klienta PostHoga. Payload w nim nie ma dokad trafic.
+# Te same ciagi w kazdym innym ciasteczku (sessionid, csrftoken, nazwa
+# z przedrostkiem/przyrostkiem) dalej blokuja — kontrole w test-waf.sh.
+#
+# DOKLADNA NAZWA, NIE REGEX — i to nie z wyboru. Lekser akcji `ctl`
+# w libmodsecurity v3.0.16 odrzuca w celu `^`, `\`, `+` i `[` ("Expecting an
+# action, got: ^ph_phc_..." — nginx nie wstaje), wiec zakotwiczonego wzorca
+# nie da sie tu zapisac, a regex bez kotwic lapalby tez `x_ph_phc_..._posthog`.
+# Czesc srodkowa to klucz projektu PostHoga zaszyty we frontendzie Netdaty —
+# jest wspolny dla wszystkich instalacji, ale nalezy do Netdaty. OBJAW, ze go
+# zmienili: znow "po wejsciu w /netdata/ nic nie dziala", a w audit logu
+# `found within REQUEST_COOKIES:ph_phc_<INNY klucz>_posthog`. Wtedy dopisac
+# druga akcje `ctl` z nowa nazwa (stara zostawic — przegladarki trzymaja
+# ciasteczko rok).
+SecAction \
+    "id:10012,\
+    phase:1,\
+    pass,\
+    nolog,\
+    ctl:ruleRemoveTargetByTag=OWASP_CRS;REQUEST_COOKIES:ph_phc_hnhlqe6D2Q4IcQNrFItaqdXJAxQ8RcHkPAFAp74pubv_posthog"

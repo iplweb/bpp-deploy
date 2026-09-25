@@ -619,7 +619,13 @@ done
 #           wzorzec `^/admin/[^/]+/[^/]+/` na formularzu logowania — czyli
 #           zdjalby CALY CRS z jedynego anonimowo osiagalnego endpointu admina.
 #           Pomiar 2026-08-23: to wlasnie tam leci 338 realnych blokad na 7 dni.
-#        b) Poza `/admin/` wszystkie cztery reguly maja dzialac bez zmian.
+#        b) Poza `/admin/` rodziny regul maja dzialac bez zmian.
+#
+# CRS 4.29 (2026-09) sam naprawil dwa z tych falszywych alarmow (`..` dla
+# 930110, `; type` dla 932115) — kontrole na tych ciagach przestaly blokowac
+# i przestaly czegokolwiek dowodzic. Dlatego kontrole granicy biora REALNE
+# ataki z tych samych rodzin, ktore kazda wersja CRS ma lapac. Przypadki FP
+# zostaja jako regresja na starszych obrazach (tag jest plywajacy).
 echo
 printf "%-6s %-46s %s\n" "WYNIK" "FORMULARZE ADMINA (DetectionOnly)" "SZCZEGOLY"
 printf "%s\n" "----------------------------------------------------------------------------------"
@@ -641,8 +647,8 @@ for para in "PASS|FP 932130: streszczenie 'p < (0,05)'|$ADMIN_CHANGE|streszczeni
             "BLOK|kontrola: realne SQLi na /admin/login/|admin/login/|username=admin' OR 1=1-- a" \
             "BLOK|kontrola: realne RCE na /admin/login/|admin/login/|username=x; cat /etc/passwd; echo \$(id)" \
             "BLOK|kontrola: 932130 poza adminem|bpp/szukaj/|q=wynik istotny (p < (0,05))" \
-            "BLOK|kontrola: 930110 poza adminem ('..')|bpp/szukaj/|q=.." \
-            "BLOK|kontrola: 932115 poza adminem ('; type')|bpp/szukaj/|q=; type 1 diabetes mellitus; air pollution"; do
+            "BLOK|kontrola: LFI (930) poza adminem|bpp/szukaj/|q=../../../../etc/passwd" \
+            "BLOK|kontrola: RCE ';' (932) poza adminem|bpp/szukaj/|q=; cat /etc/passwd"; do
     IFS='|' read -r oczek opis sciezka cialo <<< "$para"
     LACZNIE=$((LACZNIE + 1))
     kod=$(curl -sk --http1.1 -o /dev/null -w '%{http_code}' --max-time 8 \
@@ -683,6 +689,9 @@ done
 #      realny sink: tytul jest renderowany `|safe`), to samo w INNYM polu tego
 #      samego endpointu dalej blokowane, i to samo pole na INNEJ sciezce dalej
 #      blokowane. Bez nich PASS-y przeszlyby tak samo po wylaczeniu calego CRS.
+#      Kontrole granic biora payload z grupy CENA, nie nazwe jednostki: CRS 4.29
+#      przestal lapac `[..] (..)` w 933210, wiec na nowym obrazie tamte
+#      kontrole przechodzily, niczego nie dowodzac.
 echo
 printf "%-6s %-46s %s\n" "WYNIK" "TYTUL RAPORTU MULTISEEK (10011)" "SZCZEGOLY"
 printf "%s\n" "----------------------------------------------------------------------------------"
@@ -693,13 +702,73 @@ for para in "PASS|FP 933210 prod: nazwa jednostki '[..] (..)'|bpp/build_search/|
             "PASS|CENA: realne SQLi w tytule raportu|bpp/update-multiseek-title/|value=' UNION ALL SELECT NULL,NULL-- a" \
             "BLOK|kontrola: XSS w suggested-title|bpp/build_search/|suggested-title=<script>alert(1)</script>" \
             "BLOK|kontrola: XSS w value|bpp/update-multiseek-title/|value=<script>alert(1)</script>" \
-            "BLOK|kontrola: ten sam ciag w polu jednostka|bpp/build_search/|jednostka=$JEDNOSTKA_PROD" \
-            "BLOK|kontrola: suggested-title na innej sciezce|bpp/szukaj/|suggested-title=$JEDNOSTKA_PROD"; do
+            "BLOK|kontrola: RCE z tytulu w polu jednostka|bpp/build_search/|jednostka=x; cat /etc/passwd; echo \$(id)" \
+            "BLOK|kontrola: suggested-title na innej sciezce|bpp/szukaj/|suggested-title=x; cat /etc/passwd; echo \$(id)"; do
     IFS='|' read -r oczek opis sciezka cialo <<< "$para"
     LACZNIE=$((LACZNIE + 1))
     kod=$(curl -sk --http1.1 -o /dev/null -w '%{http_code}' --max-time 8 \
         --resolve "$HOST_NAME:$PORT:127.0.0.1" \
         -X POST --data-urlencode "$cialo" \
+        "https://$HOST_NAME:$PORT/$sciezka" 2>/dev/null)
+    rc=$?
+    if [ "$rc" -eq 52 ] || [ "$rc" -eq 56 ] || [ "$rc" -eq 92 ]; then
+        faktyczny="BLOK"; szczegol="polaczenie zerwane (curl $rc)"
+    elif [ "$rc" -ne 0 ]; then
+        faktyczny="BLAD"; szczegol="curl $rc"
+    elif [ "$kod" = "403" ]; then
+        faktyczny="BLOK"; szczegol="HTTP 403 od ModSecurity"
+    else
+        faktyczny="PASS"; szczegol="HTTP $kod"
+    fi
+    if [ "$faktyczny" = "$oczek" ]; then
+        printf "  \033[32mOK\033[0m   %-46s %s\n" "$opis" "$szczegol"
+    else
+        printf "  \033[31mFAIL\033[0m %-46s oczekiwano %s, jest %s (%s)\n" \
+            "$opis" "$oczek" "$faktyczny" "$szczegol"
+        BLEDY=$((BLEDY + 1))
+    fi
+done
+
+# --------------------------------------------------------------------------
+# Regula 10012: ciasteczko PostHoga z dashboardu Netdaty
+# --------------------------------------------------------------------------
+# Zgloszenie 2026-09-25 (bpp.ihit.waw.pl): po wizycie w /netdata/ przegladarka
+# nie otwiera JUZ ZADNEJ strony serwisu, lacznie z `GET /` — kazde zadanie
+# konczy sie 444. Dashboard Netdaty (JS z ich frontendu, DISABLE_TELEMETRY tego
+# nie wylacza) ustawia na CALA domene ciasteczko `ph_phc_<klucz>_posthog`
+# z JSON-em, w ktorym klucz `$initial_person_info` zaczyna sie od `$in` —
+# operator MongoDB dla 942290. Ciasteczko zyje rok, wiec blokada tez.
+#
+# TRZY GRUPY, jak przy 10009/10011:
+#   1. FALSZYWY ALARM — realna wartosc z produkcji (struktura 1:1, identyfikatory
+#      podmienione). Zapalala 942290 na CRS 4.25; CRS 4.29 dopisal do wzorca
+#      `\b` i sam przestal ja lapac — na nowym obrazie ten przypadek jest juz
+#      tylko regresja. Zostaje, bo tag obrazu jest plywajacy i instalacje
+#      przechodza na nowy CRS kazda w swoim czasie.
+#   2. CENA — realne SQLi w ciasteczku PostHoga przechodzi. Nikt po stronie
+#      serwera tego ciasteczka nie czyta, wiec nie ma dokad trafic.
+#   3. KONTROLE — ten sam payload co w CENIE, w INNYM ciasteczku, dalej blokuje,
+#      a wzorzec nazwy jest zakotwiczony z obu stron (przedrostek/przyrostek nie
+#      wystarcza). Bez nich PASS-y przeszlyby tak samo po wylaczeniu calego CRS.
+#      Kontrole NIE uzywaja wartosci z produkcji — na CRS 4.29 ona juz nigdzie
+#      nie blokuje, wiec kontrola na niej przechodzilaby niczego nie dowodzac.
+echo
+printf "%-6s %-46s %s\n" "WYNIK" "CIASTECZKO POSTHOGA Z NETDATY (10012)" "SZCZEGOLY"
+printf "%s\n" "----------------------------------------------------------------------------------"
+PH_NAZWA='ph_phc_hnhlqe6D2Q4IcQNrFItaqdXJAxQ8RcHkPAFAp74pubv_posthog'
+PH_WARTOSC='%7B%22%24device_id%22%3A%2200000000-0000-7000-8000-000000000001%22%2C%22distinct_id%22%3A%2200000000-0000-7000-8000-000000000001%22%2C%22%24sesid%22%3A%5B1790320806402%2C%2200000000-0000-7000-8000-000000000002%22%2C1790320794375%5D%2C%22%24initial_person_info%22%3A%7B%22r%22%3A%22https%3A%2F%2Fbpp.example.org%2F__external_auth%2Flogin%2F%3Fnext%3Dhttps%3A%2F%2Fbpp.example.org%2Fnetdata%2Fspaces%2Fbpp%2Frooms%2Flocal%2Foverview%22%2C%22u%22%3A%22https%3A%2F%2Fbpp.example.org%2Fnetdata%2Fspaces%2Fbpp%2Frooms%2Flocal%2Foverview%23metrics_correlation%3Dfalse%26after%3D-900%26before%3D0%22%7D%2C%22%24user_state%22%3A%22anonymous%22%7D'
+PH_SQLI="%27%20UNION%20ALL%20SELECT%20NULL%2CNULL--%20a"
+for para in "PASS|FP 942290 prod: PostHog z Netdaty na /|$PH_NAZWA=$PH_WARTOSC|" \
+            "PASS|FP 942290 prod: to samo na /admin/login/|$PH_NAZWA=$PH_WARTOSC|admin/login/" \
+            "PASS|CENA: realne SQLi w ciasteczku PostHoga|$PH_NAZWA=$PH_SQLI|" \
+            "BLOK|kontrola: to samo SQLi w sessionid|sessionid=$PH_SQLI|" \
+            "BLOK|kontrola: SQLi w csrftoken obok PH|$PH_NAZWA=$PH_WARTOSC; csrftoken=$PH_SQLI|" \
+            "BLOK|kontrola: nazwa z przedrostkiem 'x_'|x_$PH_NAZWA=$PH_SQLI|" \
+            "BLOK|kontrola: nazwa z przyrostkiem '_x'|${PH_NAZWA}_x=$PH_SQLI|"; do
+    IFS='|' read -r oczek opis ciastka sciezka <<< "$para"
+    LACZNIE=$((LACZNIE + 1))
+    kod=$(curl -sk --http1.1 -o /dev/null -w '%{http_code}' --max-time 8 \
+        --resolve "$HOST_NAME:$PORT:127.0.0.1" -H "Cookie: $ciastka" \
         "https://$HOST_NAME:$PORT/$sciezka" 2>/dev/null)
     rc=$?
     if [ "$rc" -eq 52 ] || [ "$rc" -eq 56 ] || [ "$rc" -eq 92 ]; then
