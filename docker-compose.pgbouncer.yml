@@ -1,0 +1,48 @@
+# pgbouncer przed PostgreSQL — pula polaczen WYLACZNIE dla appservera.
+#
+# Po co: Django (CONN_MAX_AGE=0, ASGI) otwiera nowe polaczenie przy kazdym
+# zadaniu; pomiar 2026-09-27: 18 ms connect + ~8 ms zimnego cache na ~100 ms
+# mediany zadania. Pula w trybie session oddaje gotowy, rozgrzany backend.
+# Spec: docs/superpowers/specs/2026-09-27-pgbouncer-design.md
+#
+# Laczy sie z DJANGO_BPP_DB_HOST/_PORT — dbserver ALBO baza zewnetrzna,
+# ta sama konfiguracja. Reszta serwisow (Celery, denorm-queue z LISTEN,
+# netdata, backup) laczy sie bezposrednio, jak dotad.
+
+x-logging: &default-logging
+  driver: "local"
+  options:
+    max-size: "${LOG_MAX_SIZE:-150m}"
+    max-file: "${LOG_MAX_FILE:-5}"
+
+services:
+  pgbouncer:
+    image: edoburu/pgbouncer:${PGBOUNCER_VERSION:-v1.25.2-p0}
+    restart: always
+    logging: *default-logging
+    # Serwisowy env_file jest KONIECZNY: ten z `include:` sluzy tylko
+    # interpolacji i nie trafia do kontenera (ta sama lekcja co dbserver).
+    env_file: ${BPP_CONFIGS_DIR}/.env
+    # Przez interpreter, nie przez bit +x (w tym repo +x juz ginal).
+    # Wlasny skrypt zamiast entrypointu obrazu — patrz naglowek skryptu.
+    entrypoint: ["sh", "/bpp-entrypoint.sh"]
+    volumes:
+      - ./pgbouncer/entrypoint.sh:/bpp-entrypoint.sh:ro
+    depends_on:
+      # W trybie bazy zewnetrznej dbserver to sentinel sondujacy prawdziwa
+      # baze — wiec to dziala w obu trybach.
+      dbserver:
+        condition: service_healthy
+    healthcheck:
+      # Osobny wpis bazy `_health` (pool_size=1): sonda nie stoi w kolejce za
+      # nasycona glowna pula.
+      test: ["CMD", "sh", "/bpp-entrypoint.sh", "zdrowie"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          memory: ${PGBOUNCER_MEM_LIMIT:-64m}
+          cpus: "${PGBOUNCER_CPU_LIMIT:-0.5}"

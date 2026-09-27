@@ -607,6 +607,85 @@ test_nginx_global_limits_wired() {
 }
 
 # ============================================================
+# TEST 11e: pgbouncer — tylko appserver przez pule, reszta bezposrednio
+# ============================================================
+# Na WYRENDEROWANYM `docker compose config` (grep po zrodle nie widzi
+# interpolacji). `-p` jawnie: nazwa projektu z repo-lokalnego .env (np.
+# pozostalosc po init-configs z katalogiem tmp.XXXX) potrafi byc niepoprawna.
+
+_render_compose() {
+    # $1 = katalog konfiguracji z .env; wynik na stdout
+    (cd "$REPO_DIR" && BPP_CONFIGS_DIR="$1" docker compose -p bpp-compose-test config 2>"$1/stderr.txt")
+}
+
+test_pgbouncer_compose() {
+    yellow "=== Test 11e: pgbouncer — kto laczy sie przez pule ==="
+
+    if ! command -v docker >/dev/null 2>&1 || ! docker info >/dev/null 2>&1; then
+        skip_or_fail "docker niedostepny — pomijam render compose config"
+        return
+    fi
+
+    local cfg out app
+    cfg=$(mktemp -d)
+    # Minimalny STARY .env: zadnej nowej zmiennej — tak wyglada instalacja
+    # po `git pull` (kontrakt backwards-compat).
+    printf 'DJANGO_BPP_HOST_BACKUP_DIR=%s\nDJANGO_BPP_DB_HOST=dbserver\nDJANGO_BPP_DB_PORT=5432\n' \
+        "$cfg" > "$cfg/.env"
+
+    if ! out="$(_render_compose "$cfg")"; then
+        fail "compose config nie wyrenderowal sie ($(tail -1 "$cfg/stderr.txt"))"
+        rm_rf_root "$cfg"; return
+    fi
+
+    app="$(svc_block appserver <(printf '%s\n' "$out") || true)"
+    assert_svc_contains "appserver domyslnie przez pgbouncer" "DJANGO_BPP_DB_HOST: pgbouncer" "$app"
+    if printf '%s\n' "$app" | grep -Eq 'DJANGO_BPP_DB_PORT: "?6432"?$'; then
+        pass "appserver domyslnie na porcie 6432"
+    else
+        fail "appserver: brak DJANGO_BPP_DB_PORT 6432"
+    fi
+    if printf '%s\n' "$app" | grep -A1 -E '^      pgbouncer:$' | grep -q 'condition: service_healthy'; then
+        pass "appserver czeka na zdrowy pgbouncer (jak na dbserver)"
+    else
+        fail "appserver -> pgbouncer bez condition: service_healthy"
+    fi
+
+    local s blok
+    for s in authserver workerserver celerybeat denorm-queue flower; do
+        blok="$(svc_block "$s" <(printf '%s\n' "$out") || true)"
+        if printf '%s\n' "$blok" | grep -q 'pgbouncer'; then
+            fail "$s laczy sie przez pgbouncer (ma isc bezposrednio)"
+        else
+            pass "$s bezposrednio do bazy"
+        fi
+    done
+
+    local pgb
+    pgb="$(svc_block pgbouncer <(printf '%s\n' "$out") || true)"
+    assert_svc_contains "pgbouncer: logging local" "driver: local" "$pgb"
+    assert_svc_contains "pgbouncer: entrypoint przez sh" "- sh" "$pgb"
+    assert_svc_contains "pgbouncer: skrypt startowy" "/bpp-entrypoint.sh" "$pgb"
+    assert_svc_contains "pgbouncer: sonda przez podkomende" "zdrowie" "$pgb"
+    assert_svc_contains "pgbouncer: czeka na dbserver" "dbserver:" "$pgb"
+    assert_svc_contains "pgbouncer: limit pamieci 64m" "memory: \"67108864\"" "$pgb"
+    # shellcheck disable=SC2016  # wzorzec grep-a: `${BPP_CONFIGS_DIR}` ma zostac literalne
+    assert_file_contains "pgbouncer: serwisowy env_file" 'env_file: ${BPP_CONFIGS_DIR}/.env' \
+        "$REPO_DIR/docker-compose.pgbouncer.yml"
+
+    # Operator kieruje appserver bezposrednio do bazy. Wartosc INNA niz
+    # DJANGO_BPP_DB_HOST z .env (dbserver) — inaczej asercja przechodzilaby
+    # bez nadpisania, bo env_file i tak wnosi DJANGO_BPP_DB_HOST=dbserver.
+    printf 'BPP_APPSERVER_DB_HOST=baza-bezposrednia\nBPP_APPSERVER_DB_PORT=5432\n' >> "$cfg/.env"
+    out="$(_render_compose "$cfg")"
+    app="$(svc_block appserver <(printf '%s\n' "$out") || true)"
+    assert_svc_contains "BPP_APPSERVER_DB_HOST -> appserver bezposrednio do bazy" \
+        "DJANGO_BPP_DB_HOST: baza-bezposrednia" "$app"
+
+    rm_rf_root "$cfg"
+}
+
+# ============================================================
 # TEST 11c: WAF — klikalny cross-filtr (regula / atak / IP / sciezka)
 # ============================================================
 # Istnieje, bo wbudowane "Filter for value" Grafany na tym dashboardzie
@@ -2258,6 +2337,7 @@ test_compose_bind_mounts
 test_compose_shell_vars_escaped
 test_waf_audit_only_rules
 test_nginx_global_limits_wired
+test_pgbouncer_compose
 test_waf_crossfilter
 test_log_monitoring_waf_filter
 test_env_sample

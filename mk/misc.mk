@@ -1,4 +1,4 @@
-.PHONY: clean wait debug-show-current-settings test-docker-versions test-config-path test-grafana-datasources test-rclone test-winget-ids test-waf test-alloy test-nginx-limits
+.PHONY: clean wait debug-show-current-settings test-docker-versions test-config-path test-grafana-datasources test-rclone test-winget-ids test-waf test-alloy test-nginx-limits test-pgbouncer
 
 clean:
 	-find . -name '*~' -o -name '\#*' -o -name '.*~' | xargs rm -f
@@ -54,6 +54,14 @@ test-waf:
 # Zmienne: LIMITS_TEST_KEEP=1 (zostaw kontenery).
 test-nginx-limits:
 	@./scripts/test-nginx-limits.sh
+
+# pgbouncer na zywo: prawdziwy PostgreSQL (SCRAM) + obraz edoburu/pgbouncer
+# z NASZYM skryptem startowym. Sprawdza logowanie (takze haslo z metaznakami),
+# izolacje i reset sesji (tryb session + DISCARD ALL), ponowne uzycie backendu,
+# sonde przy nasyconej puli, walidacje i przyciecie puli do max_connections.
+# Zmienne: PGB_TEST_KEEP=1 (zostaw kontenery).
+test-pgbouncer:
+	@./scripts/test-pgbouncer.sh
 
 # Test pipeline'u logow Alloy. Przepuszcza PRAWDZIWY defaults/alloy/config.alloy
 # przez fixture z prawdziwymi liniami (audit log WAF-a + typowe formaty logow

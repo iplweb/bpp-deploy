@@ -21,6 +21,9 @@ include:
   - path: ${BPP_DATABASE_COMPOSE:-docker-compose.database.yml}
     env_file:
       - ${BPP_CONFIGS_DIR}/.env
+  - path: docker-compose.pgbouncer.yml
+    env_file:
+      - ${BPP_CONFIGS_DIR}/.env
   - path: docker-compose.infrastructure.yml
     env_file:
       - ${BPP_CONFIGS_DIR}/.env
