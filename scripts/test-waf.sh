@@ -198,6 +198,7 @@ if ! docker run -d --name "$FRONT" --network "$NET" --network-alias "$HOST_NAME"
     -v "$W/_bpp-locations.conf:/etc/nginx/bpp-templates/_bpp-locations.conf:ro" \
     -v "$W/vhost.conf.template:/etc/nginx/bpp-templates/vhost.conf.template:ro" \
     -v "$W/30-render-bpp-vhosts.sh:/docker-entrypoint.d/30-render-bpp-vhosts.sh:ro" \
+    -v "$W/25-render-bpp-limits.sh:/docker-entrypoint.d/25-render-bpp-limits.sh:ro" \
     owasp/modsecurity-crs:nginx >/dev/null; then
     echo "BLAD: nie udalo sie wystartowac webservera ($FRONT)."
     exit 1

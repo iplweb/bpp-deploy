@@ -1,4 +1,4 @@
-.PHONY: clean wait debug-show-current-settings test-docker-versions test-config-path test-grafana-datasources test-rclone test-winget-ids test-waf test-alloy
+.PHONY: clean wait debug-show-current-settings test-docker-versions test-config-path test-grafana-datasources test-rclone test-winget-ids test-waf test-alloy test-nginx-limits
 
 clean:
 	-find . -name '*~' -o -name '\#*' -o -name '.*~' | xargs rm -f
@@ -45,6 +45,15 @@ test-winget-ids:
 # ustaw DetectionOnly, zeby zobaczyc co BY zostalo zablokowane).
 test-waf:
 	@./scripts/test-waf.sh
+
+# Globalny (agregatowy) limit ruchu do appservera — 25-render-bpp-limits.sh.
+# Stawia obraz produkcyjny nginksa przed atrapa appservera i sprawdza
+# zachowanie: pula wspolna dla wszystkich IP, 429 (nie 503) ponad limit
+# rownoleglosci, WebSockety i /static/ poza limitem, smiec w .env nie kladzie
+# strony, 0 = wylaczone. Nie wymaga .env ani dzialajacej instalacji.
+# Zmienne: LIMITS_TEST_KEEP=1 (zostaw kontenery).
+test-nginx-limits:
+	@./scripts/test-nginx-limits.sh
 
 # Test pipeline'u logow Alloy. Przepuszcza PRAWDZIWY defaults/alloy/config.alloy
 # przez fixture z prawdziwymi liniami (audit log WAF-a + typowe formaty logow

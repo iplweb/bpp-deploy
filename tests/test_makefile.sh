@@ -559,6 +559,54 @@ test_waf_audit_only_rules() {
 }
 
 # ============================================================
+# TEST 11d: globalny limit nginx wpiety w KAZDY location do appservera
+# ============================================================
+# Zachowanie limitu sprawdza scripts/test-nginx-limits.sh na zywym nginksie.
+# Tu pilnujemy pokrycia: limit_req/limit_conn licza sie raz na zadanie
+# glowne, wiec include musi siedziec w locationie, ktory robi
+# `try_files $uri @proxy_to_app` — a nie w samym @proxy_to_app, gdzie po
+# per-IP limit_req zostalby po cichu pominiety. Nowy location bez include
+# = cala sciezka poza globalnym limitem, i zaden inny test by tego nie zauwazyl.
+
+test_nginx_global_limits_wired() {
+    yellow "=== Test 11d: globalny limit nginx — pokrycie locationow ==="
+
+    local loc="$REPO_DIR/defaults/webserver/_bpp-locations.conf"
+    local infra="$REPO_DIR/docker-compose.infrastructure.yml"
+    local skrypt="defaults/webserver/25-render-bpp-limits.sh"
+
+    # awk: dla kazdego location, ktory przekazuje do @proxy_to_app, sprawdz
+    # czy w tym samym bloku jest include globalnego limitu.
+    local bez_limitu
+    bez_limitu="$(awk '
+        /^location / { nazwa = $0; ma_proxy = 0; ma_limit = 0; next }
+        /^[[:space:]]+try_files .*@proxy_to_app/ { ma_proxy = 1 }
+        /include \/etc\/nginx\/conf\.d\/bpp-global-limits\.inc;/ { ma_limit = 1 }
+        /^}/ { if (ma_proxy && !ma_limit) print nazwa; ma_proxy = 0 }
+    ' "$loc")"
+    local ile_proxy
+    ile_proxy="$(grep -cE '^[[:space:]]+try_files .*@proxy_to_app' "$loc")"
+    if [ "$ile_proxy" -gt 0 ] && [ -z "$bez_limitu" ]; then
+        pass "wszystkie $ile_proxy locationy do appservera maja globalny limit"
+    else
+        fail "locationy do appservera bez globalnego limitu: ${bez_limitu:-brak locationow}"
+    fi
+
+    assert_file_contains "compose montuje 25-render-bpp-limits.sh" \
+        "$skrypt:/docker-entrypoint.d/25-render-bpp-limits.sh:ro" "$infra"
+
+    # Bez bitu wykonywalnosci entrypoint nginksa wypisuje "Ignoring" i jedzie
+    # dalej — include nie powstaje, a nginx pada na [emerg] (brak pliku).
+    local tryb
+    tryb="$(git -C "$REPO_DIR" ls-files -s "$skrypt" | cut -c1-6)"
+    if [ "$tryb" = "100755" ]; then
+        pass "$skrypt jest wykonywalny w git"
+    else
+        fail "$skrypt ma tryb '$tryb' w git (wymagany 100755)"
+    fi
+}
+
+# ============================================================
 # TEST 11c: WAF — klikalny cross-filtr (regula / atak / IP / sciezka)
 # ============================================================
 # Istnieje, bo wbudowane "Filter for value" Grafany na tym dashboardzie
@@ -898,6 +946,7 @@ _run_nginx_t() {
         -v "$ngx_dir/bpp-templates/_bpp-locations.conf:/etc/nginx/bpp-templates/_bpp-locations.conf:ro" \
         -v "$ngx_dir/bpp-templates/vhost.conf.template:/etc/nginx/bpp-templates/vhost.conf.template:ro" \
         -v "$ngx_dir/entrypoint/30-render-bpp-vhosts.sh:/docker-entrypoint.d/30-render-bpp-vhosts.sh:ro" \
+        -v "$ngx_dir/entrypoint/25-render-bpp-limits.sh:/docker-entrypoint.d/25-render-bpp-limits.sh:ro" \
         -v "$ngx_dir/ssl:/etc/ssl/private:ro" \
         -v "$ngx_dir/nginx-shared:/var/log/nginx-shared" \
         -v "$ngx_dir/html/maintenance.html:/usr/share/nginx/html/maintenance.html:ro" \
@@ -951,8 +1000,10 @@ test_nginx_config_valid() {
     cp "$REPO_DIR/defaults/webserver/_bpp-locations.conf"   "$ngx_dir/bpp-templates/"
     cp "$REPO_DIR/defaults/webserver/vhost.conf.template"   "$ngx_dir/bpp-templates/"
     cp "$REPO_DIR/defaults/webserver/30-render-bpp-vhosts.sh" "$ngx_dir/entrypoint/"
+    cp "$REPO_DIR/defaults/webserver/25-render-bpp-limits.sh"  "$ngx_dir/entrypoint/"
     cp "$REPO_DIR/defaults/webserver/maintenance.html"      "$ngx_dir/html/"
     chmod +x "$ngx_dir/entrypoint/30-render-bpp-vhosts.sh"
+    chmod +x "$ngx_dir/entrypoint/25-render-bpp-limits.sh"
 
     # Dummy self-signed cert - nginx -t parsuje plik, wiec musi byc prawidlowy x509.
     # Generujemy w kontenerze, zeby nie wymagac openssl na hoscie (Windows CI).
@@ -1225,8 +1276,10 @@ test_nginx_runtime() {
     cp "$REPO_DIR/defaults/webserver/_bpp-locations.conf"     "$ngx_dir/bpp-templates/"
     cp "$REPO_DIR/defaults/webserver/vhost.conf.template"     "$ngx_dir/bpp-templates/"
     cp "$REPO_DIR/defaults/webserver/30-render-bpp-vhosts.sh" "$ngx_dir/entrypoint/"
+    cp "$REPO_DIR/defaults/webserver/25-render-bpp-limits.sh"  "$ngx_dir/entrypoint/"
     cp "$REPO_DIR/defaults/webserver/maintenance.html"        "$ngx_dir/html/"
     chmod +x "$ngx_dir/entrypoint/30-render-bpp-vhosts.sh"
+    chmod +x "$ngx_dir/entrypoint/25-render-bpp-limits.sh"
 
     # Generuj certy: legacy ssl/{cert,key}.pem + per-host ssl/<h>/{cert,key}.pem
     docker run --rm -v "$ngx_dir/ssl:/ssl" --entrypoint sh nginx:1.30.2 -c '
@@ -1291,6 +1344,7 @@ PYEOF
             -v "$ngx_dir/bpp-templates/_bpp-locations.conf:/etc/nginx/bpp-templates/_bpp-locations.conf:ro" \
             -v "$ngx_dir/bpp-templates/vhost.conf.template:/etc/nginx/bpp-templates/vhost.conf.template:ro" \
             -v "$ngx_dir/entrypoint/30-render-bpp-vhosts.sh:/docker-entrypoint.d/30-render-bpp-vhosts.sh:ro" \
+            -v "$ngx_dir/entrypoint/25-render-bpp-limits.sh:/docker-entrypoint.d/25-render-bpp-limits.sh:ro" \
             -v "$ngx_dir/ssl:/etc/ssl/private:ro" \
             -v "$ngx_dir/nginx-shared:/var/log/nginx-shared" \
             -v "$ngx_dir/webroot:/var/www/certbot:ro" \
@@ -2203,6 +2257,7 @@ test_site_down_warning_contract
 test_compose_bind_mounts
 test_compose_shell_vars_escaped
 test_waf_audit_only_rules
+test_nginx_global_limits_wired
 test_waf_crossfilter
 test_log_monitoring_waf_filter
 test_env_sample
