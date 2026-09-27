@@ -184,6 +184,7 @@ flush całej bazy wylogowywałby wszystkich przy każdym deployu.
 
 ```bash
 make test-waf                # Czy WAF blokuje ataki i przepuszcza legalny ruch BPP
+make test-nginx-limits       # Czy globalny limit ruchu do appservera działa (wspólna pula dla wszystkich IP)
 make test-alloy              # Czy pipeline logów nadaje poprawny poziom i pola modsec_*
 make test-docker-versions    # Logika mapowania digest ↔ CalVer
 make test-config-path        # Normalizacja ścieżki katalogu konfiguracyjnego
@@ -192,7 +193,7 @@ make test-upgrade            # Próba generalna migracji na kopii produkcyjnej b
 make test-deploy-with-warning # Sesja wdrożenia z ostrzeżeniem (mocki, bez Dockera)
 ```
 
-`test-waf` i `test-alloy` **nie wymagają `.env`, działającej instalacji ani sieci
+`test-waf`, `test-nginx-limits` i `test-alloy` **nie wymagają `.env`, działającej instalacji ani sieci
 produkcyjnej** — stawiają własne kontenery i sprzątają po sobie. Kod wyjścia = liczba
 niezgodności, więc nadają się do CI.
 
@@ -200,6 +201,11 @@ niezgodności, więc nadają się do CI.
   z `defaults/webserver/`, po czym strzela baterią zapytań o znanym z góry wyniku.
   Payloady ataku to prawdziwe próby sqlmap z lipca 2026. Szczegóły:
   [WAF](../architektura/waf.md#sprawdzenie-czy-waf-dziala-make-test-waf).
+- **`make test-nginx-limits`** stawia produkcyjny obraz nginx przed atrapą
+  appservera i sprawdza [limit globalny](../architektura/rate-limiting.md#limit-globalny)
+  na żywo: klient z innego IP dostaje 429 po wyczerpaniu puli przez pierwszego,
+  nadmiar równoległych żądań dostaje 429, a WebSockety i `/static/` są poza
+  limitem. `LIMITS_TEST_KEEP=1` zostawia kontenery.
 - **`make test-config-path`** sprawdza `scripts/lib-config-path.sh` — czyli to, co
   `make init-configs` robi ze ścieżką podaną przez użytkownika: ścieżki windowsowe
   (`C:\dane\bpp`, także wklejone w cudzysłowach), tyldę, białe znaki i wykrywanie
@@ -219,7 +225,7 @@ niezgodności, więc nadają się do CI.
     Bez pliku `.env` obok `docker-compose.yml` Makefile wchodzi w tryb pierwszego
     uruchomienia i wystawia **tylko** cel `setup` — `make test-alloy` zgłosi wtedy
     „No rule to make target". Skrypty można wołać wprost:
-    `./scripts/test-alloy.sh`, `./scripts/test-waf.sh`.
+    `./scripts/test-alloy.sh`, `./scripts/test-waf.sh`, `./scripts/test-nginx-limits.sh`.
 
 ## Wydanie i wersja
 

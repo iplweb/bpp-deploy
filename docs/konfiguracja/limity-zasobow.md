@@ -167,7 +167,23 @@ działa niezależnie od sposobu startu. Sterujesz nią przez `.env` (zmienne
 
 `appserver` to osobny model: gunicorn z async `UvicornWorker`. `WEB_CONCURRENCY`
 (domyślnie **1** w obrazie) = liczba procesów gunicorna, każdy ~200 MB. Async worker
-obsługuje setki połączeń na proces, więc **nie potrzebujesz wielu** — 1–2 wystarczają,
+obsługuje wiele połączeń na proces, więc **nie potrzebujesz wielu** — 1–2 wystarczają,
 zwłaszcza gdy ciężką robotę pchasz na Celery. To ręczny knob w `.env`; skaluj w górę
 tylko jeśli zależy Ci na odporności na blokady CPU lub mniejszych rozłączeniach
 WebSocketów przy recyklingu. Pamiętaj: każdy `+1` to ~200 MB do `APPSERVER_MEM_LIMIT`.
+
+**`GUNICORN_LIMIT_CONCURRENCY`** (domyślnie **80**, `0` = bez limitu) to sufit
+równoczesnych połączeń **na jeden proces**. Ponad niego appserver od razu oddaje
+503. Bez tego limitu każde żądanie otwiera własne połączenie z PostgreSQL i przy
+floodzie baza kończy na `too many clients` (incydent z 27.09.2026 —
+[Limit globalny](../architektura/rate-limiting.md#limit-globalny)). Zasady doboru:
+
+- Liczą się też otwarte WebSockety i połączenie, które właśnie przyszło, więc
+  limit N przepuszcza N−1 równoległych żądań. Dlatego domyślne 80 jest wyższe niż
+  globalne `BPP_NGINX_GLOBAL_CONN` (60) — pierwszy odrzuca nginx, czytelnym 429.
+- `GUNICORN_LIMIT_CONCURRENCY × WEB_CONCURRENCY` musi zostać **wyraźnie poniżej**
+  `max_connections` PostgreSQL (autotune: 100 na każdy 1 GB RAM bazy, maks. 250),
+  z zapasem na Celery, authserver i monitoring.
+- Zmienna jest czytana przez obraz BPP z tą zmianą; na starszym obrazie nie działa
+  (bez błędu). Nazwa to celowo nie `UVICORN_…`, bo tryb deweloperski
+  (`uvicorn --reload`) czyta zmienne `UVICORN_*` sam.

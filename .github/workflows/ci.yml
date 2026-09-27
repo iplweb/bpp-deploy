@@ -94,6 +94,11 @@ jobs:
       - name: WAF (ModSecurity + OWASP CRS)
         run: ./scripts/test-waf.sh
 
+      # Globalny limit ruchu do appservera: wspolna pula dla wszystkich IP,
+      # 429 ponad limit rownoleglosci, WebSockety i /static/ poza limitem.
+      - name: Globalny limit nginx
+        run: ./scripts/test-nginx-limits.sh
+
       # Przepuszcza prawdziwy defaults/alloy/config.alloy przez prawdziwe linie
       # logu i sprawdza detected_level oraz pola modsec_*.
       - name: Pipeline logow Alloy

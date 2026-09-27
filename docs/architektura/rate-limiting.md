@@ -1,14 +1,16 @@
 # Rate limiting (nginx)
 
-Nginx ogranicza tempo żądań **per IP** dla ruchu trafiającego do Django, żeby
-pojedynczy klient (scraper, brute-force, zepsuta integracja) nie zapchał drzwi
-wejściowych i nie zagłodził legalnych użytkowników. To **nie** jest mechanizm
-ochrony pojemności całego serwera — tym zajmują się workery appservera i limity
-Dockera (patrz [Brak globalnego sufitu](#brak-globalnego-sufitu-pojemnosc-jest-nizej)).
+Nginx ogranicza ruch trafiający do Django na dwóch poziomach:
 
-Limity są **wbudowane w wersjonowany config** (dostarczany przez `git pull`),
-nie w `$BPP_CONFIGS_DIR/.env` — wchodzą w życie przy najbliższym `make up` lub
-reloadzie nginx, bez żadnej migracji `.env`.
+- **per IP** — żeby pojedynczy klient (scraper, brute-force, zepsuta integracja)
+  nie zapchał drzwi wejściowych i nie zagłodził legalnych użytkowników;
+- **globalnie** — jedna pula dla wszystkich adresów naraz, żeby ruch rozłożony na
+  tysiące IP nie położył appservera i bazy (patrz [Limit globalny](#limit-globalny)).
+
+Limity per IP są **wbudowane w wersjonowany config** (dostarczany przez
+`git pull`), nie w `$BPP_CONFIGS_DIR/.env` — wchodzą w życie przy najbliższym
+`make up` lub reloadzie nginx, bez żadnej migracji `.env`. Limit globalny ma
+rozsądne wartości domyślne i da się go stroić zmiennymi w `.env`.
 
 Rate limiting ogranicza **tempo** żądań, ale ich nie ocenia. Żądania, które nigdy
 nie powinny dojść do Django (sondy o `*.php`, prefiksy obcych CMS-ów), odcina
@@ -91,21 +93,76 @@ ukrytych nie przejdzie jako zielona.
 - `/healthz` musi być nielimitowane, bo bije w nie healthcheck Dockera;
 - panele i tak są chronione auth-subrequestem (`/_bpp_superuser_auth`).
 
-## Brak globalnego sufitu — pojemność jest niżej {#brak-globalnego-sufitu-pojemnosc-jest-nizej}
+## Limit globalny {#limit-globalny}
 
-**Świadomie nie ma globalnego (agregatowego) limitu req/s.** nginx liczy
-requesty, ale jest ślepy na ich koszt (cached lookup vs 30-sekundowy raport) i na
-wysycenie CPU/dysku/workerów — statyczny req/s we froncie jest złym przybliżeniem
-pojemności. „Nie pociągnąć serwera" realizują **niżej**, dokładniej i w sposób
-skalowany do maszyny:
+Limity per IP nic nie dają, gdy ruch jest rozłożony na tysiące adresów.
+**27 września 2026** na `publikacje.up.lublin.pl` scraper puszczony przez sieć
+rezydencjalnych proxy (**~6800 różnych IP, średnio jedno żądanie na adres**,
+osiem podrobionych user-agentów Chrome, zero pobrań z `/static/`) rozkręcał się
+od rana do **~2000 żądań/min**. Appserver przyjmował wszystko naraz, każde
+żądanie trzymało własne połączenie z PostgreSQL, a baza po przekroczeniu
+`max_connections` odpowiadała `too many clients` wszystkim — także workerom.
+Strona nie odpowiadała przez ~3 minuty.
 
-- **worker pool appservera** (WSGI) — N workerów = twardy sufit równoczesnych requestów;
-- **limity CPU/RAM Dockera** — sized do hosta przez [`make configure-resources`](../konfiguracja/limity-zasobow.md);
-- **Celery concurrency**, `max_connections` PostgreSQL, autotune dbservera.
+Dlatego obok limitów per IP każdy location kierujący ruch do appservera
+(`/`, `/api/`, `/admin/`, `/.well-known/`) ma **wspólną pulę dla wszystkich IP
+i wszystkich vhostów**:
 
-Jeśli agregatowy ruch przekracza to, co host uciąga, właściwą reakcją jest
-kolejkowanie/503 na warstwie workerów (i ewentualnie większy host), a nie
-prewencyjne 429 dla legalnych userów na froncie.
+| Zmienna w `.env` | Domyślnie | Znaczenie |
+|---|---|---|
+| `BPP_NGINX_GLOBAL_RATE` | `20` | Żądań/s do appservera łącznie, ze wszystkich IP (1200/min). |
+| `BPP_NGINX_GLOBAL_BURST` | `200` | Górka ponad `RATE` obsługiwana od ręki (~10 s szczytu). |
+| `BPP_NGINX_GLOBAL_CONN` | `60` | Żądań do appservera obsługiwanych **naraz**. |
+
+Ponad limit nginx oddaje od razu **429** (nie 503 — ten sam powód co
+[wyżej](#status-429-nie-503-i-poziom-logu)), zamiast pozwolić, żeby żądania
+spiętrzyły się w appserverze i w bazie.
+
+- **Wartość pusta albo brak zmiennej** = wartość domyślna.
+- **`0`** = dany limit wyłączony (np. `BPP_NGINX_GLOBAL_RATE=0` zostawia tylko
+  limit równoczesnych żądań).
+- **Błędna wartość** (`abc`, `-5`, `6 0`) nie kładzie strony: webserver loguje
+  `OSTRZEZENIE` i używa wartości domyślnej.
+
+Zmiana wartości: wpisz zmienną do `$BPP_CONFIGS_DIR/.env` i uruchom `make up`.
+Webserver wstanie z nowym środowiskiem, a skrypt `25-render-bpp-limits.sh`
+wygeneruje konfigurację od nowa. Aktualne wartości widać w logu startu:
+
+```bash
+docker compose logs webserver | grep 25-render
+# 25-render-bpp-limits.sh: globalny limit do appservera: tempo 20 r/s (burst 200), rownoleglosc 60 naraz
+```
+
+**Co jest poza limitem globalnym:** `/static/`, `/media/`, `/healthz` i panele
+za auth (tak jak w przypadku limitów per IP) oraz **WebSockety**
+(`/asgi/notifications/`) — wiszą godzinami, więc liczone w limicie równoległości
+zjadałyby go samym faktem, że redaktorzy mają otwarte karty.
+
+!!! warning "Globalny limit dotyka też legalnych użytkowników"
+    Tak jest z definicji: gdy scraper wyczerpie pulę, 429 dostają wszyscy, do czasu
+    aż pula się odnowi. To świadomy wybór — krótkie 429 zamiast kilku minut
+    całkowitej niedostępności i błędów w bazie dla wszystkich, łącznie z zadaniami
+    w tle. Kanarek po wdrożeniu: 429 w access logu **bez** floodu w tle = podnieś
+    `BPP_NGINX_GLOBAL_RATE`.
+
+### Druga warstwa: limit w samym appserverze
+
+Nginx jest ślepy na koszt żądania: 20 szybkich stron to nie to samo co 20
+kilkuminutowych raportów. Dlatego appserver ma własny limit —
+**`GUNICORN_LIMIT_CONCURRENCY`** (domyślnie **80 na proces**, `0` = wyłączony).
+Ponad limit od razu oddaje 503, zamiast otwierać kolejne połączenie do bazy.
+Wymaga obrazu BPP z tą zmianą; starsze obrazy ignorują zmienną. Szczegóły:
+[Limity zasobów](../konfiguracja/limity-zasobow.md#appserver-web_concurrency-gunicorn).
+
+Obie warstwy razem pilnują **pojemności**. Pozostałe mechanizmy, które ją
+ograniczają:
+
+- **limity CPU/RAM Dockera** — dobrane do hosta przez [`make configure-resources`](../konfiguracja/limity-zasobow.md);
+- **współbieżność Celery**, `max_connections` PostgreSQL i autotune dbservera.
+
+Sprawdzenie na żywym nginksie: `make test-nginx-limits` (pula wspólna dla
+różnych IP, 429 ponad limit równoległości, WebSockety i `/static/` poza
+limitem, błędne wartości i `0`).
 
 ## Pomiar przed strojeniem
 
@@ -124,8 +181,9 @@ chmurowe IP z `total ≈ peak` — zignoruj). Uwaga: okno jest ograniczone reten
 
 ## Strojenie
 
-Wartości są w **wersjonowanych** plikach (nie w `.env` — nginxowy `envsubst` nie
-umie domyślnych wartości `${VAR:-…}`):
+Limit globalny stroisz zmiennymi `BPP_NGINX_GLOBAL_*` (patrz
+[wyżej](#limit-globalny)). Limity **per IP** są w **wersjonowanych** plikach
+(nie w `.env` — nginxowy `envsubst` nie umie domyślnych wartości `${VAR:-…}`):
 
 - **`defaults/webserver/default.conf.template`** — definicje stref (`limit_req_zone`)
   i `rate`, w kontekście `http`. Tu zmieniasz tempo.

@@ -24,7 +24,7 @@ endif
 # Skrypty wolane BEZPOSREDNIO, a nie przez `$(MAKE) test-waf`: tamte targety
 # siedza w mk/misc.mk, includowanym dopiero w galezi normalnej.
 #
-# Zaden z trzech nie potrzebuje .env ani dzialajacej instalacji BPP — tylko
+# Zaden z nich nie potrzebuje .env ani dzialajacej instalacji BPP — tylko
 # dockera. Kolejnosc od najtanszego: alloy ~30 s, Makefile ~3 min (stawia
 # nginksa), WAF ~3 min (stawia webserver + atrape backendu).
 #
@@ -39,6 +39,7 @@ test:
 	@bash scripts/test-rclone.sh
 	@./scripts/test-alloy.sh
 	@bash tests/test_makefile.sh
+	@./scripts/test-nginx-limits.sh
 	@./scripts/test-waf.sh
 
 ifdef FIRST_RUN
@@ -226,6 +227,7 @@ help:
 	@echo "  Testy (nie wymagaja .env ani dzialajacej instalacji — tylko dockera):"
 	@echo "    test                 - Wszystkie trzy zestawy, od najtanszego (~6-8 min)"
 	@echo "    test-alloy           - Sam pipeline logow Alloy: detected_level + modsec_* (~30 s)"
+	@echo "    test-nginx-limits    - Globalny limit ruchu do appservera na zywym nginksie (~30 s)"
 	@echo "    test-waf             - Sam WAF: ModSecurity + OWASP CRS na realnych payloadach (~3 min)"
 	@echo ""
 	@echo "  Versioning:"

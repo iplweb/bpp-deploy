@@ -97,10 +97,11 @@ send_timeout          30s;
 # $binary_remote_addr nie pasuje do NGINX_ENVSUBST_FILTER (DJANGO_BPP_), wiec
 # envsubst go nie tyka.
 #
-# Brak globalnego (agregatowego) sufitu CELOWO: pojemnosci calego hosta pilnuja
-# workery appservera + limity CPU/RAM Dockera (skalowane do hosta przez
-# `make configure-resources`), a NIE statyczny req/s we froncie — nginx liczy
-# requesty, ale jest slepy na ich koszt i na wysycenie CPU/dysku/workerow.
+# GLOBALNY (agregatowy) limit — jedna pula dla wszystkich IP — NIE siedzi tutaj,
+# tylko w conf.d/05-bpp-global-limits.conf, generowanym przy starcie przez
+# 25-render-bpp-limits.sh ze zmiennych BPP_NGINX_GLOBAL_* (domyslne + 0 = off,
+# czego envsubst nie umie). Istnieje od 2026-09-27: scraper z ~6800 IP (1 zadanie
+# na IP) byl niewidzialny dla limitow per-IP i polozyl baze ("too many clients").
 limit_req_status 429;
 limit_req_log_level warn;
 limit_req_zone $binary_remote_addr zone=bpp_general:10m rate=100r/s;

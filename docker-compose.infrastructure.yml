@@ -237,6 +237,8 @@ services:
       - ./defaults/webserver/_bpp-locations.conf:/etc/nginx/bpp-templates/_bpp-locations.conf:ro
       - ./defaults/webserver/vhost.conf.template:/etc/nginx/bpp-templates/vhost.conf.template:ro
       - ./defaults/webserver/30-render-bpp-vhosts.sh:/docker-entrypoint.d/30-render-bpp-vhosts.sh:ro
+      # Globalny limit ruchu do appservera (BPP_NGINX_GLOBAL_* z .env przez env_file).
+      - ./defaults/webserver/25-render-bpp-limits.sh:/docker-entrypoint.d/25-render-bpp-limits.sh:ro
       # Let's Encrypt reload helper. NIE w /docker-entrypoint.d/ (uruchomilby
       # sie przy starcie kontenera) - tylko jako exec na zadanie z Ofelia.
       - ./scripts/letsencrypt-reload.sh:/usr/local/bin/letsencrypt-reload.sh:ro
