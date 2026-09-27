@@ -1659,6 +1659,8 @@ test_configure_resources() {
     assert_file_contains "netdata cap 320m"  "NETDATA_MEM_LIMIT=320m" "$cfg/.env"
     assert_file_contains "grafana cap 192m"  "GRAFANA_MEM_LIMIT=192m" "$cfg/.env"
     assert_file_contains "dozzle cap 64m"    "DOZZLE_MEM_LIMIT=64m"   "$cfg/.env"
+    assert_file_contains "pgbouncer cap 64m" "PGBOUNCER_MEM_LIMIT=64m" "$cfg/.env"
+    assert_file_not_contains "brak UNKNOWN_*"  "UNKNOWN_MEM_LIMIT="      "$cfg/.env"
     assert_file_contains "appserver obecny"  "APPSERVER_MEM_LIMIT="   "$cfg/.env"
     assert_file_contains "dbserver obecny"   "DBSERVER_MEM_LIMIT="    "$cfg/.env"
     # Po konsolidacji+renamie: jeden worker `workerserver` -> WORKER_MEM_LIMIT
