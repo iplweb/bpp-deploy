@@ -9,6 +9,7 @@
 | **appserver** | Serwer aplikacji Django + migracje |
 | **authserver** | Django auth proxy dla nginx — bez migracji/collectstatic, startuje w sekundy |
 | **dbserver** | PostgreSQL + denormalizacja |
+| **pgbouncer** | Pula połączeń PostgreSQL (tryb `session`) — **wyłącznie** dla appservera; reszta łączy się bezpośrednio ([pgbouncer](../konfiguracja/pgbouncer.md)) |
 | **webserver** | Nginx (reverse proxy + static files) |
 | **redis** | Cache, broker Celery i result backend |
 
@@ -87,3 +88,5 @@ Compose'owe `profiles:` trzymają te usługi poza domyślnym `docker compose up`
   `appserver` healthy (tranzytywnie `dbserver`).
 - `denorm-queue` wymaga `workerserver` healthy.
 - `celerybeat` używa `service_started` (nie `_healthy`) dla `appserver` — szybszy start.
+- `pgbouncer` czeka na `dbserver` healthy (w trybie bazy zewnętrznej to sentinel sondujący
+  prawdziwą bazę); `appserver` czeka na `pgbouncer` healthy — jak na `dbserver`.
