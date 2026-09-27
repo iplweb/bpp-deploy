@@ -17,9 +17,11 @@
 #      dzięki czemu 'make db-backup', 'make dbshell-psql' itp. działają bez
 #      zmian w targetach.
 #
-# Aplikacja (appserver, authserver, workerserver-*) łączy się BEZPOŚREDNIO
-# z zewnętrzną bazą przez DJANGO_BPP_DB_HOST z .env - sentinel nie jest
-# pośrednikiem, tylko wartownikiem.
+# authserver, workerserver, celerybeat, denorm-queue i netdata łączą się
+# BEZPOŚREDNIO z zewnętrzną bazą przez DJANGO_BPP_DB_HOST z .env; appserver
+# przez pgbouncer (docker-compose.pgbouncer.yml), który z kolei łączy się
+# z tym samym DJANGO_BPP_DB_HOST. Sentinel nie jest pośrednikiem, tylko
+# wartownikiem.
 
 x-logging: &default-logging
   driver: "local"

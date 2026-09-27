@@ -41,6 +41,14 @@ services:
       timeout: 5s
       retries: 3
       start_period: 10s
+    # Wlasny limit deskryptorow: domyslny soft limit zalezy od daemona Dockera
+    # (czesto 1024), a pgbouncer przy max_client_conn=1000 potrzebuje ~1134
+    # (liczy to i loguje przy starcie: "max expected fd use"). Podnoszac
+    # PGBOUNCER_MAX_CLIENT_CONN powyzej ~3500, podnies i to.
+    ulimits:
+      nofile:
+        soft: 4096
+        hard: 4096
     deploy:
       resources:
         limits:

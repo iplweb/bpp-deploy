@@ -652,7 +652,7 @@ test_pgbouncer_compose() {
     fi
 
     local s blok
-    for s in authserver workerserver celerybeat denorm-queue flower; do
+    for s in authserver workerserver celerybeat denorm-queue flower netdata; do
         blok="$(svc_block "$s" <(printf '%s\n' "$out") || true)"
         if printf '%s\n' "$blok" | grep -q 'pgbouncer'; then
             fail "$s laczy sie przez pgbouncer (ma isc bezposrednio)"
@@ -669,6 +669,13 @@ test_pgbouncer_compose() {
     assert_svc_contains "pgbouncer: sonda przez podkomende" "zdrowie" "$pgb"
     assert_svc_contains "pgbouncer: czeka na dbserver" "dbserver:" "$pgb"
     assert_svc_contains "pgbouncer: limit pamieci 64m" "memory: \"67108864\"" "$pgb"
+    # Wlasny ulimit: domyslny soft limit deskryptorow zalezy od daemona (czesto
+    # 1024), a pgbouncer przy max_client_conn=1000 potrzebuje ~1134.
+    if printf '%s\n' "$pgb" | grep -A2 -E '^ +nofile:$' | grep -q 'soft: 4096'; then
+        pass "pgbouncer: ulimit nofile 4096"
+    else
+        fail "pgbouncer: brak ulimits.nofile (soft 4096) — limit zalezy od daemona Dockera"
+    fi
     # shellcheck disable=SC2016  # wzorzec grep-a: `${BPP_CONFIGS_DIR}` ma zostac literalne
     assert_file_contains "pgbouncer: serwisowy env_file" 'env_file: ${BPP_CONFIGS_DIR}/.env' \
         "$REPO_DIR/docker-compose.pgbouncer.yml"

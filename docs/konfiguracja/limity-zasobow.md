@@ -190,8 +190,9 @@ floodzie baza kończy na `too many clients` (incydent z 27.09.2026 —
 
 ### pgbouncer — `PGBOUNCER_*`
 
-`PGBOUNCER_MEM_LIMIT` (64 MB) i `_CPU_LIMIT` (0,5) — `make configure-resources`
-wpisuje stały cap. `PGBOUNCER_POOL_SIZE` (80) to sufit połączeń puli do bazy;
+`PGBOUNCER_MEM_LIMIT` (64 MB) — `make configure-resources` wpisuje stały cap;
+`PGBOUNCER_CPU_LIMIT` (0,5) zostaje na domyślnej wartości z compose
+(`configure-resources` go nie liczy). `PGBOUNCER_POOL_SIZE` (80) to sufit połączeń puli do bazy;
 musi się zmieścić w `max_connections` razem z połączeniami bezpośrednimi.
 Łańcuch zależności: `DBSERVER_MEM_LIMIT` → autotune `max_connections`
 (100 na 1 GB, maks. 250) → pula przycinana przy starcie do

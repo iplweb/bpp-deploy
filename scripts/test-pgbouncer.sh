@@ -62,7 +62,10 @@ start_db() {
 # start_pgb [-e VAR=wartosc ...] — pgbouncer z naszym skryptem, czeka na port.
 start_pgb() {
     docker rm -f "$PGB" >/dev/null 2>&1
+    # --ulimit jak w docker-compose.pgbouncer.yml: bez tego wynik testu
+    # deskryptorow zalezy od daemona Dockera, a nie od naszej konfiguracji.
     docker run -d --name "$PGB" --network "$NET" --network-alias pgbouncer \
+        --ulimit nofile=4096:4096 \
         -e DJANGO_BPP_DB_HOST=baza-zewnetrzna -e DJANGO_BPP_DB_PORT=5432 \
         -e DJANGO_BPP_DB_NAME="$DB" -e DJANGO_BPP_DB_USER="$USR" \
         -e DJANGO_BPP_DB_PASSWORD="$HASLO" \
@@ -94,6 +97,24 @@ trzymaj() {
     for sql in "$@"; do args+=(-c "$sql"); done
     docker exec -d -e PGPASSWORD="$HASLO" "$CLI" \
         psql -h pgbouncer -p 6432 -U "$USR" -d "$DB" -Atq "${args[@]}" -c "\\! sleep $s"
+}
+
+# z_limitem SEKUNDY KOMENDA... — jak `timeout`, ale w czystym bashu: stockowy
+# macOS nie ma `timeout` (to coreutils), a exit 127 z brakujacego polecenia
+# dawal w 7b FALSZYWE "OK" (sonda "czerwona"), a w 7 falszywy BLAD.
+# Zwraca kod komendy albo 124 po przekroczeniu czasu.
+z_limitem() {
+    local sek="$1"; shift
+    "$@" & local pid=$!
+    ( sleep "$sek"; kill "$pid" 2>/dev/null ) & local straznik=$!
+    local rc=0
+    wait "$pid" || rc=$?
+    if kill "$straznik" 2>/dev/null; then
+        wait "$straznik" 2>/dev/null
+    else
+        rc=124
+    fi
+    return "$rc"
 }
 
 ini() { docker exec "$PGB" cat /etc/pgbouncer/pgbouncer.ini; }
@@ -163,7 +184,7 @@ if start_pgb -e PGBOUNCER_POOL_SIZE=2; then
     # w trybie session bezczynny klient i tak trzyma backend -> pula 2 pelna
     trzymaj 8 "SELECT 1"; trzymaj 8 "SELECT 1"
     sleep 1
-    if timeout 5 docker exec "$PGB" sh /bpp-entrypoint.sh zdrowie >/dev/null 2>&1; then
+    if z_limitem 5 docker exec "$PGB" sh /bpp-entrypoint.sh zdrowie >/dev/null 2>&1; then
         ok "sonda zielona przy pelnej glownej puli (osobny wpis _health)"
     else
         zle "sonda czerwona/zawieszona przy pelnej puli — idzie przez glowna pule"
@@ -189,7 +210,7 @@ fi
 
 echo "== 7b. sonda czerwona przy zlym hasle =="
 if start_pgb -e DJANGO_BPP_DB_PASSWORD=zle-haslo; then
-    timeout 8 docker exec "$PGB" sh /bpp-entrypoint.sh zdrowie >/dev/null 2>&1 \
+    z_limitem 8 docker exec "$PGB" sh /bpp-entrypoint.sh zdrowie >/dev/null 2>&1 \
         && zle "sonda zielona mimo zlego hasla" || ok "sonda czerwona przy zlym hasle"
 else
     zle "pgbouncer nie wstal przy zlym hasle (ma wstac, a sonda ma byc czerwona)"
