@@ -89,6 +89,13 @@ services:
     env_file: ${BPP_CONFIGS_DIR}/.env
     environment:
       DJANGO_BPP_ENABLE_PROMETHEUS: ${DJANGO_BPP_ENABLE_PROMETHEUS:-false}
+      # appserver laczy sie z baza przez pgbouncer (docker-compose.pgbouncer.yml).
+      # `environment:` wygrywa z `env_file:`, wiec DJANGO_BPP_DB_HOST w .env
+      # dalej znaczy "prawdziwa baza" dla reszty serwisow i dla pgbouncera.
+      # BPP_APPSERVER_DB_HOST=dbserver (lub host bazy zewn.) + _PORT=5432 =
+      # appserver bezposrednio do bazy.
+      DJANGO_BPP_DB_HOST: ${BPP_APPSERVER_DB_HOST:-pgbouncer}
+      DJANGO_BPP_DB_PORT: ${BPP_APPSERVER_DB_PORT:-6432}
     volumes:
       - staticfiles:/staticroot
       - media:/mediaroot
@@ -96,6 +103,10 @@ services:
       redis:
         condition: service_healthy
       dbserver:
+        condition: service_healthy
+      # Jak do dbserver: bez puli strona nie dziala, wiec zepsuty pgbouncer
+      # ma zatrzymac start (i `make up --wait`), a nie przepuscic appserver.
+      pgbouncer:
         condition: service_healthy
     healthcheck:
       # interval: 10s zeby workery (depends_on appserver: service_healthy)

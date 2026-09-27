@@ -136,6 +136,7 @@ FIXED_MEM=(
     "dozzle:64"
     "ofelia:64"
     "autoheal:32"
+    "pgbouncer:64"
 )
 
 # Format: name:floor_mb:surplus_weight. Dziela pule po odjeciu fixed.
@@ -448,6 +449,7 @@ var_prefix_for() {
         dozzle)                 echo "DOZZLE" ;;
         ofelia)                 echo "OFELIA" ;;
         autoheal)               echo "AUTOHEAL" ;;
+        pgbouncer)              echo "PGBOUNCER" ;;
         *) echo "UNKNOWN" ;;
     esac
 }

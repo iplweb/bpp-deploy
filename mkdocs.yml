@@ -93,6 +93,7 @@ nav:
       - Multi-host: konfiguracja/multi-host.md
       - Limity zasobów: konfiguracja/limity-zasobow.md
       - PostgreSQL — wersje i upgrade: konfiguracja/postgresql.md
+      - pgbouncer (pula połączeń): konfiguracja/pgbouncer.md
   - Eksploatacja:
       - Najważniejsze komendy: eksploatacja/komendy.md
       - Aktualizacje i wersje obrazów: eksploatacja/aktualizacje.md

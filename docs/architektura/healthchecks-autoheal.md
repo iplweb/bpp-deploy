@@ -25,6 +25,11 @@
   inaczej fallback na starą `healthcheck_broker.py` (cold-import + broker connect)
   dla wstecznej zgodności z pinowanym starym obrazem. Wcześniej sama broker-sonda
   pod niskim capem CPU trwała 4–10 s i wydłużała start celerybeat do ~218 s.
+- `pgbouncer` — `sh /bpp-entrypoint.sh zdrowie`: `SELECT 1` przez pgbouncer do
+  bazy, przez **osobny** wpis `<baza>_health` z własną pulą 1 połączenia — sonda
+  nie stoi w kolejce za nasyconą główną pulą, więc nie robi się `unhealthy` pod
+  ruchem. Nie jest obserwowany przez autoheal; `appserver` czeka na niego
+  `service_healthy` ([pgbouncer](../konfiguracja/pgbouncer.md)).
 
 ### Image-level (Dockerfile `HEALTHCHECK`)
 

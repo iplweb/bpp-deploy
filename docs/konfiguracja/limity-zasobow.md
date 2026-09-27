@@ -187,3 +187,14 @@ floodzie baza kończy na `too many clients` (incydent z 27.09.2026 —
 - Zmienna jest czytana przez obraz BPP z tą zmianą; na starszym obrazie nie działa
   (bez błędu). Nazwa to celowo nie `UVICORN_…`, bo tryb deweloperski
   (`uvicorn --reload`) czyta zmienne `UVICORN_*` sam.
+
+### pgbouncer — `PGBOUNCER_*`
+
+`PGBOUNCER_MEM_LIMIT` (64 MB) — `make configure-resources` wpisuje stały cap;
+`PGBOUNCER_CPU_LIMIT` (0,5) zostaje na domyślnej wartości z compose
+(`configure-resources` go nie liczy). `PGBOUNCER_POOL_SIZE` (80) to sufit połączeń puli do bazy;
+musi się zmieścić w `max_connections` razem z połączeniami bezpośrednimi.
+Łańcuch zależności: `DBSERVER_MEM_LIMIT` → autotune `max_connections`
+(100 na 1 GB, maks. 250) → pula przycinana przy starcie do
+`max_connections − max(40, 20 + 0,75 × rdzenie)`
+([pgbouncer](pgbouncer.md#pula-a-max_connections)).

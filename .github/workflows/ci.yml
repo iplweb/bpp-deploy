@@ -99,6 +99,11 @@ jobs:
       - name: Globalny limit nginx
         run: ./scripts/test-nginx-limits.sh
 
+      # pgbouncer: logowanie, tryb session (izolacja + reset sesji), ponowne
+      # uzycie backendu, sonda przy pelnej puli, przyciecie do max_connections.
+      - name: pgbouncer
+        run: ./scripts/test-pgbouncer.sh
+
       # Przepuszcza prawdziwy defaults/alloy/config.alloy przez prawdziwe linie
       # logu i sprawdza detected_level oraz pola modsec_*.
       - name: Pipeline logow Alloy

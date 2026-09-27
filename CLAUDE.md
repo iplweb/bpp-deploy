@@ -33,6 +33,7 @@ Operator topics and their canonical pages:
 - Multi-host: `docs/konfiguracja/multi-host.md`
 - Resource limits: `docs/konfiguracja/limity-zasobow.md`
 - PostgreSQL versions/upgrade: `docs/konfiguracja/postgresql.md`
+- pgbouncer (appserver connection pool): `docs/konfiguracja/pgbouncer.md`
 - Make commands: `docs/eksploatacja/komendy.md`
 - Planned-downtime deploys (`run-with-warning`): `docs/eksploatacja/przerwa-techniczna.md`
 - Backups / server migration: `docs/eksploatacja/backup-i-rclone.md`, `docs/eksploatacja/przenosiny-serwera.md`
@@ -65,6 +66,7 @@ docker-compose.yml                    # Main orchestration — includes only, de
 ├── docker-compose.monitoring.yml     # Netdata, Loki, Grafana, Alloy, Dozzle
 ├── docker-compose.database.yml       # PostgreSQL + postgresql_data volume  (default)
 │   └ docker-compose.database.external.yml   # external DB — swapped in via ${BPP_DATABASE_COMPOSE}
+├── docker-compose.pgbouncer.yml      # pgbouncer — connection pool for appserver only
 ├── docker-compose.infrastructure.yml # Nginx, Redis
 ├── docker-compose.application.yml    # appserver, authserver, ofelia, autoheal + staticfiles/media volumes
 ├── docker-compose.workers.yml        # workerserver, denorm-queue, workerserver-status, celerybeat, flower
@@ -294,6 +296,10 @@ Compose interpolates `$VAR` **before** the string reaches the container and cann
 ### Service dependencies
 
 `appserver` (migrations) before the worker; `workerserver` depends on `appserver` healthy; `denorm-queue` requires `workerserver` healthy; `celerybeat` uses `service_started` for `appserver` (faster start). Service table + data flow: `docs/architektura/uslugi.md`.
+
+### pgbouncer — only appserver, only `session`
+
+`appserver` reaches PostgreSQL through `pgbouncer` (`docker-compose.pgbouncer.yml`); every other service connects directly. `DJANGO_BPP_DB_HOST`/`_PORT` keep meaning "the real DB" — the appserver override is `BPP_APPSERVER_DB_HOST`/`_PORT` in its `environment:`. **Anti-fixes — do NOT:** (1) switch to `pool_mode = transaction` — Django's `QuerySet.iterator()` uses `WITH HOLD` cursors, and `LISTEN`/`SET`/`PREPARE` break too (https://www.pgbouncer.org/features.html); (2) repoint `DJANGO_BPP_DB_HOST` at the pool or route `denorm-queue` (`LISTEN`, all-day connection) through it; (3) go back to the image's own entrypoint — it writes the password into `userlist.txt` unescaped and pastes values into a `printf` format, so `"` or `%` in the password breaks login; (4) point the healthcheck at the main pool — it would queue behind a saturated pool and flip `unhealthy` exactly under load, hence the `<NAME>_health` alias with `pool_size=1`; (5) add an off-switch (`scale`, lying probe, `service_started`) — pgbouncer is infrastructure like `dbserver`, `appserver` waits on it `service_healthy` and an unhealthy one must fail `make up`. Pool is clamped at start to `max_connections − max(40, 20 + 0.75×nproc)`. Tests: `make test-pgbouncer` (live, mutation-checked) + `test_pgbouncer_compose`. Operator doc: `docs/konfiguracja/pgbouncer.md`.
 
 ### Scheduled jobs / nightly restarts (Ofelia)
 
