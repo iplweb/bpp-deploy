@@ -124,7 +124,7 @@ CPU_BUDGET="$CPU_COUNT"
 # Format: name:cap_mb. Przypisywane automatycznie (bez pytania).
 FIXED_MEM=(
     "redis:1024"
-    "netdata:320"
+    "netdata:768"
     "authserver:320"
     "celerybeat:480"
     "denorm-queue:320"
@@ -150,7 +150,10 @@ VARIABLE_MEM=(
     "workerserver:1536:35"
 )
 
-# CPU (limit miekki). Format: name:cpu_weight. Sumuja sie do CPU_TOTAL_WEIGHT.
+# CPU (limit miekki). Format: name:cpu_weight[:min_cpu]. Wagi sumuja sie do
+# CPU_TOTAL_WEIGHT. Opcjonalne min_cpu to minimum uslugi - podnosi default
+# i odrzuca nizsza odpowiedz (bez niego obowiazuje MIN_CPU). Netdata ma 1.0:
+# przy wadze 5% na malym hoscie dostawala ~0.2 CPU i nie nadazala ze zbieraniem.
 # Po konsolidacji jeden worker przejmuje wage dwoch poprzednich (25+12.5
 # zaokraglone do 30 - reszta puli i tak idzie do dbserver/appserver).
 CPU_SERVICES=(
@@ -159,7 +162,7 @@ CPU_SERVICES=(
     "workerserver:30"
     "redis:7.5"
     "loki:2.5"
-    "netdata:5"
+    "netdata:5:1.0"
 )
 # Suma wag CPU_SERVICES - uzywane jako startowa pula w redystrybucji.
 CPU_TOTAL_WEIGHT=95
@@ -375,8 +378,9 @@ done
 remaining_cpu=$CPU_BUDGET
 remaining_cpu_weight=$CPU_TOTAL_WEIGHT
 for entry in "${CPU_SERVICES[@]}"; do
-    IFS=: read -r svc cpu_w <<< "$entry"
-    default_cpu=$(LC_ALL=C awk -v r="$remaining_cpu" -v w="$cpu_w" -v t="$remaining_cpu_weight" -v min="$MIN_CPU" \
+    IFS=: read -r svc cpu_w svc_min_cpu <<< "$entry"
+    svc_min_cpu="${svc_min_cpu:-$MIN_CPU}"
+    default_cpu=$(LC_ALL=C awk -v r="$remaining_cpu" -v w="$cpu_w" -v t="$remaining_cpu_weight" -v min="$svc_min_cpu" \
         'BEGIN { if (t <= 0) v = min; else v = r * w / t; if (v < min) v = min; printf "%.1f", v }')
     cpu_answer=""
     while true; do
@@ -386,8 +390,8 @@ for entry in "${CPU_SERVICES[@]}"; do
             continue
         fi
         cpu_answer=$(round1 "$cpu_answer")
-        if LC_ALL=C awk -v v="$cpu_answer" -v m="$MIN_CPU" 'BEGIN { exit (v < m) ? 0 : 1 }'; then
-            echo "    Blad: minimum to ${MIN_CPU} CPU (Docker odrzuci mniej)." >&2
+        if LC_ALL=C awk -v v="$cpu_answer" -v m="$svc_min_cpu" 'BEGIN { exit (v < m) ? 0 : 1 }'; then
+            echo "    Blad: minimum dla $svc to ${svc_min_cpu} CPU." >&2
             continue
         fi
         break

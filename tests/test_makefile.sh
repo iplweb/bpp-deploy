@@ -1663,7 +1663,15 @@ test_configure_resources() {
     assert_file_contains "alloy cap 192m"    "ALLOY_MEM_LIMIT=192m"   "$cfg/.env"
     assert_file_contains "loki cap 512m"     "LOKI_MEM_LIMIT=512m"    "$cfg/.env"
     assert_file_contains "flower cap 128m"   "FLOWER_MEM_LIMIT=128m"  "$cfg/.env"
-    assert_file_contains "netdata cap 320m"  "NETDATA_MEM_LIMIT=320m" "$cfg/.env"
+    assert_file_contains "netdata cap 768m"  "NETDATA_MEM_LIMIT=768m" "$cfg/.env"
+    # CPU netdaty zalezy od liczby rdzeni runnera - sprawdzamy tylko minimum 1.0.
+    local nd_cpu
+    nd_cpu=$(grep '^NETDATA_CPU_LIMIT=' "$cfg/.env" | cut -d= -f2 || true)
+    if [ -n "$nd_cpu" ] && LC_ALL=C awk -v v="$nd_cpu" 'BEGIN { exit (v >= 1.0) ? 0 : 1 }'; then
+        pass "netdata CPU >= 1.0 ($nd_cpu)"
+    else
+        fail "netdata CPU >= 1.0 (jest: '${nd_cpu}')"
+    fi
     assert_file_contains "grafana cap 192m"  "GRAFANA_MEM_LIMIT=192m" "$cfg/.env"
     assert_file_contains "dozzle cap 64m"    "DOZZLE_MEM_LIMIT=64m"   "$cfg/.env"
     assert_file_contains "pgbouncer cap 64m" "PGBOUNCER_MEM_LIMIT=64m" "$cfg/.env"
@@ -2082,6 +2090,45 @@ YAML
     rm -rf "$cfg"
 }
 
+test_ensure_config_files_netdata_floor() {
+    yellow "=== Test: ensure-config-files podnosi limity netdaty do minimum ==="
+
+    local cfg
+    # Stary .env po configure-resources: 320m / 0.2 -> podniesione do 768m / 1.0.
+    cfg=$(mktemp -d)
+    printf 'BPP_CONFIGS_DIR=%s\nNETDATA_MEM_LIMIT=320m\nNETDATA_CPU_LIMIT=0.2\n' "$cfg" > "$cfg/.env"
+    if ! BPP_CONFIGS_DIR="$cfg" bash "$REPO_DIR/scripts/ensure-config-files.sh" >/dev/null 2>&1; then
+        fail "ensure-config-files zwrocil blad (netdata ponizej minimum)"
+        rm -rf "$cfg"; return
+    fi
+    assert_file_contains "netdata RAM 320m -> 768m" "^NETDATA_MEM_LIMIT=768m$" "$cfg/.env"
+    assert_file_contains "netdata CPU 0.2 -> 1.0"   "^NETDATA_CPU_LIMIT=1.0$"  "$cfg/.env"
+    if [ "$(grep -c '^NETDATA_MEM_LIMIT=' "$cfg/.env")" = "1" ]; then
+        pass "NETDATA_MEM_LIMIT wystepuje raz"
+    else
+        fail "NETDATA_MEM_LIMIT wystepuje raz"
+    fi
+    rm -rf "$cfg"
+
+    # Wartosci powyzej minimum (strojone przez operatora) zostaja nietkniete.
+    cfg=$(mktemp -d)
+    printf 'BPP_CONFIGS_DIR=%s\nNETDATA_MEM_LIMIT=1g\nNETDATA_CPU_LIMIT=2.5\n' "$cfg" > "$cfg/.env"
+    BPP_CONFIGS_DIR="$cfg" bash "$REPO_DIR/scripts/ensure-config-files.sh" >/dev/null 2>&1 \
+        || fail "ensure-config-files zwrocil blad (netdata powyzej minimum)"
+    assert_file_contains "netdata RAM 1g bez zmian"  "^NETDATA_MEM_LIMIT=1g$"  "$cfg/.env"
+    assert_file_contains "netdata CPU 2.5 bez zmian" "^NETDATA_CPU_LIMIT=2.5$" "$cfg/.env"
+    rm -rf "$cfg"
+
+    # Brak zmiennych -> nie dopisujemy (obowiazuje default z compose).
+    cfg=$(mktemp -d)
+    printf 'BPP_CONFIGS_DIR=%s\n' "$cfg" > "$cfg/.env"
+    BPP_CONFIGS_DIR="$cfg" bash "$REPO_DIR/scripts/ensure-config-files.sh" >/dev/null 2>&1 \
+        || fail "ensure-config-files zwrocil blad (brak zmiennych netdaty)"
+    assert_file_not_contains "brak NETDATA_MEM_LIMIT nie jest dopisywany" "NETDATA_MEM_LIMIT=" "$cfg/.env"
+    assert_file_not_contains "brak NETDATA_CPU_LIMIT nie jest dopisywany" "NETDATA_CPU_LIMIT=" "$cfg/.env"
+    rm -rf "$cfg"
+}
+
 test_ensure_config_files_altcha_selfheal() {
     yellow "=== Test: ensure-config-files dosypuje ALTCHA do starego .env ==="
 
@@ -2359,6 +2406,7 @@ test_configure_resources_worker_consolidation
 test_init_configs_generates_altcha
 test_loki_retention_migration
 test_ensure_config_files_altcha_selfheal
+test_ensure_config_files_netdata_floor
 test_init_configs_path_validation
 test_install_docker_windows
 test_rclone_single_source_of_truth

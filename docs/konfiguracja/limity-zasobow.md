@@ -7,10 +7,10 @@ docierają do każdej instalacji przez `${VAR:-default}` w plikach compose, wię
 out-of-the-box po `git pull && make up`.
 
 !!! warning "Minimalne wymagania sprzętowe"
-    **Minimum: 12 GB RAM. Zalecane: 16 GB+ RAM.** Suma stałych limitów (~3,3 GB) +
-    minimalne progi usług zmiennych (dbserver/appserver/workery = 6,5 GB) + rezerwa OS
-    (2 GB) daje ~12 GB. Przy 12 GB wszystko się mieści, ale ciasno (dbserver na minimum,
-    zerowa nadwyżka). Dopiero od 16 GB nadwyżka realnie zasila bazę, aplikację i workery.
+    **Minimum: 12 GB RAM. Zalecane: 16 GB+ RAM.** Suma stałych limitów (~4,3 GB) +
+    minimalne progi usług zmiennych (dbserver/appserver/workerserver = 5 GB) + rezerwa OS
+    (2 GB) daje ~11,3 GB. Przy 12 GB wszystko się mieści, ale ciasno (usługi zmienne
+    niemal na minimum, ~0,7 GB nadwyżki). Dopiero od 16 GB nadwyżka realnie zasila bazę, aplikację i workery.
     Poniżej 12 GB `configure-resources` ostrzega o ryzyku OOM.
 
 ## Model: stałe capy + usługi zmienne
@@ -49,13 +49,14 @@ Wynik ląduje w `$BPP_CONFIGS_DIR/.env` jako `DBSERVER_MEM_LIMIT`, `REDIS_MEM_LI
 oraz `REDIS_MAXMEMORY` (≈80% limitu Redisa, żeby eviction `allkeys-lru` wyprzedził
 OOM kill). `.env` staje się jednym źródłem prawdy dla limitów RAM. CPU jest zapisywane
 dla 6 usług (3 zmienne + `redis`/`loki`/`netdata`); pozostałe korzystają z CPU z compose.
+`netdata` ma minimum **1.0 CPU** — niższej wartości kreator nie przyjmie.
 
 ## Usługi ze stałym capem
 
 | Serwis | RAM | Uwagi |
 |---|---|---|
 | `redis` | 1g | broker + cache + result backend; `REDIS_MAXMEMORY` (`allkeys-lru`) ≈ 80% limitu |
-| `netdata` | 320m | dbengine + auto-discovery; patrz uwaga niżej o retencji |
+| `netdata` | 768m | dbengine + auto-discovery; **minimum 768m i 1.0 CPU** (podniesione z 320m; `make up` samo podnosi niższe wartości w `.env`) — patrz uwaga niżej o retencji |
 | `authserver` | 320m | Django + gunicorn (SSO) |
 | `celerybeat` | 480m | scheduler — pojedynczy proces; podniesione z 320m (Django + broker potrafiły dobić do twardego capu → OOM) |
 | `denorm-queue` | 320m | most PG `LISTEN` → Celery, pojedynczy proces |
@@ -67,8 +68,9 @@ dla 6 usług (3 zmienne + `redis`/`loki`/`netdata`); pozostałe korzystają z CP
 | `dozzle` | 64m | przeglądarka logów (Go) |
 | `ofelia` | 64m | scheduler cron (Go) |
 | `autoheal` | 32m | restart kontenerów po unhealthy |
+| `pgbouncer` | 64m | pula połączeń appservera — patrz sekcja pgbouncer niżej |
 
-Razem ≈ **3,8 GB**. Capy te są odejmowane od budżetu, a reszta trafia do usług zmiennych.
+Razem ≈ **4,3 GB**. Capy te są odejmowane od budżetu, a reszta trafia do usług zmiennych.
 
 ## Usługi zmienne (dzielą pulę)
 
@@ -104,9 +106,11 @@ bo jego realny apetyt na RAM zależy od liczby procesów-dzieci prefork.
     policzoną — oba usuwają nieużywane `WORKER_GENERAL_*`/`WORKER_DENORM_*`.
 
 !!! tip "Netdata: cap kontra retencja"
-    Cap `netdata` (320m) to limit **twardy**. Jeśli wydłużasz historię metryk przez
+    Cap `netdata` (768m) to limit **twardy**. Jeśli wydłużasz historię metryk przez
     `NETDATA_DBENGINE_TIER0_RETENTION_MB` / `NETDATA_DBENGINE_PAGE_CACHE_MB` w `.env`,
     **podnieś również `NETDATA_MEM_LIMIT`** — inaczej netdata zostanie ubity przez OOM.
+    Minimum to **768m RAM i 1.0 CPU**: każde `make up` podnosi niższe
+    `NETDATA_MEM_LIMIT`/`NETDATA_CPU_LIMIT` w `.env` do tego progu (wyższe zostawia).
     Plik `netdata.conf` jest [force-syncowany](architektura.md#netdataconf-renderowany-host-side) —
     nie edytuj go ręcznie, używaj knobów `.env`.
 
