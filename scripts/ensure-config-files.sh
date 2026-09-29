@@ -249,6 +249,53 @@ if [ -f "$_ENV" ]; then
     _ensure_var LOKI_RETENTION_WEBSERVER "$(_loki_period webserver  4320h)" \
         "  + dopisano LOKI_RETENTION_WEBSERVER w .env"
 
+    # Minimum zasobow netdaty: 768m RAM, 1.0 CPU. `make configure-resources`
+    # wpisywal wczesniej do .env NETDATA_MEM_LIMIT=320m i NETDATA_CPU_LIMIT
+    # rzedu 0.2 (5% puli CPU), a Compose default dziala tylko gdy zmiennej
+    # brak - wiec samo podniesienie defaultow nie dotarloby do istniejacych
+    # instalacji. Podnosimy WYLACZNIE wartosci ponizej minimum; wyzsze (strojone
+    # przez operatora, np. pod dluzsza retencje dbengine) zostaja nietkniete.
+    # Brak zmiennej = nic nie robimy, bo wtedy obowiazuje default z compose.
+    # Niezrozumiala wartosc -> ostrzezenie, nie ruszamy (nie zgadujemy jednostek).
+    _set_existing_var() {  # $1 = nazwa, $2 = nowa wartosc (zmienna musi istniec)
+        local _t="$_ENV.tmp.$$"
+        awk -v k="$1" -v v="$2" 'BEGIN { FS=OFS="=" } $1 == k { print k "=" v; next } { print }' \
+            "$_ENV" > "$_t" && mv "$_t" "$_ENV"
+    }
+    _mem_to_mb() {  # Docker: liczba + opcjonalnie b/k/m/g (+ 'b'); goła liczba = bajty
+        printf '%s' "$1" | LC_ALL=C awk '
+            match(tolower($0), /^[0-9]+(\.[0-9]+)?(b|k|kb|m|mb|g|gb)?$/) {
+                v = $0 + 0; u = tolower($0); sub(/^[0-9.]+/, "", u)
+                if (u == "" || u == "b") v = v / 1048576
+                else if (u ~ /^k/) v = v / 1024
+                else if (u ~ /^g/) v = v * 1024
+                printf "%d", v; ok = 1
+            }
+            END { exit ok ? 0 : 1 }'
+    }
+    _nd_mem="$(grep -E '^NETDATA_MEM_LIMIT=' "$_ENV" | tail -1 | cut -d= -f2- | tr -d '\r' || true)"
+    if [ -n "$_nd_mem" ]; then
+        if _nd_mem_mb="$(_mem_to_mb "$_nd_mem")"; then
+            if [ "$_nd_mem_mb" -lt 768 ]; then
+                _set_existing_var NETDATA_MEM_LIMIT 768m
+                echo "  ~ podniesiono NETDATA_MEM_LIMIT z ${_nd_mem} do minimum 768m"
+            fi
+        else
+            echo "  ! OSTRZEZENIE: nie rozumiem NETDATA_MEM_LIMIT='${_nd_mem}' w .env - zostawiam (minimum to 768m)" >&2
+        fi
+    fi
+    _nd_cpu="$(grep -E '^NETDATA_CPU_LIMIT=' "$_ENV" | tail -1 | cut -d= -f2- | tr -d '\r' || true)"
+    if [ -n "$_nd_cpu" ]; then
+        if [[ "$_nd_cpu" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
+            if LC_ALL=C awk -v v="$_nd_cpu" 'BEGIN { exit (v < 1.0) ? 0 : 1 }'; then
+                _set_existing_var NETDATA_CPU_LIMIT 1.0
+                echo "  ~ podniesiono NETDATA_CPU_LIMIT z ${_nd_cpu} do minimum 1.0"
+            fi
+        else
+            echo "  ! OSTRZEZENIE: nie rozumiem NETDATA_CPU_LIMIT='${_nd_cpu}' w .env - zostawiam (minimum to 1.0)" >&2
+        fi
+    fi
+
     # BPP_BACKUP_PG_IMAGE nie jest tu juz samouzdrawiana - zmienna jest MARTWA
     # od 2026-09. Byla potrzebna, gdy backup-runner wspoldzielil obraz Postgresa
     # z sentinelem trybu external; orkiestrator (docker:cli) obrazu Postgresa
