@@ -429,6 +429,59 @@ if [ -f "$_ENV" ] && [ -f "$DEFAULTS_DIR/netdata/netdata.conf.tpl" ]; then
     fi
 fi
 
+# Netdata go.d/docker.conf: renderowany z docker.conf.tpl i FORCE-SYNCOWANY.
+# Do 2026-09 byl copy_if_missing z `update_every: 3`, co na Dockerze 29+ z
+# magazynem obrazow containerd trzymalo dockerd i containerd na ~35% rdzenia
+# kazdy (ImageList + 4x ContainerList przy kazdym zbiorze — szczegoly w .tpl).
+# Przy copy_if_missing poprawka interwalu nigdy nie dotarlaby na istniejace
+# wdrozenie. Interwal jest teraz w .env (NETDATA_DOCKER_UPDATE_EVERY).
+#
+# Renderujemy BEZ warunku na .env (jak Loki nizej): brak pliku = go.d wraca do
+# stockowego interwalu 1 s, czyli jeszcze gorzej niz przed poprawka.
+if [ -f "$DEFAULTS_DIR/netdata/go.d/docker.conf.tpl" ]; then
+    _dk_dest="$BPP_CONFIGS_DIR/netdata/go.d/docker.conf"
+
+    # Migracja strojenia: stary naglowek pliku zapraszal do edycji update_every,
+    # wiec wartosc operatora trzeba przeniesc do .env, zanim force-sync ja skasuje.
+    # Tylko z pliku BEZ markera AUTO-GENERATED (legacy kopia) — inaczej przy
+    # nastepnym przebiegu wyrenderowane 30 zostaloby wziete za strojenie i
+    # zamrozone w .env. `3` to stary default z repo (wlasnie ten blad), nie
+    # strojenie — nie przenosimy go.
+    if [ -f "$_ENV" ] && [ -f "$_dk_dest" ] \
+        && ! grep -q '^# AUTO-GENERATED' "$_dk_dest" \
+        && ! grep -qE '^NETDATA_DOCKER_UPDATE_EVERY=.+' "$_ENV"; then
+        _dk_old="$(awk '$1=="update_every:" {print $2; exit}' "$_dk_dest" 2>/dev/null | tr -d '\r' || true)"
+        if [[ "$_dk_old" =~ ^[1-9][0-9]*$ ]] && [ "$_dk_old" != "3" ]; then
+            _ensure_var NETDATA_DOCKER_UPDATE_EVERY "$_dk_old" \
+                "  + przeniesiono update_every=${_dk_old} z go.d/docker.conf do .env (NETDATA_DOCKER_UPDATE_EVERY)"
+        fi
+    fi
+
+    _dk_val=""
+    if [ -f "$_ENV" ]; then
+        _dk_val="$(grep -E '^NETDATA_DOCKER_UPDATE_EVERY=' "$_ENV" 2>/dev/null | tail -1 | cut -d= -f2- | tr -d '\r' || true)"
+        _dk_val="${_dk_val#\"}"; _dk_val="${_dk_val%\"}"
+        _dk_val="${_dk_val#\'}"; _dk_val="${_dk_val%\'}"
+    fi
+    if [ -z "$_dk_val" ]; then
+        _dk_val="30"
+    elif ! [[ "$_dk_val" =~ ^[1-9][0-9]*$ ]]; then
+        echo "  ! OSTRZEZENIE: nie rozumiem NETDATA_DOCKER_UPDATE_EVERY='${_dk_val}' w .env - uzywam 30 (sekundy, liczba >= 1)" >&2
+        _dk_val="30"
+    fi
+
+    _dk_tmp="${_dk_dest}.tmp.$$"
+    # Wartosc to sama liczba (zwalidowana wyzej) — bez escapowania sed-a.
+    sed -e "s/__DOCKER_UPDATE_EVERY__/${_dk_val}/g" \
+        "$DEFAULTS_DIR/netdata/go.d/docker.conf.tpl" > "$_dk_tmp"
+    if ! cmp -s "$_dk_tmp" "$_dk_dest" 2>/dev/null; then
+        mv "$_dk_tmp" "$_dk_dest"
+        echo "  ~ zsynchronizowano (render+overwrite): $_dk_dest"
+    else
+        rm -f "$_dk_tmp"
+    fi
+fi
+
 # Loki main config: renderowany host-side z local-config.yaml.tpl i FORCE-SYNCOWANY,
 # dokladnie jak netdata.conf wyzej. Do wersji z sierpnia 2026 byl copy_if_missing,
 # przez co plik zostawal zamrozony w stanie z dnia instalacji NA ZAWSZE — kazda

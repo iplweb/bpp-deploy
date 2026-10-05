@@ -37,13 +37,14 @@ configi (`loki/`, `netdata/health.d/`, `netdata/go.d/`) przeżywają aktualizacj
 ## Pliki force-syncowane (nadpisywane przy każdym deploy)
 
 !!! warning "Wyjątek od `copy_if_missing`"
-    Cztery artefakty są **nadpisywane z `defaults/` przy każdym `ensure-config-files`**
+    Poniższe artefakty są **nadpisywane z `defaults/` przy każdym `ensure-config-files`**
     (czyli każdym `make up` / `refresh` / `run`) przez `copy_always` (tylko gdy treść
     się różni):
 
     - `grafana/provisioning/dashboards/*`
     - `grafana/provisioning/datasources/datasources.yaml.tpl`
     - `netdata/netdata.conf`
+    - `netdata/go.d/docker.conf`
     - `alloy/config.alloy`
     - `loki/local-config.yaml`
 
@@ -123,6 +124,27 @@ strojenie przeżywa aktualizację.
     `make up` dopisuje zmienne i renderuje ponownie bajt w bajt (`cmp` nie widzi
     zmiany). Ta sama sekwencja co przy `ALTCHA_HMAC_KEY` — dlatego `init-configs`
     nie dostaje drugiej kopii tej logiki.
+
+### `netdata/go.d/docker.conf` — renderowany host-side
+
+Do września 2026 był `copy_if_missing` z interwałem `update_every: 3`. Kolektor go.d
+`docker` przy **każdym** zbiorze woła `Info`, `ImageList` i 4× `ContainerList(all)`.
+Na Dockerze 29+ z magazynem obrazów containerd (`io.containerd.snapshotter.v1`)
+samo `ImageList` kosztuje ~0,6 s CPU w `dockerd` **i** drugie tyle w `containerd`,
+więc netdata trzymała oba demony na ~35% rdzenia bez przerwy (bez netdaty: ~3%).
+
+Plik jest teraz renderowany z `defaults/netdata/go.d/docker.conf.tpl` z interwałem
+**30 s**. **Nie edytuj go ręcznie — strój przez `.env`:** `NETDATA_DOCKER_UPDATE_EVERY`
+(sekundy, liczba ≥ 1; śmieć → ostrzeżenie i 30). Te metryki to liczniki
+kontenerów/obrazów i stanów health; CPU/RAM/IO per kontener zbiera `cgroups.plugin`
+z cgroupfs, bez udziału Docker API, więc rzadszy interwał ich nie dotyczy.
+
+Istniejące instalacje nie wymagają ręcznego kroku: jeśli operator przestroił
+`update_every` w starym pliku (stary nagłówek do tego zachęcał), wartość zostaje
+przeniesiona do `.env` przed pierwszym renderem. Wyjątkiem jest `3` — to stary
+domyślny interwał z repo, czyli właśnie ten błąd, więc nie jest traktowany jako
+strojenie. Migracja czyta wyłącznie plik **bez** nagłówka `AUTO-GENERATED`, żeby
+wyrenderowane `30` nie zostało przy następnym `make up` zamrożone w `.env`.
 
 ### `datasources.yaml.tpl` — dlaczego force-sync
 

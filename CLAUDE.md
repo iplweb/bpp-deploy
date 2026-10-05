@@ -86,6 +86,7 @@ These are overwritten from `defaults/` via `copy_always` (only when content diff
 - `grafana/provisioning/dashboards/*`
 - `grafana/provisioning/datasources/datasources.yaml.tpl`
 - `netdata/netdata.conf` (rendered host-side from `defaults/netdata/netdata.conf.tpl`)
+- `netdata/go.d/docker.conf` (rendered host-side from `defaults/netdata/go.d/docker.conf.tpl`; interval via `NETDATA_DOCKER_UPDATE_EVERY`, default 30)
 - `alloy/config.alloy`
 - `loki/local-config.yaml` (rendered host-side from `defaults/loki/local-config.yaml.tpl`)
 
@@ -94,6 +95,8 @@ Everything else under the config dir stays `copy_if_missing`. Dashboards removed
 **Rule:** versioned, read-only-in-UI artifacts must reach existing installs on `git pull && make up`. Anything the operator may legitimately tune is parametrized via `.env` instead (`NETDATA_DBENGINE_*`, `LOKI_RETENTION_*`) so the overwrite can't wipe it. **Never tell users to hand-edit a force-synced file — point them at the `.env` knob.**
 
 **Adding a file to this list:** an existing install must keep its tuned values. Read them out of the operator's current file and write them into `.env` (what the Loki retention migration does with `awk`) — writing repo constants silently resets tuning on a plain `git pull && make up`, exactly what the backwards-compat contract forbids. Render guards and the `init-configs`-before-`.env` ordering: `docs/konfiguracja/architektura.md`.
+
+**go.d `docker` collector interval stays ≥ 30 s.** Symptom: `dockerd` **and** `containerd` each burn ~35% of a core non-stop, and stopping `netdata` drops both to ~3%. Every collection runs `Info` + `ImageList` + 4× `ContainerList(all)`, and on Docker 29+'s containerd image store `ImageList` alone costs ~0.6 s CPU in each daemon. **Anti-fixes — do NOT:** lower `update_every` back to single seconds "for resolution" (per-container CPU/RAM/IO comes from `cgroups.plugin`, not this collector); blame healthchecks or dozzle/alloy (measured: no effect); turn the file back into `copy_if_missing`. The migration only reads a file **without** the `AUTO-GENERATED` header and never carries over `3` (the old buggy default). Detail: `docs/konfiguracja/architektura.md`.
 
 Leaving a config on `copy_if_missing` freezes it **at install time forever** — an existing install never sees the new version. That has already cost a CRS severity mapping (reached no deployment at all) and a Loki level-detection fix (had to ship as a CLI flag instead).
 

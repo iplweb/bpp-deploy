@@ -17,6 +17,7 @@ Config `${BPP_CONFIGS_DIR}/netdata/netdata.conf` jest **renderowany z
 
     - `NETDATA_DBENGINE_TIER0_RETENTION_MB` — rozmiar retencji tier 0
     - `NETDATA_DBENGINE_PAGE_CACHE_MB` — cache stron
+    - `NETDATA_DOCKER_UPDATE_EVERY` — interwał kolektora go.d `docker` w sekundach (domyślnie 30; plik `go.d/docker.conf` też jest force-syncowany)
 
 ## Przycisk „View node" w ntfy
 
@@ -51,7 +52,7 @@ W `${BPP_CONFIGS_DIR}/netdata/go.d/` (nadpisują wbudowane defaulty mountem RO):
 | `postgres.conf` | metryki PostgreSQL (DSN z `.env`; internal i external mode) |
 | `nginx.conf` | live metryki połączeń z endpointu `stub_status` (osobny `server { listen 8090; }` w `default.conf.template`; port **nie** publikowany — osiągalny tylko w sieci Dockera: `netdata → webserver:8090`) |
 | `web_log.conf` | metryki z parsowania access logu nginx (kody HTTP, metody, bandwidth, percentyle czasów) → wbudowane alerty na 5xx/latencje. Źródło: `/var/log/nginx-shared/bpp_access.log` |
-| `docker.conf` | metryki kontenerów przez Docker API (socket RO). Interwał **3 s** (`update_every: 3`) zamiast globalnego 1 s — przy wielu kontenerach jeden przebieg trwa ~1 s, więc co 1 s netdata logował `skipping data collection: previous run is still in progress`. To był info-szum, nie błąd; 3 s daje zapas. Tuning: `update_every` w pliku |
+| `docker.conf` | liczniki kontenerów (stany, health) i obrazów przez Docker API (socket RO). **Renderowany i force-syncowany** z `docker.conf.tpl`, interwał **30 s** — na Dockerze 29+ z magazynem obrazów containerd każde zbieranie kosztuje ~1 s CPU w `dockerd` i `containerd`; przy dawnych 3 s oba demony stały na ~35% rdzenia. Tuning: `NETDATA_DOCKER_UPDATE_EVERY` w `.env`, nie w pliku ([szczegóły](../konfiguracja/architektura.md#netdatagoddockerconf-renderowany-host-side)) |
 
 `web_log` **nie** dubluje Loki — Loki trzyma surowe linie do przeszukiwania, `web_log`
 liczy metryki @1s i alertuje na ntfy.

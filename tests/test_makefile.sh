@@ -35,6 +35,7 @@ skip_or_fail() {
 }
 
 assert_file_exists()    { if [ -f "$2" ]; then pass "$1"; else fail "$1 ($2 not found)"; fi; }
+assert_file_not_exists() { if [ ! -e "$2" ]; then pass "$1"; else fail "$1 ($2 exists)"; fi; }
 assert_dir_exists()     { if [ -d "$2" ]; then pass "$1"; else fail "$1 ($2 not found)"; fi; }
 assert_file_contains()  { if grep -q "$2" "$3" 2>/dev/null; then pass "$1"; else fail "$1 (missing '$2')"; fi; }
 assert_file_not_contains() { if ! grep -q "$2" "$3" 2>/dev/null; then pass "$1"; else fail "$1 (found '$2')"; fi; }
@@ -2011,6 +2012,97 @@ test_backup_pg_image_retired() {
     fi
 }
 
+# ============================================================
+# TEST: go.d/docker.conf — interwal 30 s, render z force-syncem, migracja
+# ============================================================
+# Kolektor go.d `docker` przy KAZDYM zbiorze wola Info + ImageList +
+# 4x ContainerList(all). Na magazynie obrazow containerd (Docker 29+,
+# io.containerd.snapshotter.v1) ImageList kosztuje ~0,6 s CPU w dockerd
+# I drugie tyle w containerd — przy update_every: 3 netdata trzymala oba
+# demony na ~35% rdzenia non stop (zmierzone 2026-09-29: bez netdaty 3%).
+# Plik byl copy_if_missing, wiec poprawka interwalu nigdy nie dotarlaby na
+# istniejace wdrozenie — stad render+force-sync, a strojenie operatora
+# (naglowek pliku zapraszal do edycji update_every) migruje do .env.
+# ============================================================
+
+test_netdata_docker_interval() {
+    yellow "=== Test: go.d/docker.conf — interwal 30 s + force-sync + migracja ==="
+
+    assert_file_not_exists "defaults: brak docker.conf (copy_if_missing zamrazalby go)" \
+        "$REPO_DIR/defaults/netdata/go.d/docker.conf"
+    assert_file_exists "defaults: jest docker.conf.tpl" \
+        "$REPO_DIR/defaults/netdata/go.d/docker.conf.tpl"
+
+    local cfg out
+    # 1. Stara instalacja ze STOCKOWYM plikiem (update_every: 3 = blad) -> 30,
+    #    a 3 NIE jest przenoszone do .env jako "strojenie operatora".
+    cfg=$(mktemp -d)
+    mkdir -p "$cfg/netdata/go.d"
+    printf 'BPP_CONFIGS_DIR=%s\n' "$cfg" > "$cfg/.env"
+    printf '# stary naglowek\nupdate_every: 3\n\njobs:\n  - name: local\n' \
+        > "$cfg/netdata/go.d/docker.conf"
+    if ! BPP_CONFIGS_DIR="$cfg" bash "$REPO_DIR/scripts/ensure-config-files.sh" >/dev/null 2>&1; then
+        fail "ensure-config-files zwrocil blad (stary docker.conf)"
+        rm -rf "$cfg"; return
+    fi
+    assert_file_contains "stary stock: render update_every: 30" \
+        '^update_every: 30$' "$cfg/netdata/go.d/docker.conf"
+    assert_file_not_contains "stary stock: 3 nie trafia do .env" \
+        'NETDATA_DOCKER_UPDATE_EVERY' "$cfg/.env"
+    assert_file_contains "render: socket dockera zostaje" \
+        "unix:///var/run/docker.sock" "$cfg/netdata/go.d/docker.conf"
+    assert_file_contains "render: rozmiar kontenerow dalej wylaczony" \
+        'collect_container_size: no' "$cfg/netdata/go.d/docker.conf"
+    assert_file_not_contains "render: brak nierozwinietych placeholderow" \
+        '__DOCKER_' "$cfg/netdata/go.d/docker.conf"
+
+    # Idempotencja: wyrenderowany plik (30) NIE moze byc wziety za strojenie
+    # operatora przy nastepnym przebiegu i zamrozony w .env.
+    BPP_CONFIGS_DIR="$cfg" bash "$REPO_DIR/scripts/ensure-config-files.sh" >/dev/null 2>&1
+    assert_file_not_contains "drugi przebieg: wyrenderowane 30 nie trafia do .env" \
+        'NETDATA_DOCKER_UPDATE_EVERY' "$cfg/.env"
+    rm -rf "$cfg"
+
+    # 2. Stara instalacja RECZNIE PRZESTROJONA (update_every: 10) -> migracja.
+    cfg=$(mktemp -d)
+    mkdir -p "$cfg/netdata/go.d"
+    printf 'BPP_CONFIGS_DIR=%s\n' "$cfg" > "$cfg/.env"
+    printf 'update_every: 10\n\njobs:\n  - name: local\n' > "$cfg/netdata/go.d/docker.conf"
+    BPP_CONFIGS_DIR="$cfg" bash "$REPO_DIR/scripts/ensure-config-files.sh" >/dev/null 2>&1
+    assert_file_contains "strojenie operatora: 10 zmigrowane do .env" \
+        '^NETDATA_DOCKER_UPDATE_EVERY=10$' "$cfg/.env"
+    assert_file_contains "strojenie operatora: render 10 przezyl force-sync" \
+        '^update_every: 10$' "$cfg/netdata/go.d/docker.conf"
+    BPP_CONFIGS_DIR="$cfg" bash "$REPO_DIR/scripts/ensure-config-files.sh" >/dev/null 2>&1
+    if [ "$(grep -c '^NETDATA_DOCKER_UPDATE_EVERY=' "$cfg/.env")" = "1" ]; then
+        pass "drugi przebieg: jedna linia NETDATA_DOCKER_UPDATE_EVERY"
+    else
+        fail "drugi przebieg: zdublowana NETDATA_DOCKER_UPDATE_EVERY w .env"
+    fi
+    rm -rf "$cfg"
+
+    # 3. Smiec w .env -> default 30 + ostrzezenie, nigdy yaml, ktorego go.d nie sparsuje.
+    cfg=$(mktemp -d)
+    printf 'BPP_CONFIGS_DIR=%s\nNETDATA_DOCKER_UPDATE_EVERY=abc\n' "$cfg" > "$cfg/.env"
+    out=$(BPP_CONFIGS_DIR="$cfg" bash "$REPO_DIR/scripts/ensure-config-files.sh" 2>&1)
+    assert_file_contains "smiec w .env: render 30" \
+        '^update_every: 30$' "$cfg/netdata/go.d/docker.conf"
+    if printf '%s' "$out" | grep -q 'NETDATA_DOCKER_UPDATE_EVERY'; then
+        pass "smiec w .env: ostrzezenie w logu"
+    else
+        fail "smiec w .env: brak ostrzezenia o NETDATA_DOCKER_UPDATE_EVERY"
+    fi
+    rm -rf "$cfg"
+
+    # 4. Swieza instalacja bez .env (skrypt potrafi ruszyc przed jego powstaniem)
+    #    -> plik i tak musi powstac, inaczej go.d wraca do stockowego interwalu 1 s.
+    cfg=$(mktemp -d)
+    BPP_CONFIGS_DIR="$cfg" bash "$REPO_DIR/scripts/ensure-config-files.sh" >/dev/null 2>&1
+    assert_file_contains "swieza instalka bez .env: render 30" \
+        '^update_every: 30$' "$cfg/netdata/go.d/docker.conf"
+    rm -rf "$cfg"
+}
+
 test_loki_retention_migration() {
     yellow "=== Test: retencja Loki — migracja do .env + render ==="
 
@@ -2405,6 +2497,7 @@ test_configure_resources
 test_configure_resources_worker_consolidation
 test_init_configs_generates_altcha
 test_loki_retention_migration
+test_netdata_docker_interval
 test_ensure_config_files_altcha_selfheal
 test_ensure_config_files_netdata_floor
 test_init_configs_path_validation
