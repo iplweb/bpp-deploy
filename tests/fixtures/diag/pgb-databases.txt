@@ -1,0 +1,4 @@
+name|host|port|database|force_user|pool_size|min_pool_size|reserve_pool_size|server_lifetime|pool_mode|load_balance_hosts|max_connections|current_connections|max_client_connections|current_client_connections|paused|disabled
+bpp|dbserver|5432|bpp||3|0|0|3600|||3|3|0|3|0|0
+bpp_health|dbserver|5432|bpp||1|0|0|3600|||3|0|0|0|0|0
+pgbouncer||6432|pgbouncer|pgbouncer|2|0|0|3600|statement||3|0|0|1|0|0

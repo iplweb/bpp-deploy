@@ -66,13 +66,45 @@ bpp-pgbouncer: OSTRZEZENIE: PGBOUNCER_POOL_SIZE=80 przekracza max_connections=10
 ## Diagnostyka
 
 ```bash
+make pgbouncer-stats        # stan puli: kolejka, wolne/zajęte, sesje wiszące bez zapytań
+make db-connection-stats    # kto trzyma połączenia z PostgreSQL, rozbite na kontenery
 docker compose logs pgbouncer | grep bpp-pgbouncer     # konfiguracja przy starcie
 docker compose logs pgbouncer | grep stats             # co 60 s; pole "wait" > 0 = kolejka
-docker compose exec pgbouncer sh -c 'PGPASSWORD="$DJANGO_BPP_DB_PASSWORD" psql -h 127.0.0.1 -p 6432 -U "$DJANGO_BPP_DB_USER" pgbouncer -c "SHOW POOLS"'
 ```
 
-W `SHOW POOLS` kolumna `cl_waiting` > 0 znaczy, że appserver czeka na wolne
-połączenie z bazą (po 15 s dostaje błąd).
+Obie komendy są tylko do odczytu. Przy podejrzeniu „baza nie wyrabia” idź po
+kolei:
+
+1. **`make db-connection-stats`** — ile z `max_connections` jest zajęte i przez kogo.
+   Przy działającej puli pgbouncer ma twardy sufit (`PGBOUNCER_POOL_SIZE`), więc
+   jeśli PostgreSQL odrzuca klientów (`too many clients` /
+   `zbyt wielu klientów`), przepełnienie robi **reszta**: usługi łączące się
+   bezpośrednio. Kolumna `idle-tx` > 0 przez dłużej niż minutę to otwarta
+   transakcja trzymająca blokady.
+2. **`make pgbouncer-stats`** — czy pula jest pełna. `w kolejce` > 0 znaczy, że
+   appserver czeka na wolne połączenie (po 15 s dostaje błąd).
+
+!!! warning "`idle` w PostgreSQL nie znaczy „wolne” w puli"
+    Pula pracuje w trybie `session`: połączenie z bazą jest przypisane do
+    klienta na **całe jego połączenie**, także między zapytaniami. Backend
+    pgbouncera widoczny w `pg_stat_activity` jako `idle` może więc być wolnym
+    połączeniem puli albo sesją, którą appserver trzyma i nic na niej nie robi.
+    Rozróżnia je dopiero `make pgbouncer-stats` (`Serwery: N przypisane
+    klientom | M wolne`).
+
+Sekcja „czas od ostatniego zapytania” w `make pgbouncer-stats` wyłapuje sesje,
+które trzymają połączenie, ale nie pytają bazy. Jedna próbka nic nie
+rozstrzyga — **powtórz pomiar za kilkanaście minut pod ruchem**:
+
+- liczba **stała**, mniej więcej równa liczbie procesów gunicorna, to narzut
+  startowy (każdy worker trzyma jedno połączenie) — niegroźny;
+- liczba **rosnąca** znaczy, że appserver nie oddaje połączeń po żądaniu
+  i w końcu zapcha pulę. Doraźnie pomaga wyższe `PGBOUNCER_POOL_SIZE` (o ile
+  `max_connections` ma zapas — patrz `make db-connection-stats`), przyczyna jest
+  w obrazie BPP.
+
+Długie zapytanie też ma dawny czas ostatniego zapytania — porównaj z kolumną
+`active` w `make db-connection-stats`.
 
 ## Awarie
 

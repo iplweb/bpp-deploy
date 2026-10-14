@@ -56,6 +56,18 @@ grant-pg-monitor:
 request-stats:
 	@bash scripts/show-request-stats.sh
 
+# Kto trzyma polaczenia z PostgreSQL: max_connections, zajete/wolne, rozbicie
+# na kontenery (client_addr -> usluga compose) i stany. Read-only.
+.PHONY: db-connection-stats
+db-connection-stats:
+	@bash scripts/show-db-connection-stats.sh
+
+# Stan puli appservera w pgbouncerze: kolejka, wolne/zajete backendy i sesje
+# trzymane bez zapytan (wykrywanie wyciekow polaczen). Read-only.
+.PHONY: pgbouncer-stats
+pgbouncer-stats:
+	@bash scripts/show-pgbouncer-stats.sh
+
 # Konfiguruje monitoring wolnych zapytan PostgreSQL:
 # - log_min_duration_statement = 1000ms (slow queries do logu - Loki dashboard)
 # - pg_stat_statements extension (agregowane stats - Grafana dashboard)

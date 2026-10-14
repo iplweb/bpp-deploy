@@ -1,0 +1,6 @@
+type|user|database|replication|state|addr|port|local_addr|local_port|connect_time|request_time|wait|wait_us|close_needed|ptr|link|remote_pid|tls|application_name|prepared_statements|id
+C|bpp|bpp|none|active|192.168.147.4|58244|192.168.147.3|6432|2026-10-14 18:36:48 UTC|2026-10-14 18:36:48 UTC|0|0|0|0xffffb6eed3b0|0xffffb6e913d0|0||psql|0|2
+C|bpp|bpp|none|active|192.168.147.4|58252|192.168.147.3|6432|2026-10-14 18:36:48 UTC|2026-10-14 18:36:48 UTC|0|0|0|0xffffb6eed698|0xffffb6e916b8|0||psql|0|4
+C|bpp|bpp|none|active|192.168.147.4|58258|192.168.147.3|6432|2026-10-14 18:36:48 UTC|2026-10-14 18:36:48 UTC|0|0|0|0xffffb6eed980|0xffffb6e919a0|0||psql|0|6
+C|bpp|bpp|none|waiting|192.168.147.4|50728|192.168.147.3|6432|2026-10-14 18:41:58 UTC|2026-10-14 18:41:58 UTC|3|94987|0|0xffffb6eedc68||0||psql|0|12
+C|bpp|pgbouncer|none|idle|127.0.0.1|49526|127.0.0.1|6432|2026-10-14 18:42:01 UTC|2026-10-14 18:42:01 UTC|0|0|0|0xffffb6eedf50||0||psql|0|14

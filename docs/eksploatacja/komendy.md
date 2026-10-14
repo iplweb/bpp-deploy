@@ -83,12 +83,20 @@ make logs-netdata     # Logi Netdaty (metryki + alerty)
 make celery-stats     # Statystyki zadań Celery
 make celery-status    # Status workerów
 make request-stats    # Szczytowy req/s per IP (admin/api/reszta) z logów nginx
+make db-connection-stats  # Kto trzyma połączenia z PostgreSQL (per kontener, limit)
+make pgbouncer-stats  # Pula pgbouncera: kolejka, wolne/zajęte, wiszące sesje
 ```
 
 `make request-stats` czyta access logi nginx-a (`docker logs` kontenera
 `webserver`) i pokazuje, ile żądań na sekundę w piku robi każdy IP — rozbite na
 `/admin/`, `/api/` i resztę. Służy do doboru limitów requestów bez zgadywania.
 Knoby: `SINCE=24h TOP=30 make request-stats` (domyślnie `SINCE=72h`, `TOP=15`).
+
+`make db-connection-stats` i `make pgbouncer-stats` (oba tylko do odczytu) odpowiadają
+na „baza odrzuca klientów / strona czeka na bazę”: pierwsze pokazuje, który
+kontener ile połączeń trzyma względem `max_connections`, drugie — czy pula
+appservera jest pełna i czy sesje nie wiszą bez zapytań. Jak czytać wynik:
+[pgbouncer → Diagnostyka](../konfiguracja/pgbouncer.md#diagnostyka).
 
 Szczegóły: [Monitoring i logi](../monitoring/przeglad.md),
 [Rate limiting (nginx)](../architektura/rate-limiting.md).

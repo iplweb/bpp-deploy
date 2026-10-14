@@ -173,6 +173,8 @@ help:
 	@echo "    logs-netdata         - Tail netdata logs"
 	@echo "    ps                   - Show running containers"
 	@echo "    request-stats        - Peak req/s per IP (admin/api/reszta) z access logow nginx"
+	@echo "    db-connection-stats  - Kto trzyma polaczenia z PostgreSQL (per kontener, limit)"
+	@echo "    pgbouncer-stats      - Pula pgbouncera: kolejka, wolne/zajete, wiszace sesje"
 	@echo "    health               - Quick health check of all services"
 	@echo "    check-quic           - Verify HTTP/3 (QUIC) UDP port availability"
 	@echo "    (powiadomienia ntfy/mail/rollbar: patrz sekcja Diagnostyka)"

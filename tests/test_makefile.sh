@@ -2013,6 +2013,60 @@ test_backup_pg_image_retired() {
 }
 
 # ============================================================
+# TEST: diagnostyka bazy (db-connection-stats, pgbouncer-stats, request-stats)
+# ============================================================
+# Fixture'y w tests/fixtures/diag to PRAWDZIWE wyjscie pgbouncera 1.25.2
+# i PostgreSQL (pula 3, 3 sesje trzymane bez zapytan, 1 klient w kolejce,
+# 1 "idle in transaction") — odpalamy prawdziwe skrypty przez
+# BPP_DIAG_FIXTURES zamiast grepowac zrodlo.
+test_diag_db_commands() {
+    yellow "=== Test: diagnostyka bazy (make db-connection-stats / pgbouncer-stats) ==="
+    local fx="$REPO_DIR/tests/fixtures/diag" out tmp
+
+    _diag_ma() {  # opis wzorzec-ERE tekst
+        if printf '%s\n' "$3" | grep -qE -- "$2"; then pass "$1"; else fail "$1 (brak /$2/)"; fi
+    }
+    _diag_nie_ma() {
+        if printf '%s\n' "$3" | grep -qE -- "$2"; then fail "$1 (jest /$2/)"; else pass "$1"; fi
+    }
+
+    out="$(BPP_DIAG_FIXTURES="$fx" bash "$REPO_DIR/scripts/show-pgbouncer-stats.sh" 2>&1)" \
+        || fail "show-pgbouncer-stats.sh zakonczyl sie bledem"
+    _diag_ma "pgbouncer-stats: kolejka widoczna" '1 w kolejce' "$out"
+    _diag_ma "pgbouncer-stats: ostrzezenie o pelnej puli" 'pula bpp jest pelna, w kolejce: 1' "$out"
+    _diag_ma "pgbouncer-stats: przypisane vs wolne" '3 przypisane klientom \| 0 wolne' "$out"
+    _diag_ma "pgbouncer-stats: wiek sesji z request_time" '> 5 min +3$' "$out"
+    _diag_ma "pgbouncer-stats: IP zamienione na usluge" 'appserver +4 +\(obsluzeni 3, w kolejce 1' "$out"
+    _diag_ma "pgbouncer-stats: ostrzezenie o wiszacych sesjach" 'bez nowego zapytania: 3' "$out"
+    # konsola admina (baza pgbouncer, 127.0.0.1) i alias _health to nie ruch appservera
+    _diag_nie_ma "pgbouncer-stats: bez konsoli admina i _health" '127\.0\.0\.1|bpp_health' "$out"
+
+    # Kolumny szukane po NAZWIE: odwrocona kolejnosc kolumn ma dac ten sam wynik.
+    tmp="$(mktemp -d)"
+    cp "$fx"/* "$tmp"/
+    awk -F'|' -v OFS='|' '{ for (i = NF; i > 1; i--) printf "%s|", $i; print $1 }' \
+        "$fx/pgb-clients.txt" > "$tmp/pgb-clients.txt"
+    if [ "$(BPP_DIAG_FIXTURES="$tmp" bash "$REPO_DIR/scripts/show-pgbouncer-stats.sh" 2>&1)" = "$out" ]; then
+        pass "pgbouncer-stats: niezalezny od kolejnosci kolumn"
+    else
+        fail "pgbouncer-stats: wynik zalezy od kolejnosci kolumn SHOW CLIENTS"
+    fi
+    rm -rf "$tmp"
+
+    out="$(BPP_DIAG_FIXTURES="$fx" bash "$REPO_DIR/scripts/show-db-connection-stats.sh" 2>&1)" \
+        || fail "show-db-connection-stats.sh zakonczyl sie bledem"
+    _diag_ma "db-connection-stats: limit i zajetosc" 'max_connections 100 .* zajete 5 ' "$out"
+    _diag_ma "db-connection-stats: wiersz pgbouncera" '^ +pgbouncer +bpp +0 +3 +0 +0 +3 ' "$out"
+    _diag_ma "db-connection-stats: idle in transaction" 'appserver: transakcja otwarta od 4 min' "$out"
+
+    out="$(BPP_DIAG_FIXTURES="$fx" bash "$REPO_DIR/scripts/show-request-stats.sh" 2>&1)" \
+        || fail "show-request-stats.sh zakonczyl sie bledem"
+    _diag_nie_ma "request-stats: bez linii startowych obrazu nginx" 'envsubst|docker-entrypoint|25-render|^ +[0-9]+ +[0-9]+ +[#-]$' "$out"
+    _diag_ma "request-stats: IPv4 policzone" '^ +2 +2 +203\.0\.113\.7$' "$out"
+    _diag_ma "request-stats: IPv6 policzone" '2001:db8::5' "$out"
+}
+
+# ============================================================
 # TEST: go.d/docker.conf — interwal 30 s, render z force-syncem, migracja
 # ============================================================
 # Kolektor go.d `docker` przy KAZDYM zbiorze wola Info + ImageList +
@@ -2507,6 +2561,7 @@ test_backup_runner_is_orchestrator
 test_rclone_config_mount_writable
 test_rclone_service_declared
 test_backup_pg_image_retired
+test_diag_db_commands
 
 echo ""
 echo "========================================"

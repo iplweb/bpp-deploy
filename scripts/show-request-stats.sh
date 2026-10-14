@@ -41,9 +41,16 @@ SERVICE="${SERVICE:-webserver}"
 
 # Kontener(y) webservera po labelu compose. >1 = host z wieloma instalacjami BPP.
 CONTAINERS=()
-while IFS= read -r _name; do
-	[ -n "$_name" ] && CONTAINERS+=("$_name")
-done < <(docker ps --filter "label=com.docker.compose.service=${SERVICE}" --format '{{.Names}}')
+# BPP_DIAG_FIXTURES: zamiast `docker logs` czyta webserver.log z tego katalogu.
+# Tylko dla testow (test_diag_db_commands) — patrz scripts/lib-diag.sh.
+if [ -n "${BPP_DIAG_FIXTURES:-}" ]; then
+	CONTAINERS=(fixture)
+	docker() { cat "$BPP_DIAG_FIXTURES/webserver.log"; }
+else
+	while IFS= read -r _name; do
+		[ -n "$_name" ] && CONTAINERS+=("$_name")
+	done < <(docker ps --filter "label=com.docker.compose.service=${SERVICE}" --format '{{.Names}}')
+fi
 
 if [ "${#CONTAINERS[@]}" -eq 0 ]; then
 	echo "BLAD: nie znaleziono uruchomionego kontenera serwisu '${SERVICE}'." >&2
@@ -60,6 +67,11 @@ analyze() {
 	local top="$1"
 	awk '
 	function flush(   k){ for(k in cur){ if(cur[k]>peak[k]) peak[k]=cur[k] }; split("",cur) }
+	# Tylko linie accessu: $1 musi byc adresem IPv4/IPv6. Na stdout leca tez
+	# komunikaty startowe obrazu ("20-envsubst-on-templates.sh: ...",
+	# "/docker-entrypoint.sh: ...") i bez tego filtra ladowaly w tabeli jako
+	# "IP". Bez {1,3}: stary mawk nie zna interwalow w regexach.
+	$1 !~ /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/ && $1 !~ /^[0-9A-Fa-f]*:[0-9A-Fa-f:.]*$/ { next }
 	{
 		sec=substr($4,2)                 # 30/Jun/2026:18:53:12  (bez wiodacego "[")
 		if(sec!=now){ if(now!="") flush(); now=sec }
