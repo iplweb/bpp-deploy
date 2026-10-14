@@ -82,7 +82,7 @@ make logs-denorm      # Logi denormalizacji
 make logs-netdata     # Logi Netdaty (metryki + alerty)
 make celery-stats     # Statystyki zadań Celery
 make celery-status    # Status workerów
-make request-stats    # Szczytowy req/s per IP (admin/api/reszta) z logów nginx
+make request-stats    # Szczytowy req/s i odmowy 429/444 per IP z logów nginx
 make db-connection-stats  # Kto trzyma połączenia z PostgreSQL (per kontener, limit)
 make pgbouncer-stats  # Pula pgbouncera: kolejka, wolne/zajęte, wiszące sesje
 ```
@@ -90,7 +90,11 @@ make pgbouncer-stats  # Pula pgbouncera: kolejka, wolne/zajęte, wiszące sesje
 `make request-stats` czyta access logi nginx-a (`docker logs` kontenera
 `webserver`) i pokazuje, ile żądań na sekundę w piku robi każdy IP — rozbite na
 `/admin/`, `/api/` i resztę. Służy do doboru limitów requestów bez zgadywania.
-Knoby: `SINCE=24h TOP=30 make request-stats` (domyślnie `SINCE=72h`, `TOP=15`).
+Przy każdym IP pokazuje też odmowy (`429` — limit, `444` — WAF/blokada
+brzegu) i osobną tabelę IP z największą liczbą 429. Knoby:
+`SINCE=24h TOP=30 make request-stats` (domyślnie `SINCE=72h`, `TOP=15`);
+`RESOLVE=1` dopisuje reverse DNS i właściciela bloku (AS, kraj) —
+[jak to czytać](../architektura/rate-limiting.md#pomiar-przed-strojeniem).
 
 `make db-connection-stats` i `make pgbouncer-stats` (oba tylko do odczytu) odpowiadają
 na „baza odrzuca klientów / strona czeka na bazę”: pierwsze pokazuje, który

@@ -16,10 +16,19 @@
 # Na hoście z kilkoma instalacjami BPP leci po każdym kontenerze webserver
 # osobno (matchowanie po labelu compose).
 #
+# Kolumny 429/444 = odmowy dla danego IP w oknie:
+#   429  limit_req/limit_conn (per-IP ALBO globalny limit do appservera)
+#   444  zerwane bez odpowiedzi: WAF (ModSecurity) i blokady brzegu
+# Osobna tabela "odmowy" listuje IP z najwiekszą liczbą 429 niezależnie od
+# peak — scraper ucięty limitem nie musi być w czołówce tabel peak/s.
+#
 # Knoby (zmienne środowiskowe):
 #   SINCE=72h          okno `docker logs --since` (np. 24h, 7d, 2026-06-29)
 #   TOP=15             ile IP pokazać w każdej tabeli
 #   SERVICE=webserver  nazwa serwisu compose (gdyby się kiedyś zmieniła)
+#   RESOLVE=1          dopisz do IP reverse DNS (PTR) i właściciela bloku
+#                      (AS, kraj, nazwa — Team Cymru). Wymaga sieci i `whois`
+#                      lub `dig`; bez nich kolumny zostają puste ("-").
 #
 # Ograniczenia (to heurystyka do doboru limitów, nie księgowość):
 #   - SINCE jest ograniczone retencją `docker logs` (driver `local`,
@@ -32,12 +41,14 @@
 # Przykłady:
 #   make request-stats
 #   SINCE=24h TOP=30 make request-stats
+#   RESOLVE=1 make request-stats
 # ============================================================================
 set -euo pipefail
 
 SINCE="${SINCE:-72h}"
 TOP="${TOP:-15}"
 SERVICE="${SERVICE:-webserver}"
+RESOLVE="${RESOLVE:-0}"
 
 # Kontener(y) webservera po labelu compose. >1 = host z wieloma instalacjami BPP.
 CONTAINERS=()
@@ -76,18 +87,97 @@ analyze() {
 		sec=substr($4,2)                 # 30/Jun/2026:18:53:12  (bez wiodacego "[")
 		if(sec!=now){ if(now!="") flush(); now=sec }
 		ip=$1; path=$7                   # $remote_addr ... "$request" -> $7 = sciezka
+		# Status = pierwsze slowo za zamykajacym " requestu. Nie $9: zepsuty
+		# request ze spacjami przesuwa pola, a " w nim nginx escapuje (\x22).
+		split($0,q,"\""); split(q[3],st," "); status=st[1]
 		tier=(path ~ /^\/api\//)?"api":(path ~ /^\/admin\//)?"admin":"rest"
 		k=tier SUBSEP ip
 		cur[k]++; tot[k]++
+		if(status=="429"){ r429[k]++; i429[ip]++ }
+		if(status=="444"){ r444[k]++; i444[ip]++ }
+		itot[ip]++
 	}
 	END{
 		flush()
-		for(k in peak){ split(k,a,SUBSEP); print a[1], peak[k], tot[k], a[2] }
+		# 1. pole = klucz sortowania sekcji (kolejnosc: admin, api, rest, odmowy)
+		ord["admin"]=1; ord["api"]=2; ord["rest"]=3
+		for(k in peak){ split(k,a,SUBSEP)
+			print ord[a[1]] ":" a[1], peak[k], tot[k], r429[k]+0, r444[k]+0, a[2] }
+		for(ip in i429) print "4:odmowy", i429[ip], itot[ip], i429[ip], i444[ip]+0, ip
 	}' \
 	| sort -k1,1 -k2,2rn \
 	| awk -v top="$top" '
-	{ if($1!=t){ printf "\n== %-5s ==  peak_req/s | total | IP\n", $1; t=$1; n=0 }
-	  if(++n<=top) printf "   %8d   %8d   %s\n",$2,$3,$4 }'
+	{ sec=substr($1,3)
+	  if(sec!=t){
+		if(sec=="odmowy") printf "\n== odmowy 429 (wszystkie sciezki) ==  429 | 444 | total | IP\n"
+		else printf "\n== %-5s ==  peak_req/s | total | 429 | 444 | IP\n", sec
+		t=sec; n=0 }
+	  if(++n>top) next
+	  if(sec=="odmowy") printf "   %8d %6d %8d   %s\n",$4,$5,$3,$6
+	  else              printf "   %8d   %8d %6d %6d   %s\n",$2,$3,$4,$5,$6 }'
+}
+
+# --- RESOLVE=1: PTR + wlasciciel bloku dla IP z tabel -------------------------
+# Wynik: plik "IP<TAB>ptr<TAB>AS | CC | nazwa". Cache per IP w pliku (bash 3.2
+# na macOS nie ma tablic asocjacyjnych). Kazde zapytanie z twardym timeoutem —
+# wiszacy whois nie moze zablokowac diagnostyki w trakcie incydentu.
+_with_timeout() {
+	if command -v timeout >/dev/null 2>&1; then timeout 5 "$@"; else "$@"; fi
+}
+
+_ptr() {
+	local ip="$1" out=""
+	if command -v dig >/dev/null 2>&1; then
+		out="$(_with_timeout dig +short +time=2 +tries=1 -x "$ip" 2>/dev/null | head -1 || true)"
+	elif command -v getent >/dev/null 2>&1; then
+		out="$(_with_timeout getent hosts "$ip" 2>/dev/null | awk '{print $2; exit}' || true)"
+	fi
+	out="${out%.}"
+	case "$out" in ""|";;"*) echo "-" ;; *) echo "$out" ;; esac
+}
+
+# Team Cymru: "AS | IP | prefiks | CC | rejestr | data | nazwa AS".
+_owner() {
+	local ip="$1" line="" asn="" rest=""
+	if command -v whois >/dev/null 2>&1; then
+		line="$(_with_timeout whois -h whois.cymru.com " -v $ip" 2>/dev/null \
+			| awk -F'|' 'NR>1 && $1 ~ /[0-9]/ { gsub(/^ +| +$/,"",$1); gsub(/^ +| +$/,"",$3)
+				gsub(/^ +| +$/,"",$4); gsub(/^ +| +$/,"",$7)
+				print "AS" $1 " " $3 " " $4 " " $7; exit }' || true)"
+	elif command -v dig >/dev/null 2>&1; then
+		case "$ip" in *:*) ;; *)  # DNS-owy interfejs Cymru: tylko IPv4 (v6 wymaga nibble)
+			rest="$(echo "$ip" | awk -F. '{print $4"."$3"."$2"."$1}')"
+			line="$(_with_timeout dig +short +time=2 +tries=1 TXT "$rest.origin.asn.cymru.com" 2>/dev/null | head -1 | tr -d '"' || true)"
+			asn="$(echo "$line" | awk -F'|' '{gsub(/ /,"",$1); split($1,a," "); print a[1]}')"
+			if [ -n "$asn" ]; then
+				rest="$(_with_timeout dig +short +time=2 +tries=1 TXT "AS$asn.asn.cymru.com" 2>/dev/null | head -1 | tr -d '"' \
+					| awk -F'|' '{gsub(/^ +| +$/,"",$5); print $5}' || true)"
+				line="$(echo "$line" | awk -F'|' -v n="$rest" '{gsub(/ /,"",$1); gsub(/ /,"",$2); gsub(/ /,"",$3); print "AS" $1 " " $2 " " $3 " " n}')"
+			fi ;;
+		esac
+	fi
+	echo "${line:--}"
+}
+
+# Dopisuje "  ptr  [owner]" do wierszy tabel (IP = ostatnie pole).
+resolve_annotate() {
+	local file="$1" cache ip
+	if ! command -v whois >/dev/null 2>&1 && ! command -v dig >/dev/null 2>&1; then
+		echo "  (RESOLVE: brak 'whois' i 'dig' — wlasciciel bloku nieznany; apt install whois dnsutils)" >&2
+	fi
+	cache="$(mktemp)"
+	awk '$NF ~ /^[0-9A-Fa-f.:]+$/ && $NF ~ /[.:]/ { print $NF }' "$file" | sort -u \
+	| while IFS= read -r ip; do
+		printf '%s\t%s\t%s\n' "$ip" "$(_ptr "$ip")" "$(_owner "$ip")"
+	done >"$cache"
+	# Dwa przebiegi po $file: najpierw szerokosci kolumn, potem druk.
+	awk -F'\t' 'FNR==1 { pass++ }
+		pass==1 { ptr[$1]=$2; own[$1]=$3; if(length($2)>wp) wp=length($2); next }
+		pass==2 { if(length($0)>wl) wl=length($0); next }
+		{ n=split($0,f," "); ip=f[n]
+		  if(ip in ptr) printf "%-" wl "s   %-" wp "s   %s\n", $0, ptr[ip], own[ip]
+		  else print }' "$cache" "$file" "$file"
+	rm -f "$cache"
 }
 
 for c in "${CONTAINERS[@]}"; do
@@ -106,7 +196,11 @@ for c in "${CONTAINERS[@]}"; do
 	if [ "$dl_status" -ne 0 ]; then
 		echo "  (BLAD: nie udalo sie odczytac logow kontenera ${c} — pomijam)" >&2
 	elif grep -q '[^[:space:]]' "$tmpout"; then
-		cat "$tmpout"
+		if [ "$RESOLVE" = "1" ]; then
+			resolve_annotate "$tmpout"
+		else
+			cat "$tmpout"
+		fi
 	else
 		echo "  (brak ruchu w oknie --since ${SINCE})"
 	fi
@@ -116,3 +210,5 @@ done
 
 echo "Wskazowka: 'rate' ustaw z zapasem nad najwyzszym LEGALNYM peakiem"
 echo "(zignoruj oczywiste scrapery — pojedyncze chmurowe IP z total ~= peak)."
+echo "429 = odmowa limitu (per-IP lub globalnego), 444 = WAF/blokada brzegu."
+[ "$RESOLVE" = "1" ] || echo "Kto to jest? RESOLVE=1 make request-stats (PTR + AS/wlasciciel bloku)."

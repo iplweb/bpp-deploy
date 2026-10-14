@@ -2062,8 +2062,12 @@ test_diag_db_commands() {
     out="$(BPP_DIAG_FIXTURES="$fx" bash "$REPO_DIR/scripts/show-request-stats.sh" 2>&1)" \
         || fail "show-request-stats.sh zakonczyl sie bledem"
     _diag_nie_ma "request-stats: bez linii startowych obrazu nginx" 'envsubst|docker-entrypoint|25-render|^ +[0-9]+ +[0-9]+ +[#-]$' "$out"
-    _diag_ma "request-stats: IPv4 policzone" '^ +2 +2 +203\.0\.113\.7$' "$out"
+    _diag_ma "request-stats: IPv4 policzone" '^ +2 +2 +0 +0 +203\.0\.113\.7$' "$out"
     _diag_ma "request-stats: IPv6 policzone" '2001:db8::5' "$out"
+    # 429/444 ze statusu za "$request"; tabela odmow niezalezna od peak/s
+    _diag_ma "request-stats: 429 i 444 per IP" '^ +2 +3 +2 +1 +198\.51\.100\.9$' "$out"
+    _diag_ma "request-stats: tabela odmow 429" '^ +2 +1 +4 +198\.51\.100\.9$' "$out"
+    _diag_nie_ma "request-stats: IP bez 429 poza tabela odmow" '^ +0 +[0-9]+ +[0-9]+ +203\.0\.113\.7$' "$out"
 }
 
 # ============================================================

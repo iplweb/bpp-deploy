@@ -171,6 +171,7 @@ Nie zgaduj progów — zmierz realny ruch:
 ```bash
 make request-stats              # peak req/s per IP (admin/api/reszta), okno 72h
 SINCE=24h TOP=30 make request-stats
+RESOLVE=1 make request-stats    # + reverse DNS i właściciel bloku (AS, kraj)
 ```
 
 Komenda czyta access logi nginx-a (`docker logs` kontenera `webserver`) i dla
@@ -178,6 +179,22 @@ każdego IP liczy najwyższą liczbę żądań w jednej sekundzie. Ustaw `rate` 
 zapasem nad **najwyższym legalnym** peakiem (oczywiste scrapery — pojedyncze
 chmurowe IP z `total ≈ peak` — zignoruj). Uwaga: okno jest ograniczone retencją
 `docker logs`, więc na ruchliwym hoście peak bywa lekko niedoszacowany.
+
+Kolumny **`429`** i **`444`** to odmowy dla danego IP w oknie: `429` = trafił
+w limit (per-IP **albo** [globalny](#limit-globalny) — z samego logu tych dwóch
+nie rozróżnisz), `444` = zerwany bez odpowiedzi przez [WAF](waf.md) lub
+[blokady brzegu](utwardzenie-brzegu.md). Osobna tabela **`odmowy 429`** zbiera
+IP z największą liczbą 429 ze wszystkich ścieżek — scraper ucięty limitem nie
+musi być w czołówce tabel peak/s. **Kanarek:** 429 na IP, które po `RESOLVE=1`
+okazuje się Waszą uczelnią/siecią wewnętrzną = limit za niski. 429 rozłożone
+po wielu niepowiązanych IP przy małych peakach to raczej limit globalny.
+
+`RESOLVE=1` dopisuje do każdego IP z tabel nazwę z reverse DNS (PTR) i
+właściciela bloku z bazy Team Cymru (`AS… prefiks kraj nazwa`), np.
+`msnbot-…search.msn.com  AS8075 … MICROSOFT-CORP-MSN-AS-BLOCK` od razu odróżnia
+Binga od chmurowego scrapera. Potrzebuje sieci oraz `whois` (albo `dig` —
+wtedy właściciel tylko dla IPv4); bez nich kolumny są puste (`-`), a reszta
+raportu działa normalnie. Każde zapytanie ma 5 s timeoutu.
 
 ## Strojenie
 

@@ -51,7 +51,8 @@ grant-pg-monitor:
 
 # Szczytowy req/s per IP (rozbity na /admin/, /api/, reszta) z access logow
 # nginx-a. Do doboru limitow requestow (limit_req) na podstawie REALNEGO ruchu,
-# a nie zgadywania. Knoby: SINCE=24h TOP=30 (domyslnie SINCE=72h TOP=15).
+# a nie zgadywania. Kolumny 429/444 = odmowy per IP. Knoby: SINCE=24h TOP=30
+# (domyslnie SINCE=72h TOP=15), RESOLVE=1 (reverse DNS + wlasciciel bloku).
 .PHONY: request-stats
 request-stats:
 	@bash scripts/show-request-stats.sh
