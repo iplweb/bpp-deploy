@@ -196,6 +196,31 @@ Binga od chmurowego scrapera. Potrzebuje sieci oraz `whois` (albo `dig` —
 wtedy właściciel tylko dla IPv4); bez nich kolumny są puste (`-`), a reszta
 raportu działa normalnie. Każde zapytanie ma 5 s timeoutu.
 
+### Który limit odrzuca? {#ktory-limit}
+
+Access log ma sam status `429`. Nazwę strefy, która odrzuciła żądanie, nginx
+zapisuje tylko w error logu — i to ona mówi, co stroić:
+
+```bash
+make rate-limit-stats                     # okno 24h
+SINCE=7d TOP=30 RESOLVE=1 make rate-limit-stats
+```
+
+| Strefa | Limit | Gdzie stroić |
+|---|---|---|
+| `bpp_global` | globalne tempo | `BPP_NGINX_GLOBAL_RATE` / `_BURST` w `.env` |
+| `bpp_global_conn` | globalna równoległość | `BPP_NGINX_GLOBAL_CONN` w `.env` |
+| `bpp_general`, `bpp_api`, `bpp_admin` | per IP | wersjonowane pliki (niżej) |
+
+Najważniejsza kolumna to **`top IP %`** — udział najczęściej odrzucanego adresu
+w strefie. Pula globalna jest jedna dla wszystkich IP i wszystkich vhostów, więc
+gdy jeden klient ma w niej większość odmów, to **on ją zjada**, a 429 u
+pozostałych adresów jest skutkiem ubocznym. Raport wypisuje wtedy `UWAGA`.
+Podniesienie limitu w takiej sytuacji daje temu klientowi tylko więcej
+przepustowości do bazy — najpierw ustal, kto to (`RESOLVE=1`), co pobiera
+(tabela ścieżek) i kiedy (tabela godzinowa; stałe pory = zadanie z crona).
+Rozbicie wg vhosta pokazuje, którą domenę multi-hosta to dotyczy.
+
 ## Strojenie
 
 Limit globalny stroisz zmiennymi `BPP_NGINX_GLOBAL_*` (patrz

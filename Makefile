@@ -173,6 +173,7 @@ help:
 	@echo "    logs-netdata         - Tail netdata logs"
 	@echo "    ps                   - Show running containers"
 	@echo "    request-stats        - Peak req/s per IP (admin/api/reszta) z access logow nginx"
+	@echo "    rate-limit-stats     - Ktory limit nginx daje 429 (strefa, IP, vhost, sciezki, godziny)"
 	@echo "    db-connection-stats  - Kto trzyma polaczenia z PostgreSQL (per kontener, limit)"
 	@echo "    pgbouncer-stats      - Pula pgbouncera: kolejka, wolne/zajete, wiszace sesje"
 	@echo "    health               - Quick health check of all services"

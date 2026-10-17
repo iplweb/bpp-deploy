@@ -57,6 +57,13 @@ grant-pg-monitor:
 request-stats:
 	@bash scripts/show-request-stats.sh
 
+# KTORY limit nginx-a odrzuca (429): strefa (bpp_global / _conn / per-IP),
+# IP, vhost, sciezki, godziny — z error logu, bo access log ma sam status.
+# Knoby: SINCE=72h TOP=30 (domyslnie SINCE=24h TOP=15), RESOLVE=1.
+.PHONY: rate-limit-stats
+rate-limit-stats:
+	@bash scripts/show-rate-limit-stats.sh
+
 # Kto trzyma polaczenia z PostgreSQL: max_connections, zajete/wolne, rozbicie
 # na kontenery (client_addr -> usluga compose) i stany. Read-only.
 .PHONY: db-connection-stats

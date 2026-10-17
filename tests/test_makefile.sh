@@ -2068,6 +2068,24 @@ test_diag_db_commands() {
     _diag_ma "request-stats: 429 i 444 per IP" '^ +2 +3 +2 +1 +198\.51\.100\.9$' "$out"
     _diag_ma "request-stats: tabela odmow 429" '^ +2 +1 +4 +198\.51\.100\.9$' "$out"
     _diag_nie_ma "request-stats: IP bez 429 poza tabela odmow" '^ +0 +[0-9]+ +[0-9]+ +203\.0\.113\.7$' "$out"
+
+    # rate-limit-stats: error log nginx-a. Fixture ma tez linie startowe,
+    # [error] open() i linie ACCESSU z "limiting requests" w URL i UA —
+    # zadna z nich nie moze wejsc do statystyk (7 prawdziwych odmow).
+    out="$(BPP_DIAG_FIXTURES="$fx" bash "$REPO_DIR/scripts/show-rate-limit-stats.sh" 2>&1)" \
+        || fail "show-rate-limit-stats.sh zakonczyl sie bledem"
+    _diag_ma "rate-limit-stats: strefa globalna (odmowy, IP, udzial top IP)" '^ +5 +2 +80\.0% +bpp_global +globalne tempo' "$out"
+    _diag_ma "rate-limit-stats: limit_conn rozpoznany" '^ +1 +1 +100\.0% +bpp_global_conn ' "$out"
+    _diag_ma "rate-limit-stats: per-IP z odeslaniem do defaults/" '^ +1 +1 +100\.0% +bpp_general +per-IP' "$out"
+    _diag_ma "rate-limit-stats: IPv6 klienta" '^ +1 +bpp_global_conn +2001:db8::5$' "$out"
+    _diag_ma "rate-limit-stats: rozbicie na vhosty" '^ +1 +drugi\.example\.org$' "$out"
+    _diag_ma "rate-limit-stats: sciezka bez query stringu" '^ +4 +/api/v1/rekord/$' "$out"
+    _diag_ma "rate-limit-stats: godzinowo z podzialem na grupy" '^ +3 +1 +1 +1 +2026/10/17 22:00$' "$out"
+    _diag_ma "rate-limit-stats: ostrzezenie o kliencie zjadajacym pule" 'UWAGA: 80\.0% odmow w strefie bpp_global to jeden IP \(192\.0\.2\.10\)' "$out"
+    _diag_nie_ma "rate-limit-stats: bez ostrzezenia dla strefy z jednym IP" 'strefie bpp_global_conn' "$out"
+    # luzny filtr (sam napis "limiting") policzylby linie accessu jako strefe "-"
+    _diag_nie_ma "rate-limit-stats: linia accessu poza statystyka" '% +- |/limiting' "$out"
+    _diag_nie_ma "rate-limit-stats: [error] open() poza statystyka" '^ +[0-9]+ +/x$' "$out"
 }
 
 # ============================================================
