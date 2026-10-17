@@ -191,6 +191,7 @@ help:
 	@echo "    update-ssl-certs     - Reload nginx to pick up new SSL certs"
 	@echo "    init-configs         - Re-initialize config directory structure"
 	@echo "    configure-resources  - Tune Docker memory/CPU limits for this host"
+	@echo "    configure-rate-limits - Interaktywnie: limity ruchu nginx (globalne + spowalnianie per IP)"
 	@echo "    create-monitoring-user - Create read-only bpp_monitor PG role (Grafana/Netdata)"
 	@echo "    grant-pg-monitor     - (deprecated alias) -> create-monitoring-user"
 	@echo "    pg-monitoring-setup  - slow-query log + pg_stat_statements + bpp_monitor"

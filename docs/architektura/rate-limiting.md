@@ -5,12 +5,16 @@ Nginx ogranicza ruch trafiający do Django na dwóch poziomach:
 - **per IP** — żeby pojedynczy klient (scraper, brute-force, zepsuta integracja)
   nie zapchał drzwi wejściowych i nie zagłodził legalnych użytkowników;
 - **globalnie** — jedna pula dla wszystkich adresów naraz, żeby ruch rozłożony na
-  tysiące IP nie położył appservera i bazy (patrz [Limit globalny](#limit-globalny)).
+  tysiące IP nie położył appservera i bazy (patrz [Limit globalny](#limit-globalny));
+- **spowalnianie per IP** — adres, który długo trzyma wysokie tempo, czeka we
+  **własnej** kolejce zamiast dostawać 429 i zjadać pulę globalną reszcie
+  (patrz [Spowalnianie per IP](#spowalnianie-per-ip)).
 
 Limity per IP są **wbudowane w wersjonowany config** (dostarczany przez
 `git pull`), nie w `$BPP_CONFIGS_DIR/.env` — wchodzą w życie przy najbliższym
 `make up` lub reloadzie nginx, bez żadnej migracji `.env`. Limit globalny ma
-rozsądne wartości domyślne i da się go stroić zmiennymi w `.env`.
+rozsądne wartości domyślne i da się go stroić zmiennymi w `.env` — najwygodniej
+kreatorem [`make configure-rate-limits`](#kreator), razem ze spowalnianiem per IP.
 
 Rate limiting ogranicza **tempo** żądań, ale ich nie ocenia. Żądania, które nigdy
 nie powinny dojść do Django (sondy o `*.php`, prefiksy obcych CMS-ów), odcina
@@ -164,6 +168,43 @@ Sprawdzenie na żywym nginksie: `make test-nginx-limits` (pula wspólna dla
 różnych IP, 429 ponad limit równoległości, WebSockety i `/static/` poza
 limitem, błędne wartości i `0`).
 
+## Spowalnianie per IP {#spowalnianie-per-ip}
+
+**18 października 2026** na `publikacje.up.lublin.pl` jeden adres uczelni
+(`adm.up.lublin.pl`) zaciągał całą bazę przez API: pojedynczo
+`/api/v1/autor/<id>/`, ok. 24 żądań/s bez przerwy, a po każdym 429 **od razu
+ponawiał**. Miał **99,7%** odmów puli globalnej, a 429 dostawało rykoszetem
+55 innych adresów, w tym roboty wyszukiwarek. Podniesienie limitu globalnego dałoby
+więcej głównie jemu. Wspólna kolejka też nic by nie dała: jego setka żądań
+w kolejce stałaby przed każdym.
+
+Dlatego każdy adres ma **własny kubełek i własną kolejkę** (strefa `bpp_ip_slow`):
+
+| Zmienna w `.env` | Domyślnie | Znaczenie |
+|---|---|---|
+| `BPP_NGINX_IP_RATE` | `10` | Żądań/s z jednego IP w dłuższym okresie. `0` = mechanizm wyłączony. |
+| `BPP_NGINX_IP_BURST` | `50` | Ile ponad `IP_RATE` idzie **od ręki** — otwarcie strony (kilkanaście XHR) nie zwalnia. |
+| `BPP_NGINX_IP_QUEUE` | `100` | Ile kolejnych **czeka** w kolejce tego IP (wychodzą w tempie `IP_RATE`). Dopiero ponad to 429. `0` = bez kolejki. |
+
+Jak to działa na takiego klienta: po wyczerpaniu `IP_BURST` jego żądania są
+**opóźniane, a nie odrzucane**. Każdy normalny klient HTTP czeka na odpowiedź,
+więc sam zaczyna wysyłać wolniej — i zabiera z puli globalnej najwyżej `IP_RATE`
+żądań/s, a nie całość. Inne adresy w tym czasie dostają odpowiedź od ręki, bo
+liczą się w swoich kubełkach. Żądanie odrzucone z przepełnionej kolejki odpada
+**przed** pulą globalną (strefy są sprawdzane po kolei), więc jej nie zużywa.
+
+- **Człowiek tego nie odczuje.** Normalne klikanie nie utrzymuje 10 żądań/s
+  przez dłuższy czas; szczyty mieści `IP_BURST`.
+- **NAT:** wielu ludzi za jednym adresem dzieli jeden kubełek. Jeśli Wasza sieć
+  wychodzi przez jeden IP, a `make rate-limit-stats` pokazuje go w tabeli
+  „spowolnieni" bez zadania w tle — podnieś `BPP_NGINX_IP_RATE`.
+- **Klient wysyłający dużo naraz** (dziesiątki równoległych połączeń) zapełni
+  swoją kolejkę i nadmiar dostanie 429 — tak samo jak dziś, tylko później.
+
+Opóźnienia nginx loguje o poziom niżej niż odmowy (`notice`), więc
+[`make rate-limit-stats`](#ktory-limit) pokazuje je osobno: kolumna `opoznien`
+i tabela „spowolnieni (czekali w kolejce, NIE odrzuceni)".
+
 ## Pomiar przed strojeniem
 
 Nie zgaduj progów — zmierz realny ruch:
@@ -223,7 +264,39 @@ Rozbicie wg vhosta pokazuje, którą domenę multi-hosta to dotyczy.
 
 ## Strojenie
 
-Limit globalny stroisz zmiennymi `BPP_NGINX_GLOBAL_*` (patrz
+### Kreator: `make configure-rate-limits` {#kreator}
+
+```bash
+make configure-rate-limits
+```
+
+Interaktywnie, w terminalu:
+
+1. **Stan teraz** — CPU kontenerów tej instalacji jako % hosta (z load average),
+   ruch do appservera (ostatnia minuta i szczyt doby, bez statyków i odmów).
+2. **Ostatnie 24 h** — odmowy 429 i ile różnych IP je dostało; gdy jeden adres
+   ma większość: kto to i **ilu wyrzuconych rykoszetem**; ilu spowolnionych.
+3. **Propozycja `BPP_NGINX_GLOBAL_RATE`:**
+    - w ruchu (≥ 3 r/s) pyta, ile CPU hosta BPP może zająć w szczycie (domyślnie
+      80%), i liczy: koszt 1 r/s = CPU / ruch, `RATE` = cel / koszt;
+    - przy małym ruchu bierze **medianę czasu obsługi żądania przez appserver**
+      (`$upstream_response_time` z access logu doby) i limit CPU appservera
+      (`APPSERVER_CPU_LIMIT`): pojemność ≈ CPU / mediana, `RATE` = 70% tego.
+
+    Oba szacunki są ostrożne: koszt zawiera też pracę niezależną od ruchu,
+    a czas odpowiedzi — czekanie na bazę. Syntetyczne benchmarki (BogoMIPS,
+    test dysku) nic tu nie mówią — liczy się, ile kosztuje *wasz* Django na
+    *waszych* danych, a to widać tylko w ruchu.
+4. Pyta po kolei o `BPP_NGINX_GLOBAL_*` i `BPP_NGINX_IP_*` (Enter = propozycja;
+   `BURST` nadąża za zmienionym `RATE`, ×10).
+5. Zapisuje do `$BPP_CONFIGS_DIR/.env` **tylko zmienione** wartości — brak
+   zmiennej to wartość domyślna, która może się poprawić w nowej wersji.
+6. Proponuje `make up-webserver` (restart samego nginx-a, 1–2 s przerwy).
+
+### Ręcznie
+
+Limit globalny i spowalnianie stroisz zmiennymi `BPP_NGINX_GLOBAL_*` /
+`BPP_NGINX_IP_*` w `$BPP_CONFIGS_DIR/.env` + `make up-webserver` (patrz
 [wyżej](#limit-globalny)). Limity **per IP** są w **wersjonowanych** plikach
 (nie w `.env` — nginxowy `envsubst` nie umie domyślnych wartości `${VAR:-…}`):
 

@@ -17,7 +17,11 @@
 #     scraperze z ~6800 adresow (2026-09-27),
 #   - limit rownoleglosci odrzuca nadmiar 429 (nie 503 -> strona "konserwacja"),
 #     a WebSockety (Upgrade) sie do niego nie licza,
-#   - /static/ zostaje poza limitem.
+#   - /static/ zostaje poza limitem,
+#   - spowalnianie per IP (BPP_NGINX_IP_*): nadmiar CZEKA zamiast dostac 429,
+#     inny IP w tym czasie dostaje odpowiedz od reki, a klient sekwencyjny
+#     (jak job z 2026-10-18) przestaje zjadac pule globalna — z kontrola,
+#     ze bez spowalniania ten sam scenariusz konczy sie 429 dla drugiego IP.
 #
 # Nie wymaga .env ani dzialajacej instalacji BPP — tylko dockera.
 
@@ -143,6 +147,7 @@ klient() {
     docker run --rm --network "$NET" --entrypoint sh \
         -e U="https://$HOST_NAME" \
         -e K="-sk -o /dev/null -w %{http_code}\n --max-time 15" \
+        -e KT="-sk -o /dev/null -w %{http_code}:%{time_total}\n --max-time 15" \
         "$CURL_IMAGE" -c "$2"
 }
 
@@ -150,8 +155,19 @@ policz() { tr ' ' '\n' | grep -c "^$1$"; }
 
 echo "== 1. wartosci domyslne =="
 if start_webserver; then
-    ok "nginx wstal bez zmiennych BPP_NGINX_GLOBAL_*"
+    ok "nginx wstal bez zmiennych BPP_NGINX_GLOBAL_* / BPP_NGINX_IP_*"
     G="$(wygenerowany)"
+    grep -q 'limit_req_zone $binary_remote_addr zone=bpp_ip_slow:10m rate=10r/s;' <<<"$G" \
+        && ok "spowalnianie per IP 10 r/s" || zle "brak strefy bpp_ip_slow 10r/s"
+    grep -q "limit_req zone=bpp_ip_slow burst=150 delay=50;" <<<"$G" \
+        && ok "od reki 50 + kolejka 100 (burst=150 delay=50)" || zle "brak burst=150 delay=50"
+    # per IP PRZED globalnym — inaczej przepelniona kolejka IP zjada pule globalna
+    if awk '/zone=bpp_ip_slow/{ip=NR} /zone=bpp_global /{g=NR} END{exit !(ip && g && ip<g)}' \
+        <(docker exec "$FRONT" cat /etc/nginx/conf.d/bpp-global-limits.inc); then
+        ok "bpp_ip_slow sprawdzany przed bpp_global"
+    else
+        zle "kolejnosc w include: bpp_ip_slow musi byc PRZED bpp_global"
+    fi
     grep -q "rate=20r/s" <<<"$G" && ok "tempo 20 r/s" || zle "brak rate=20r/s:\n$G"
     grep -q "limit_req zone=bpp_global burst=200 nodelay;" <<<"$G" && ok "burst 200" || zle "brak burst=200"
     grep -q "limit_conn bpp_global_conn 60;" <<<"$G" && ok "rownoleglosc 60" || zle "brak limit_conn 60"
@@ -178,7 +194,7 @@ else
 fi
 
 echo "== 3. zero wylacza =="
-if start_webserver -e BPP_NGINX_GLOBAL_RATE=0 -e BPP_NGINX_GLOBAL_CONN=00; then
+if start_webserver -e BPP_NGINX_GLOBAL_RATE=0 -e BPP_NGINX_GLOBAL_CONN=00 -e BPP_NGINX_IP_RATE=0; then
     G="$(docker exec "$FRONT" cat /etc/nginx/conf.d/bpp-global-limits.inc)"
     if grep -qE "^[[:space:]]*limit_(req|conn) " <<<"$G"; then
         zle "przy 0 w include zostaly dyrektywy:\n$G"
@@ -192,7 +208,7 @@ else
 fi
 
 echo "== 4. limit tempa jest GLOBALNY (miedzy IP) =="
-if start_webserver -e BPP_NGINX_GLOBAL_RATE=1 -e BPP_NGINX_GLOBAL_BURST=3 -e BPP_NGINX_GLOBAL_CONN=0; then
+if start_webserver -e BPP_NGINX_GLOBAL_RATE=1 -e BPP_NGINX_GLOBAL_BURST=3 -e BPP_NGINX_GLOBAL_CONN=0 -e BPP_NGINX_IP_RATE=0; then
     A="$(klient a 'for i in $(seq 1 6); do curl $K "$U/x"; done' | tr '\n' ' ')"
     B="$(klient b 'curl $K "$U/x"' | tr '\n' ' ')"
     S="$(klient b 'curl $K "$U/static/plik.txt"' | tr '\n' ' ')"
@@ -208,7 +224,7 @@ else
 fi
 
 echo "== 5. limit rownoleglosci, WebSockety poza nim =="
-if start_webserver -e BPP_NGINX_GLOBAL_RATE=0 -e BPP_NGINX_GLOBAL_CONN=2; then
+if start_webserver -e BPP_NGINX_GLOBAL_RATE=0 -e BPP_NGINX_GLOBAL_CONN=2 -e BPP_NGINX_IP_RATE=0; then
     R="$(klient a 'for i in 1 2 3 4 5; do curl $K "$U/wolno" & done; wait' | tr '\n' ' ')"
     [ "$(policz 200 <<<"$R")" -eq 2 ] && [ "$(policz 429 <<<"$R")" -eq 3 ] \
         && ok "5 naraz przy limicie 2: 2x200, 3x429 ($R)" || zle "5 naraz przy limicie 2: $R"
@@ -218,6 +234,63 @@ if start_webserver -e BPP_NGINX_GLOBAL_RATE=0 -e BPP_NGINX_GLOBAL_CONN=2; then
         || zle "WebSockety licza sie do limitu: $WS"
 else
     zle "nginx nie wstal (test rownoleglosci)"
+fi
+
+echo "== 6. spowalnianie per IP: nadmiar czeka, inny IP nie =="
+# IP_RATE=1, od reki 2, kolejka 4. 10 zadan naraz z jednego IP: 1+2 od reki,
+# 4 czekaja ~1..4 s, 3 ponad kolejke -> 429. Klient B (inny IP) strzela
+# w trakcie, gdy kolejka A jest pelna — ma przejsc od reki.
+if start_webserver -e BPP_NGINX_GLOBAL_RATE=0 -e BPP_NGINX_GLOBAL_CONN=0 \
+    -e BPP_NGINX_IP_RATE=1 -e BPP_NGINX_IP_BURST=2 -e BPP_NGINX_IP_QUEUE=4; then
+    klient a 'for i in $(seq 1 10); do curl $KT "$U/x" & done; wait' > "$TMP/a6.txt" &
+    PID_A=$!
+    B="$(klient b 'sleep 1.5; curl $KT "$U/x"')"
+    wait "$PID_A"
+    A="$(tr '\n' ' ' < "$TMP/a6.txt")"
+    [ "$(grep -c '^200:' "$TMP/a6.txt")" -eq 7 ] && [ "$(grep -c '^429:' "$TMP/a6.txt")" -eq 3 ] \
+        && ok "A: 7x200 (3 od reki + 4 z kolejki), 3x429 ponad kolejke" || zle "A: $A"
+    OPOZNIONE="$(awk -F: '$1 == 200 && $2 >= 0.8' "$TMP/a6.txt" | wc -l | tr -d ' ')"
+    [ "$OPOZNIONE" -eq 4 ] && ok "A: 4 odpowiedzi opoznione (>= 0.8 s), nie odrzucone" \
+        || zle "A: opoznionych $OPOZNIONE zamiast 4 ($A)"
+    case "$B" in
+        200:0.[0-4]*) ok "B (inny IP) od reki w trakcie kolejki A ($B)" ;;
+        *) zle "B (inny IP) czekal albo odrzucony: $B — kolejka nie jest per IP" ;;
+    esac
+    LOG="$(docker logs "$FRONT" 2>&1)"
+    grep -qE 'delaying request, excess: [0-9.]+, by zone "bpp_ip_slow", client: ' <<<"$LOG" \
+        && ok "opoznienia w error logu (format dla rate-limit-stats)" \
+        || zle "brak linii 'delaying request ... bpp_ip_slow' w logu"
+else
+    zle "nginx nie wstal (spowalnianie per IP)"
+fi
+
+echo "== 7. job sekwencyjny nie zjada puli globalnej =="
+# A wali po kolei przez 6 s (jak job z 2026-10-18), B probuje 3 razy w trakcie.
+# Pula globalna 6 r/s / burst 6. Bez spowalniania A ja wyczerpuje i B dostaje
+# 429 (kontrola — bez niej test przeszedlby tez z wylaczonym mechanizmem).
+job_i_sasiad() {
+    klient a 'end=$(($(date +%s) + 6)); while [ "$(date +%s)" -lt "$end" ]; do curl $K "$U/x"; done' > "$TMP/a7.txt" &
+    PID_A=$!
+    klient b 'sleep 2; for i in 1 2 3; do curl $K "$U/x"; sleep 0.5; done' | tr '\n' ' '
+    wait "$PID_A"
+}
+if start_webserver -e BPP_NGINX_GLOBAL_RATE=6 -e BPP_NGINX_GLOBAL_BURST=6 -e BPP_NGINX_GLOBAL_CONN=0 \
+    -e BPP_NGINX_IP_RATE=0; then
+    B="$(job_i_sasiad)"
+    [ "$(policz 429 <<<"$B")" -ge 1 ] && ok "kontrola: bez spowalniania sasiad dostaje 429 ($B)" \
+        || zle "kontrola nie zadzialala (sasiad: $B) — scenariusz niczego nie dowodzi"
+else
+    zle "nginx nie wstal (kontrola testu 7)"
+fi
+if start_webserver -e BPP_NGINX_GLOBAL_RATE=6 -e BPP_NGINX_GLOBAL_BURST=6 -e BPP_NGINX_GLOBAL_CONN=0 \
+    -e BPP_NGINX_IP_RATE=2 -e BPP_NGINX_IP_BURST=1 -e BPP_NGINX_IP_QUEUE=10; then
+    B="$(job_i_sasiad)"
+    [ "$(policz 200 <<<"$B")" -eq 3 ] && ok "ze spowalnianiem sasiad przechodzi ($B)" \
+        || zle "sasiad przy spowalnianym jobie: $B"
+    [ "$(grep -c '^429$' "$TMP/a7.txt")" -eq 0 ] && ok "job czekal zamiast dostawac 429 ($(wc -l < "$TMP/a7.txt" | tr -d ' ') zadan w 6 s)" \
+        || zle "job dostal $(grep -c '^429$' "$TMP/a7.txt") x 429"
+else
+    zle "nginx nie wstal (test 7)"
 fi
 
 echo

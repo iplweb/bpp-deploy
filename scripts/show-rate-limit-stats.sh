@@ -10,6 +10,8 @@
 #
 #   bpp_global        globalne tempo        BPP_NGINX_GLOBAL_RATE / _BURST (.env)
 #   bpp_global_conn   globalna równoległość BPP_NGINX_GLOBAL_CONN (.env)
+#   bpp_ip_slow       spowalnianie per IP   BPP_NGINX_IP_* (.env) — tu obok odmow
+#                     sa tez OPOZNIENIA: zadanie czekalo w kolejce, ale przeszlo
 #   bpp_general/api/admin  per-IP           defaults/webserver/* (NIE .env)
 #
 # Kolumna "top IP %" = udział najbardziej odrzucanego IP w strefie. Globalna
@@ -17,10 +19,8 @@
 # ~100% odmów, to on ją zjada, a 429 u reszty jest skutkiem ubocznym —
 # podniesienie limitu dałoby mu tylko więcej przepustowości do bazy.
 #
-# Linie rozpoznajemy po pełnym prefiksie error logu nginx-a
-# ("RRRR/MM/DD GG:MM:SS [poziom] pid#tid: [*conn ]limiting ..."), a nie po
-# samym napisie — access log idzie tym samym `docker logs`, a URL może
-# zawierać dowolny tekst.
+# Parser linii error logu: scripts/lib-nginx-limit-log.sh (wspolny
+# z make configure-rate-limits).
 #
 # Knoby (zmienne środowiskowe):
 #   SINCE=24h          okno `docker logs --since` (np. 72h, 7d, 2026-10-16)
@@ -59,35 +59,38 @@ if [ "${#CONTAINERS[@]}" -eq 0 ]; then
 	exit 1
 fi
 
-# Error log ze stdin -> tabele. Sekcje sortowane przez `sort` w potoku awk;
-# fflush() przed kazdym, inaczej bufor awk i wyjscie sorta sie przeplataja.
+# shellcheck source=scripts/lib-nginx-limit-log.sh
+. "$(dirname "$0")/lib-nginx-limit-log.sh"
+
+# Error log ze stdin -> zdarzenia (nginx_limit_events) -> tabele. Sekcje
+# sortowane przez `sort` w potoku awk; fflush() przed kazdym, inaczej bufor
+# awk i wyjscie sorta sie przeplataja. Tabele IP/vhost/sciezek licza ODMOWY
+# (429); opoznienia (kolejka per IP) maja wlasna tabele — to nie byl blad
+# dla klienta, tylko wolniejsza odpowiedz.
 analyze() {
 	local top="$1"
 	# LC_ALL=C: printf %.1f w polskim locale daje "80,0", a sort porownuje inaczej
-	LC_ALL=C awk -v top="$top" '
-	function pole(re, off,   s){ if(match($0, re)){ s=substr($0, RSTART+off, RLENGTH-off); return s } return "-" }
+	nginx_limit_events | LC_ALL=C awk -F'\t' -v top="$top" '
 	function sekcja(naglowek){ fflush(); printf "\n%s\n", naglowek; fflush() }
-	# Bez {n}: stary mawk nie zna interwalow w regexach.
-	$0 !~ /^[0-9][0-9][0-9][0-9]\/[0-9][0-9]\/[0-9][0-9] [0-9][0-9]:[0-9][0-9]:[0-9][0-9] \[[a-z]+\] [0-9]+#[0-9]+: (\*[0-9]+ )?limiting (requests|connections)/ { next }
 	{
-		zone=pole("by zone \"[^\"]*\"", 9); sub(/"$/, "", zone)
-		ip=pole("client: [^,]*", 8)
-		host=pole("host: \"[^\"]*\"", 7); sub(/"$/, "", host)
-		# sciezka bez query stringu — "/bpp/rekord/?id=1" i "?id=2" to jeden endpoint
-		path=pole("request: \"[A-Z]+ [^ \"?]*", 10); sub(/^[A-Z]+ /, "", path)
-		hour=substr($0, 1, 13) ":00"
+		rodzaj=$1; zone=$2; ip=$3; host=$4; path=$5; hour=$6
+		events++; zall[zone]=1; hh[hour]=1
+		if(rodzaj=="opoznienie"){
+			delays++; zd[zone]++; idel[ip]++; hd[hour]++
+			next
+		}
 		grupa=(zone=="bpp_global")?"glob":(zone=="bpp_global_conn")?"conn":"perip"
-
 		total++
 		z[zone]++; zi[zone SUBSEP ip]++
 		ipc[ip]++; ipz[ip SUBSEP zone]++
 		hc[host]++; pc[path]++
-		hh[hour]++; hg[hour SUBSEP grupa]++
+		hr[hour]++; hg[hour SUBSEP grupa]++
 	}
 	END{
-		if(!total) exit
+		if(!events) exit
 		opis["bpp_global"]="globalne tempo -> BPP_NGINX_GLOBAL_RATE/_BURST (.env)"
 		opis["bpp_global_conn"]="globalna rownoleglosc -> BPP_NGINX_GLOBAL_CONN (.env)"
+		opis["bpp_ip_slow"]="spowalnianie per IP -> BPP_NGINX_IP_* (.env)"
 		opis["bpp_general"]="per-IP, reszta (defaults/webserver/*, nie .env)"
 		opis["bpp_api"]="per-IP, /api/ (defaults/webserver/*, nie .env)"
 		opis["bpp_admin"]="per-IP, /admin/ (defaults/webserver/*, nie .env)"
@@ -95,30 +98,42 @@ analyze() {
 		for(k in zi){ split(k, a, SUBSEP); zn[a[1]]++
 			if(zi[k]>zmax[a[1]]){ zmax[a[1]]=zi[k]; ztop[a[1]]=a[2] } }
 
-		sekcja("== odmowy wg strefy ==   odmow |  IP | top IP % | strefa")
-		cmd="sort -k1,1rn"
-		for(s in z) printf "   %8d %5d %8.1f%%   %-16s %s\n", z[s], zn[s], 100*zmax[s]/z[s], s, (s in opis)?opis[s]:"" | cmd
+		sekcja("== wg strefy ==   odmow | opoznien |  IP | top IP % | strefa")
+		cmd="sort -k1,1rn -k2,2rn"
+		for(s in zall){
+			proc=(z[s]>0) ? sprintf("%7.1f%%", 100*zmax[s]/z[s]) : "       -"
+			printf "   %8d %9d %5d %s   %-16s %s\n", z[s], zd[s], zn[s], proc, s, (s in opis)?opis[s]:"" | cmd
+		}
 		close(cmd)
 
-		sekcja("== top IP ==   odmow | strefa (najwiecej odmow) | IP")
-		for(k in ipz){ split(k, a, SUBSEP); if(ipz[k]>imax[a[1]]){ imax[a[1]]=ipz[k]; izone[a[1]]=a[2] } }
-		cmd="sort -k1,1rn | awk -v t=" top " \"NR<=t\""
-		for(i in ipc) printf "   %8d   %-16s   %s\n", ipc[i], izone[i], i | cmd
-		close(cmd)
+		if(total){
+			sekcja("== top IP (odmowy 429) ==   odmow | strefa (najwiecej odmow) | IP")
+			for(k in ipz){ split(k, a, SUBSEP); if(ipz[k]>imax[a[1]]){ imax[a[1]]=ipz[k]; izone[a[1]]=a[2] } }
+			cmd="sort -k1,1rn | awk -v t=" top " \"NR<=t\""
+			for(i in ipc) printf "   %8d   %-16s   %s\n", ipc[i], izone[i], i | cmd
+			close(cmd)
 
-		sekcja("== wg vhosta (naglowek Host) ==   odmow | host")
-		cmd="sort -k1,1rn"
-		for(h in hc) printf "   %8d   %s\n", hc[h], h | cmd
-		close(cmd)
+			sekcja("== odmowy wg vhosta (naglowek Host) ==   odmow | host")
+			cmd="sort -k1,1rn"
+			for(h in hc) printf "   %8d   %s\n", hc[h], h | cmd
+			close(cmd)
 
-		sekcja("== najczesciej odrzucane sciezki (bez ?query) ==   odmow | sciezka")
-		cmd="sort -k1,1rn | awk -v t=" top " \"NR<=t\""
-		for(p in pc) printf "   %8d   %s\n", pc[p], p | cmd
-		close(cmd)
+			sekcja("== najczesciej odrzucane sciezki (bez ?query) ==   odmow | sciezka")
+			cmd="sort -k1,1rn | awk -v t=" top " \"NR<=t\""
+			for(p in pc) printf "   %8d   %s\n", pc[p], p | cmd
+			close(cmd)
+		}
 
-		sekcja("== godzinowo ==   odmow | glob | conn | per-IP | godzina")
-		cmd="sort -k5,6"
-		for(h in hh) printf "   %8d %6d %6d %8d   %s\n", hh[h], hg[h SUBSEP "glob"], hg[h SUBSEP "conn"], hg[h SUBSEP "perip"], h | cmd
+		if(delays){
+			sekcja("== spowolnieni (czekali w kolejce, NIE odrzuceni) ==   opoznien | IP")
+			cmd="sort -k1,1rn | awk -v t=" top " \"NR<=t\""
+			for(i in idel) printf "   %8d   %s\n", idel[i], i | cmd
+			close(cmd)
+		}
+
+		sekcja("== godzinowo ==   odmow | glob | conn | per-IP | opoznien | godzina")
+		cmd="sort -k6,7"
+		for(h in hh) printf "   %8d %6d %6d %8d %10d   %s\n", hr[h], hg[h SUBSEP "glob"], hg[h SUBSEP "conn"], hg[h SUBSEP "perip"], hd[h], h | cmd
 		close(cmd)
 
 		# Wniosek dla stref globalnych: jeden klient zjada wspolna pule.
@@ -126,7 +141,8 @@ analyze() {
 		for(s in z) if((s=="bpp_global" || s=="bpp_global_conn") && zn[s]>1 && 2*zmax[s]>=z[s])
 			printf "\nUWAGA: %.1f%% odmow w strefie %s to jeden IP (%s). Ten klient zjada\n" \
 				"wspolna pule; 429 u pozostalych %d IP to skutek uboczny. Podniesienie limitu\n" \
-				"da mu tylko wiecej przepustowosci do bazy — najpierw ustal, co to jest\n" \
+				"da mu tylko wiecej przepustowosci do bazy — przyhamuj go spowalnianiem\n" \
+				"per IP (BPP_NGINX_IP_*, make configure-rate-limits) i ustal, co to jest\n" \
 				"(RESOLVE=1, sciezki wyzej, godziny = cron?).\n", 100*zmax[s]/z[s], s, ztop[s], zn[s]-1
 	}'
 }
@@ -155,12 +171,12 @@ for c in "${CONTAINERS[@]}"; do
 			cat "$tmpout"
 		fi
 	else
-		echo "  (brak odmow limitow w oknie --since ${SINCE})"
+		echo "  (brak odmow ani opoznien limitow w oknie --since ${SINCE})"
 	fi
 	rm -f "$tmpout"
 	echo
 done
 
-echo "Strefy bpp_global*: stroisz w \$BPP_CONFIGS_DIR/.env (BPP_NGINX_GLOBAL_*) + make up."
+echo "Strefy bpp_global* i bpp_ip_slow: make configure-rate-limits (albo .env + make up)."
 echo "Strefy per-IP: wersjonowane pliki defaults/webserver/ — docs/architektura/rate-limiting.md"
 [ "$RESOLVE" = "1" ] || echo "Kto to jest? RESOLVE=1 make rate-limit-stats (PTR + AS/wlasciciel bloku)."

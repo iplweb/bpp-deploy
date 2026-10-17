@@ -24,10 +24,23 @@
 # PostgreSQL i strona lezala ~3 minuty. Szczegoly:
 # docs/architektura/rate-limiting.md#limit-globalny
 #
+# Do tego SPOWALNIANIE PER IP (2026-10-18): job zaciagajacy cala baze przez
+# API z jednego adresu (~24 r/s ciagle, natychmiastowe ponawianie po 429)
+# zjadal pule globalna i 429 dostawalo rykoszetem ~55 innych IP. Kolejka
+# GLOBALNA nic by nie dala — jego 100 zadan w kolejce stoi przed kazdym.
+# Kolejka PER IP: kazdy adres ma wlasny kubelek, wiec ten, kto dlugo trzyma
+# wysokie tempo, czeka w SWOJEJ kolejce. Czekajac na odpowiedz sam wysyla
+# wolniej (back-pressure), wiec przestaje zjadac pule globalna. Szpila
+# (otwarcie strony = kilkanascie XHR) miesci sie w IP_BURST i idzie od reki.
+#
 # Zmienne (z $BPP_CONFIGS_DIR/.env przez env_file webservera):
 #   BPP_NGINX_GLOBAL_RATE   zadan/s do appservera, lacznie ze wszystkich IP (20)
 #   BPP_NGINX_GLOBAL_BURST  zapas na szpile ponad RATE, obslugiwany od reki (200)
 #   BPP_NGINX_GLOBAL_CONN   zadan do appservera obslugiwanych naraz (60)
+#   BPP_NGINX_IP_RATE       zadan/s z JEDNEGO IP w dluzszym okresie (10)
+#   BPP_NGINX_IP_BURST      ile ponad IP_RATE z jednego IP idzie od reki (50)
+#   BPP_NGINX_IP_QUEUE      ile kolejnych CZEKA, zamiast dostac 429 (100);
+#                           0 = bez kolejki (nadmiar ponad IP_BURST -> 429)
 # Pusta/brak = domyslna, 0 = dany limit wylaczony.
 # ============================================================================
 
@@ -71,9 +84,12 @@ liczba_lub_domyslna() {
 RATE=$(liczba_lub_domyslna BPP_NGINX_GLOBAL_RATE 20)
 BURST=$(liczba_lub_domyslna BPP_NGINX_GLOBAL_BURST 200)
 CONN=$(liczba_lub_domyslna BPP_NGINX_GLOBAL_CONN 60)
+IP_RATE=$(liczba_lub_domyslna BPP_NGINX_IP_RATE 10)
+IP_BURST=$(liczba_lub_domyslna BPP_NGINX_IP_BURST 50)
+IP_QUEUE=$(liczba_lub_domyslna BPP_NGINX_IP_QUEUE 100)
 
 {
-    echo "# Wygenerowane przez $ME — NIE EDYTOWAC, zmieniaj BPP_NGINX_GLOBAL_* w .env."
+    echo "# Wygenerowane przez $ME — NIE EDYTOWAC, zmieniaj BPP_NGINX_GLOBAL_* / BPP_NGINX_IP_* w .env."
     # 429, nie domyslne 503: 503 wpadloby w `error_page 502 503 504
     # /maintenance.html` (dlawiony user widzialby "konserwacje") i odpalalo
     # alarm netdaty na 5xx. Ten sam powod co limit_req_status w
@@ -81,6 +97,9 @@ CONN=$(liczba_lub_domyslna BPP_NGINX_GLOBAL_CONN 60)
     # poziomie `error` zalalo by dashboard error-monitoring.
     echo "limit_conn_status 429;"
     echo "limit_conn_log_level warn;"
+    if [ "$IP_RATE" -gt 0 ]; then
+        echo "limit_req_zone \$binary_remote_addr zone=bpp_ip_slow:10m rate=${IP_RATE}r/s;"
+    fi
     if [ "$RATE" -gt 0 ]; then
         # Klucz STALY ("bpp") = jeden wspolny kubelek dla wszystkich IP
         # i wszystkich vhostow (multi-host dzieli jednego appservera).
@@ -101,7 +120,20 @@ CONN=$(liczba_lub_domyslna BPP_NGINX_GLOBAL_CONN 60)
 } > "$HTTP_CONF"
 
 {
-    echo "# Wygenerowane przez $ME — NIE EDYTOWAC, zmieniaj BPP_NGINX_GLOBAL_* w .env."
+    echo "# Wygenerowane przez $ME — NIE EDYTOWAC, zmieniaj BPP_NGINX_GLOBAL_* / BPP_NGINX_IP_* w .env."
+    # PER IP PRZED globalnym: limit_req sprawdza strefy po kolei i konczy na
+    # pierwszej odmowie, wiec zadanie odrzucone z przepelnionej kolejki IP
+    # nie zuzywa globalnej puli.
+    if [ "$IP_RATE" -gt 0 ]; then
+        if [ "$IP_QUEUE" -gt 0 ]; then
+            # burst = od reki + kolejka; delay = ile z tego od reki
+            echo "limit_req zone=bpp_ip_slow burst=$((IP_BURST + IP_QUEUE)) delay=${IP_BURST};"
+        else
+            echo "limit_req zone=bpp_ip_slow burst=${IP_BURST} nodelay;"
+        fi
+    else
+        echo "# BPP_NGINX_IP_RATE=0 — spowalnianie per IP wylaczone"
+    fi
     if [ "$RATE" -gt 0 ]; then
         echo "limit_req zone=bpp_global burst=${BURST} nodelay;"
     else
@@ -124,4 +156,10 @@ if [ "$CONN" -gt 0 ]; then
 else
     OPIS_CONN="wylaczony"
 fi
+if [ "$IP_RATE" -gt 0 ]; then
+    OPIS_IP="${IP_RATE} r/s (od reki ${IP_BURST}, kolejka ${IP_QUEUE})"
+else
+    OPIS_IP="wylaczone"
+fi
 log "globalny limit do appservera: tempo $OPIS_RATE, rownoleglosc $OPIS_CONN"
+log "spowalnianie per IP: $OPIS_IP"

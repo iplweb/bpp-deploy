@@ -2074,18 +2074,99 @@ test_diag_db_commands() {
     # zadna z nich nie moze wejsc do statystyk (7 prawdziwych odmow).
     out="$(BPP_DIAG_FIXTURES="$fx" bash "$REPO_DIR/scripts/show-rate-limit-stats.sh" 2>&1)" \
         || fail "show-rate-limit-stats.sh zakonczyl sie bledem"
-    _diag_ma "rate-limit-stats: strefa globalna (odmowy, IP, udzial top IP)" '^ +5 +2 +80\.0% +bpp_global +globalne tempo' "$out"
-    _diag_ma "rate-limit-stats: limit_conn rozpoznany" '^ +1 +1 +100\.0% +bpp_global_conn ' "$out"
-    _diag_ma "rate-limit-stats: per-IP z odeslaniem do defaults/" '^ +1 +1 +100\.0% +bpp_general +per-IP' "$out"
+    _diag_ma "rate-limit-stats: strefa globalna (odmowy, IP, udzial top IP)" '^ +5 +0 +2 +80\.0% +bpp_global +globalne tempo' "$out"
+    _diag_ma "rate-limit-stats: limit_conn rozpoznany" '^ +1 +0 +1 +100\.0% +bpp_global_conn ' "$out"
+    _diag_ma "rate-limit-stats: per-IP z odeslaniem do defaults/" '^ +1 +0 +1 +100\.0% +bpp_general +per-IP' "$out"
     _diag_ma "rate-limit-stats: IPv6 klienta" '^ +1 +bpp_global_conn +2001:db8::5$' "$out"
     _diag_ma "rate-limit-stats: rozbicie na vhosty" '^ +1 +drugi\.example\.org$' "$out"
     _diag_ma "rate-limit-stats: sciezka bez query stringu" '^ +4 +/api/v1/rekord/$' "$out"
-    _diag_ma "rate-limit-stats: godzinowo z podzialem na grupy" '^ +3 +1 +1 +1 +2026/10/17 22:00$' "$out"
+    _diag_ma "rate-limit-stats: godzinowo z podzialem na grupy" '^ +3 +1 +1 +1 +2 +2026/10/17 22:00$' "$out"
+    # opoznienia (kolejka per IP) to NIE odmowy: osobna kolumna i tabela,
+    # a w tabelach odmow (IP, sciezki) ich nie ma
+    _diag_ma "rate-limit-stats: opoznienia w strefie bpp_ip_slow" '^ +0 +2 +0 +- +bpp_ip_slow +spowalnianie per IP' "$out"
+    _diag_ma "rate-limit-stats: tabela spowolnionych" '^ +2 +192\.0\.2\.10$' "$out"
+    _diag_nie_ma "rate-limit-stats: opoznienia poza tabela sciezek" '/api/v1/autor/' "$out"
     _diag_ma "rate-limit-stats: ostrzezenie o kliencie zjadajacym pule" 'UWAGA: 80\.0% odmow w strefie bpp_global to jeden IP \(192\.0\.2\.10\)' "$out"
     _diag_nie_ma "rate-limit-stats: bez ostrzezenia dla strefy z jednym IP" 'strefie bpp_global_conn' "$out"
     # luzny filtr (sam napis "limiting") policzylby linie accessu jako strefe "-"
     _diag_nie_ma "rate-limit-stats: linia accessu poza statystyka" '% +- |/limiting' "$out"
     _diag_nie_ma "rate-limit-stats: [error] open() poza statystyka" '^ +[0-9]+ +/x$' "$out"
+}
+
+# ============================================================
+# TEST: kreator limitow nginx-a (make configure-rate-limits)
+# ============================================================
+# Odpalamy PRAWDZIWY kreator na danych z BPP_RLC_FIXTURES (docker/host
+# podmienione) i odpowiedziach ze stdin. Sprawdzamy szacunek RATE (z CPU
+# w szczycie i z upstream_response_time przy malym ruchu), zapis TYLKO
+# zmienionych zmiennych, nadpisanie istniejacej oraz wartosci domyslne
+# brane z 25-render-bpp-limits.sh.
+_rlc_access() {  # ile_linii status upstream_time [minuta]
+    awk -v n="$1" -v s="$2" -v u="$3" -v m="${4:-17/Oct/2026:22:10}" 'BEGIN {
+        for (i = 0; i < n; i++)
+            printf "192.0.2.%d - - [%s:%02d +0000] \"GET /bpp/rekord/%d/ HTTP/1.1\" %s 512 300 %s %s \"-\" \"x\"\n", i % 50, m, i % 60, i, s, u, u
+    }'
+}
+
+test_configure_rate_limits() {
+    yellow "=== Test: kreator limitow nginx-a (make configure-rate-limits) ==="
+    local fx cfg out env
+
+    # --- szczyt ruchu: CPU 58% hosta przy 21 r/s -> 1 r/s ~ 2.76% -> 80% / 2.76 = 28
+    fx="$(mktemp -d)"; cfg="$(mktemp -d)"
+    echo 8 > "$fx/ncpu.txt"; echo 4.60 > "$fx/loadavg.txt"
+    printf 'x-appserver-1\t330.00%%\nx-dbserver-1\t96.00%%\nx-webserver-1\t20.00%%\nx-workerserver-1\t18.00%%\n' > "$fx/docker-stats.txt"
+    { _rlc_access 1260 200 0.080; echo '198.51.100.1 - - [17/Oct/2026:22:10:00 +0000] "GET /static/a.js HTTP/1.1" 200 1 1 0.001 - "-" "x"'
+      _rlc_access 40 429 -; } > "$fx/access-60s.log"
+    cp "$fx/access-60s.log" "$fx/access-24h.log"
+    cp "$REPO_DIR/tests/fixtures/diag/webserver-error.log" "$fx/error-24h.log"
+    printf 'DJANGO_BPP_HOSTNAMES=bpp.example.org\nBPP_NGINX_GLOBAL_CONN=60\n' > "$cfg/.env"
+    # cel CPU: "abc" (zle) -> "" (80); RATE/BURST/CONN Enter; IP_RATE 12; reszta Enter; zapis T; make up n
+    out="$(printf 'abc\n\n\n\n\n12\n\n\nT\nn\n' | BPP_RLC_FIXTURES="$fx" BPP_CONFIGS_DIR="$cfg" \
+        bash "$REPO_DIR/scripts/configure-rate-limits.sh" 2>&1)" || fail "configure-rate-limits (szczyt) zakonczyl sie bledem"
+    env="$(cat "$cfg/.env")"
+    _diag_ma "kreator: CPU kontenerow jako % hosta" 'CPU kontenerow BPP: 58% hosta \(load 4\.60 / 8 rdzeni\)' "$out"
+    _diag_ma "kreator: ruch bez statykow i odmow" 'Ruch do appservera: 21\.0 r/s' "$out"
+    _diag_ma "kreator: winowajca i wyrzuceni rykoszetem" 'wyrzuceni rykoszetem \(bez winowajcy\): 3 IP, 3 zadan' "$out"
+    _diag_ma "kreator: spowolnieni osobno" 'Spowolnieni \(czekali w kolejce, bez bledu\): 2 zadan od 1 IP' "$out"
+    _diag_ma "kreator: zla odpowiedz -> pytanie ponownie" 'podaj liczbe calkowita' "$out"
+    _diag_ma "kreator: szacunek RATE z CPU" 'BPP_NGINX_GLOBAL_RATE ~ 28' "$out"
+    _diag_ma "kreator: domyslna z 25-render (IP_QUEUE)" 'teraz: 100 \(domyslna\)' "$out"
+    _diag_ma "kreator: zapisany RATE z propozycji" '^BPP_NGINX_GLOBAL_RATE=28$' "$env"
+    _diag_ma "kreator: BURST nadaza za RATE (x10)" '^BPP_NGINX_GLOBAL_BURST=280$' "$env"
+    _diag_ma "kreator: zapisany IP_RATE wpisany recznie" '^BPP_NGINX_IP_RATE=12$' "$env"
+    _diag_nie_ma "kreator: niezmienione domyslne NIE trafiaja do .env" '^BPP_NGINX_IP_(BURST|QUEUE)=' "$env"
+    if [ "$(grep -c '^BPP_NGINX_GLOBAL_CONN=' "$cfg/.env")" = 1 ]; then
+        pass "kreator: istniejaca niezmieniona zmienna bez duplikatu"
+    else
+        fail "kreator: BPP_NGINX_GLOBAL_CONN zdublowane w .env"
+    fi
+    _diag_ma "kreator: bez make up-webserver po 'n'" 'Pozniej: make up-webserver' "$out"
+    rm -rf "$fx" "$cfg"
+
+    # --- maly ruch: szacunek z upstream_response_time (mediana 0.050 s, 4 CPU -> 80 r/s -> 56)
+    fx="$(mktemp -d)"; cfg="$(mktemp -d)"
+    echo 8 > "$fx/ncpu.txt"; echo 0.30 > "$fx/loadavg.txt"
+    printf 'x-appserver-1\t4.00%%\n' > "$fx/docker-stats.txt"
+    _rlc_access 5 200 0.050 > "$fx/access-60s.log"
+    { _rlc_access 150 200 0.050; _rlc_access 20 200 9.000; _rlc_access 30 302 0.001; } > "$fx/access-24h.log"
+    : > "$fx/error-24h.log"
+    printf 'APPSERVER_CPU_LIMIT=4.0\nBPP_NGINX_GLOBAL_RATE=30\n' > "$cfg/.env"
+    out="$(printf '\n\n\n\n\n\nT\nT\n' | BPP_RLC_FIXTURES="$fx" BPP_CONFIGS_DIR="$cfg" \
+        bash "$REPO_DIR/scripts/configure-rate-limits.sh" 2>&1)" || fail "configure-rate-limits (maly ruch) zakonczyl sie bledem"
+    env="$(cat "$cfg/.env")"
+    _diag_ma "kreator: brak odmow w dobie" 'Brak odmow 429 i opoznien' "$out"
+    _diag_ma "kreator: mediana tylko z odpowiedzi 200" 'mediana czasu obslugi przez appserver 0\.050 s \(170 odpowiedzi 200\)' "$out"
+    _diag_ma "kreator: szacunek z APPSERVER_CPU_LIMIT" 'appserver \(4\.0 CPU\) wyciagnie ok\. 80 r/s => BPP_NGINX_GLOBAL_RATE ~ 56' "$out"
+    _diag_ma "kreator: istniejaca wartosc pokazana" 'teraz: 30$' "$out"
+    _diag_ma "kreator: nadpisanie istniejacej zmiennej" '^BPP_NGINX_GLOBAL_RATE=56$' "$env"
+    if [ "$(grep -c '^BPP_NGINX_GLOBAL_RATE=' "$cfg/.env")" = 1 ]; then
+        pass "kreator: nadpisanie bez duplikatu"
+    else
+        fail "kreator: BPP_NGINX_GLOBAL_RATE zdublowane"
+    fi
+    _diag_ma "kreator: make up-webserver po 'T'" '\(fixture\) make up-webserver' "$out"
+    rm -rf "$fx" "$cfg"
 }
 
 # ============================================================
@@ -2584,6 +2665,7 @@ test_rclone_config_mount_writable
 test_rclone_service_declared
 test_backup_pg_image_retired
 test_diag_db_commands
+test_configure_rate_limits
 
 echo ""
 echo "========================================"
