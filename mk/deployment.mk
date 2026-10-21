@@ -16,7 +16,7 @@ restart: validate-env-quotes update-configs
 	docker compose down
 	docker compose up -d
 
-refresh: validate-env-quotes prune-orphan-volumes ensure-config-files update-configs
+refresh: validate-env-quotes prune-orphan-volumes ask-missing-config ensure-config-files update-configs
 	docker system prune -f
 	docker compose pull
 	docker compose stop
@@ -32,7 +32,7 @@ pull: validate-env-quotes
 build:
 	docker compose build
 
-up: validate-env-quotes ensure-config-files update-configs
+up: validate-env-quotes ask-missing-config ensure-config-files update-configs
 	docker compose up -d --wait --force-recreate --remove-orphans
 	@bash scripts/create-monitoring-user.sh --soft
 	@# Stack jest UP i healthy (--wait powyzej; przy bledzie make juz by stanal).
@@ -63,7 +63,7 @@ rmrf:
 	@read -p "Are you sure? [y/N] " confirm && [ "$$confirm" = "y" ] || (echo "Aborted."; exit 1)
 	docker compose rm -f
 
-up-quick: validate-env-quotes ensure-config-files pull
+up-quick: validate-env-quotes ask-missing-config ensure-config-files pull
 	docker compose up -d --wait
 	$(MAKE) invalidate
 

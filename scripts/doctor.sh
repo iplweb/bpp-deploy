@@ -12,7 +12,7 @@
 # Uruchomienie:
 #   make doctor                 # interaktywne menu
 #   bash scripts/doctor.sh      # j.w.
-#   bash scripts/doctor.sh mail # nieinteraktywnie: mail|ntfy|rollbar|health|backup|all
+#   bash scripts/doctor.sh mail # nieinteraktywnie: mail|ntfy|rollbar|health|backup|config|all
 #
 # Uwaga: NIE ustawiamy `-e` - zawodzacy pojedynczy test (np. brak env) ma wrocic
 # do menu, a nie ubic calego doctora.
@@ -38,6 +38,7 @@ run_choice() {
         rollbar) run_target test-rollbar ;;
         health)  run_target health ;;
         backup)  run_target backup-cycle ;;
+        config)  run_target config-check ;;
         all)
             # "wszystko" = trio powiadomien (dawne post-deploy zachowanie,
             # ale na zadanie). Swiadomie BEZ health/backup.
@@ -47,7 +48,7 @@ run_choice() {
             ;;
         *)
             echo "BLAD: nieznana pozycja '$1'" >&2
-            echo "Dozwolone: mail ntfy rollbar health backup all" >&2
+            echo "Dozwolone: mail ntfy rollbar health backup config all" >&2
             return 2
             ;;
     esac
@@ -63,6 +64,7 @@ print_menu() {
   4) health   — status usług + ostatnie błędy (health)
   5) backup   — pełny cykl backupu            (backup-cycle)
   6) wszystko — mail + ntfy + rollbar po kolei
+  7) config   — poprawność zmiennych operatora (config-check)
   q) wyjście
 EOF
 }
@@ -83,6 +85,7 @@ menu() {
             4|health)       run_choice health || true ;;
             5|backup)       run_choice backup || true ;;
             6|all|wszystko) run_choice all || true ;;
+            7|config)       run_choice config || true ;;
             q|Q|quit|exit)  break ;;
             "")             : ;;   # pusty Enter -> przerysuj menu
             *) echo "Nieznany wybór: $choice" >&2 ;;

@@ -1,0 +1,35 @@
+# Rejestr zmiennych .env, o ktorych decyduje OPERATOR (scripts/lib-config-registry.sh).
+# Jedno zrodlo dla: init-configs (pytania przy instalacji), make up (pytanie
+# raz o brakujace), make configure (menu grup), make config-check / doctor
+# (walidacja) i tabeli w docs/konfiguracja/zmienne.md (make docs-config-table).
+#
+# Kolumny rozdzielone TABULATOREM:
+#   NAZWA    zmienna w $BPP_CONFIGS_DIR/.env
+#   GRUPA    naglowek w menu i w docs (kolejnosc grup = kolejnosc pierwszego wystapienia)
+#   TYP      tekst | email | url | liczba | id | sciezka | sekret | wybor:a/b/...
+#   DOMYSLNA proponowana wartosc; ${NAZWA} = wartosc innej zmiennej z .env,
+#            ${BPP_DOMYSLNY_KATALOG_BACKUPOW} = <katalog nad BPP_CONFIGS_DIR>/backups
+#   PYTAJ    tak = pytamy, gdy zmiennej brak (init-configs, make up);
+#            nie = init-configs wpisuje DOMYSLNA bez pytania, edycja tylko w make configure
+#   PUSTA    tak = pusta wartosc dozwolona (= funkcja wylaczona; tez jest decyzja)
+#   OPIS     jedno zdanie (prompt + docs)
+#
+# Kolejnosc wierszy ma znaczenie: DOMYSLNA moze siegac tylko do zmiennych
+# WYZEJ (LETSENCRYPT_EMAIL bierze ADMIN_EMAIL).
+# NIE dopisuj tu zmiennych z wlasna logika (hostnames, baza, wersje PG):
+# te zostaja w init-configs.sh.
+#
+# NAZWA	GRUPA	TYP	DOMYSLNA	PYTAJ	PUSTA	OPIS
+DJANGO_BPP_ADMIN_EMAIL	Administrator	email	admin@example.com	tak	nie	E-mail administratora BPP (konto admina, maile o bledach)
+DJANGO_BPP_SSL_MODE	SSL	wybor:manual/letsencrypt	manual	nie	nie	Skad nginx bierze certyfikat: manual = ssl/, letsencrypt = letsencrypt/live/<host>/
+DJANGO_BPP_LETSENCRYPT_EMAIL	SSL	email	${DJANGO_BPP_ADMIN_EMAIL}	nie	nie	E-mail dla Let's Encrypt (powiadomienia o wygasajacych certyfikatach)
+DJANGO_BPP_SLACK_WEBHOOK	Powiadomienia	url		tak	tak	Slack webhook URL (pusta = bez powiadomien na Slacka)
+ROLLBAR_ACCESS_TOKEN	Powiadomienia	sekret		tak	tak	Rollbar access token typu post_server_item (pusta = backup-cycle bez powiadomien)
+DJANGO_BPP_GOOGLE_ANALYTICS_PROPERTY_ID	Google	tekst		tak	tak	Google Analytics Property ID (pusta = bez GA)
+DJANGO_BPP_GOOGLE_VERIFICATION_CODE	Google	tekst		tak	tak	Google Search Console verification code (pusta = brak)
+DJANGO_BPP_HOST_BACKUP_DIR	Backup	sciezka	${BPP_DOMYSLNY_KATALOG_BACKUPOW}	tak	nie	Katalog backupow na hoscie (sciezka bezwzgledna)
+DJANGO_BPP_BACKUP_KEEP_LAST	Backup	liczba	7	nie	nie	Ile ostatnich kopii kazdego typu trzymac lokalnie
+DJANGO_BPP_RCLONE_REMOTE	Backup	tekst	backup_enc:	nie	nie	Remote rclone dla kopii zdalnych (nazwa z rclone.conf zakonczona dwukropkiem)
+DJANGO_BPP_FRESHDESK_WIDGET_ID	Freshdesk	id	205000000433	tak	tak	ID widgetu Freshdesk dla ZALOGOWANYCH (pusta = brak zakladki Pomoc dla zalogowanych)
+DJANGO_BPP_FRESHDESK_WIDGET_ID_ANON	Freshdesk	id		tak	tak	ID widgetu Freshdesk dla ANONIMOW (pusta = anonimowi nie widza zakladki Pomoc)
+DJANGO_BPP_FRESHDESK_WIDGET_JWT_SECRET	Freshdesk	sekret		tak	tak	Sekret JWT widgetu (Freshdesk: Admin > Account > Security > Widget settings; pusta = bez JWT)

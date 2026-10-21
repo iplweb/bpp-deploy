@@ -166,12 +166,15 @@ make update-ssl-certs         # Przeładuj nginx po zmianie certyfikatów
 make init-configs             # Uzupełnij brakujące pliki/zmienne (idempotentne)
 make configure-resources      # Dostrój limity RAM/CPU
 make configure-rate-limits    # Interaktywnie: limity ruchu nginx (globalne + spowalnianie per IP)
+make configure               # Interaktywnie: zmienne operatora (admin, SSL, powiadomienia, backup, Freshdesk)
+make config-check            # Sprawdź poprawność zmiennych operatora w .env (też w make doctor)
+make docs-config-table       # (dla deweloperów) przegeneruj tabelę w docs/konfiguracja/zmienne.md
 make generate-snakeoil-certs  # Wygeneruj samopodpisane certyfikaty SSL
 make ssl-letsencrypt-issue    # Wystaw cert Let's Encrypt (PROD=1 dla prawdziwego)
 make ssl-letsencrypt-renew    # Manualny renew certów LE
 ```
 
-Szczegóły: [SSL](../konfiguracja/ssl.md), [Limity zasobów](../konfiguracja/limity-zasobow.md), [kreator limitów ruchu](../architektura/rate-limiting.md#kreator).
+Szczegóły: [SSL](../konfiguracja/ssl.md), [Limity zasobów](../konfiguracja/limity-zasobow.md), [kreator limitów ruchu](../architektura/rate-limiting.md#kreator), [zmienne operatora](../konfiguracja/zmienne.md).
 
 ## Backup
 

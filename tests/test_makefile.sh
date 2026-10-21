@@ -2108,6 +2108,143 @@ _rlc_access() {  # ile_linii status upstream_time [minuta]
     }'
 }
 
+test_configure_registry() {
+    yellow "=== Test: rejestr zmiennych operatora (make configure / ask-missing-config / config-check) ==="
+    local cfg out env sc="$REPO_DIR/scripts/configure.sh"
+    local fd='DJANGO_BPP_FRESHDESK_WIDGET'
+
+    # --- sam rejestr: 7 kolumn, znane typy, domyslne przechodza wlasna walidacje,
+    #     ${VAR} w DOMYSLNA tylko do zmiennych WYZEJ (inaczej rozwinie sie pusto)
+    out="$(bash -c '
+        . "$1/scripts/lib-config-registry.sh"
+        awk -F"\t" "!/^#/ && NF && NF != 7 { print \"zla liczba kolumn: \" \$1 }" "$REJ_PLIK"
+        widziane=" BPP_DOMYSLNY_KATALOG_BACKUPOW "
+        while IFS=$'"'"'\037'"'"' read -r n g t d p u o; do
+            case "$p$u" in taktak|taknie|nietak|nienie) ;; *) echo "$n: PYTAJ/PUSTA to tak|nie";; esac
+            for ref in $(printf "%s" "$d" | grep -oE "\\\$\\{[A-Z_0-9]+\\}" | tr -d "\${}"); do
+                case "$widziane" in *" $ref "*) ;; *) echo "$n: DOMYSLNA siega do $ref spoza zmiennych wyzej";; esac
+            done
+            case "$d" in *"\${"*) ;; *) m="$(rej_waliduj "$t" "$u" "$d")" || echo "$n: domyslna \"$d\" niepoprawna: $m";; esac
+            widziane="$widziane$n "
+        done < <(rej_wiersze)
+    ' _ "$REPO_DIR" 2>&1)"
+    if [ -z "$out" ]; then pass "rejestr: spojny (kolumny, typy, domyslne, kolejnosc odwolan)"; else fail "rejestr: $out"; fi
+
+    # --- make up na starej instalacji: brakuje tylko Freshdeska, Enter x3 -> decyzja zapisana
+    cfg="$(mktemp -d)"
+    printf 'DJANGO_BPP_ADMIN_EMAIL=a@b.pl\nDJANGO_BPP_SLACK_WEBHOOK=\nROLLBAR_ACCESS_TOKEN=\nDJANGO_BPP_GOOGLE_ANALYTICS_PROPERTY_ID=\nDJANGO_BPP_GOOGLE_VERIFICATION_CODE=\nDJANGO_BPP_HOST_BACKUP_DIR=/srv/b' > "$cfg/.env"
+    chmod 600 "$cfg/.env"
+    out="$(printf '\n\n\n' | BPP_CO_ASSUME_TTY=1 BPP_CONFIGS_DIR="$cfg" bash "$sc" --missing 2>&1)" \
+        || fail "configure.sh --missing zakonczyl sie bledem"
+    env="$(cat "$cfg/.env")"
+    _diag_ma "rejestr: ostatnia linia bez \\n nie sklejona" '^DJANGO_BPP_HOST_BACKUP_DIR=/srv/b$' "$env"
+    _diag_ma "rejestr: pyta tylko o brakujace (3)" 'Nowe ustawienia BPP \(3\)' "$out"
+    _diag_ma "rejestr: Enter na ID zalogowanych = domyslne BPP" "^${fd}_ID=205000000433\$" "$env"
+    _diag_ma "rejestr: Enter na ANON = pusta (decyzja)" "^${fd}_ID_ANON=\$" "$env"
+    _diag_ma "rejestr: Enter na sekret = pusty (decyzja)" "^${fd}_JWT_SECRET=\$" "$env"
+    _diag_nie_ma "rejestr: make up NIE dopisuje zmiennych PYTAJ=nie" '^DJANGO_BPP_(SSL_MODE|BACKUP_KEEP_LAST)=' "$env"
+    if [ "$(stat -f '%Lp' "$cfg/.env" 2>/dev/null || stat -c '%a' "$cfg/.env")" = 600 ]; then
+        pass "rejestr: zapis zachowuje tryb 0600 .env (hasla)"
+    else
+        fail "rejestr: zapis zmienil tryb .env"
+    fi
+
+    # --- drugi make up: decyzja zapisana -> zero pytan, zero zmian
+    out="$(printf 'NIE-CZYTAJ\n' | BPP_CO_ASSUME_TTY=1 BPP_CONFIGS_DIR="$cfg" bash "$sc" --missing 2>&1)" \
+        || fail "configure.sh --missing (drugi raz) zakonczyl sie bledem"
+    if [ -z "$out" ] && [ "$(cat "$cfg/.env")" = "$env" ]; then
+        pass "rejestr: pusta wartosc = decyzja, make up juz nie pyta"
+    else
+        fail "rejestr: make up pyta ponownie mimo zapisanej decyzji: $out"
+    fi
+
+    # --- make configure: grupa Freshdesk (6): zle ID, '-', nowe ANON, sekret z '$' odrzucony; z = zapis
+    # shellcheck disable=SC2016  # dosłowne '$' — to ono ma zostać odrzucone
+    out="$(printf '6\nabc\n-\n205000000999\nab$c\nSeKr3t/x=\nz\n' | BPP_CO_ASSUME_TTY=1 BPP_CONFIGS_DIR="$cfg" bash "$sc" 2>&1)" \
+        || fail "make configure zakonczyl sie bledem"
+    env="$(cat "$cfg/.env")"
+    _diag_ma "rejestr: menu pokazuje grupy" '6\) Freshdesk' "$out"
+    _diag_ma "rejestr: zle ID -> pytanie ponownie" 'ID widgetu to liczba' "$out"
+    _diag_ma "rejestr: '\$' odrzucony (Makefile/Compose)" 'niedozwolony znak' "$out"
+    _diag_ma "rejestr: '-' czysci wartosc" "^${fd}_ID=\$" "$env"
+    _diag_ma "rejestr: nowe ANON zapisane" "^${fd}_ID_ANON=205000000999\$" "$env"
+    _diag_ma "rejestr: sekret zapisany" "^${fd}_JWT_SECRET=SeKr3t/x=\$" "$env"
+    _diag_nie_ma "rejestr: sekret nie wypisany na ekran" 'SeKr3t' "$out"
+    if [ "$(grep -c "^${fd}_" "$cfg/.env")" = 3 ]; then
+        pass "rejestr: nadpisanie bez duplikatow"
+    else
+        fail "rejestr: zdublowane zmienne ${fd}_* w .env"
+    fi
+    # q porzuca zmiany
+    printf '1\nq@q.pl\nq\n' | BPP_CO_ASSUME_TTY=1 BPP_CONFIGS_DIR="$cfg" bash "$sc" >/dev/null 2>&1 || true
+    _diag_ma "rejestr: 'q' porzuca niezapisane zmiany" '^DJANGO_BPP_ADMIN_EMAIL=a@b.pl$' "$(cat "$cfg/.env")"
+
+    # --- config-check: poprawne -> 0; zly e-mail -> 1 z nazwa zmiennej
+    if BPP_CONFIGS_DIR="$cfg" bash "$sc" --check >/dev/null 2>&1; then
+        pass "rejestr: config-check OK na poprawnym .env"
+    else
+        fail "rejestr: config-check zglasza bledy na poprawnym .env"
+    fi
+    sed -i.bak 's/^DJANGO_BPP_ADMIN_EMAIL=.*/DJANGO_BPP_ADMIN_EMAIL=nie-email/' "$cfg/.env"
+    if out="$(BPP_CONFIGS_DIR="$cfg" bash "$sc" --check 2>&1)"; then
+        fail "rejestr: config-check przepuscil zly e-mail"
+    else
+        _diag_ma "rejestr: config-check wskazuje zla zmienna" 'DJANGO_BPP_ADMIN_EMAIL=nie-email' "$out"
+    fi
+    rm -rf "$cfg"
+
+    # --- przerwanie w polowie (EOF/timeout): nic nie zapisane, make up idzie dalej
+    cfg="$(mktemp -d)"; : > "$cfg/.env"
+    if printf 'x@y.pl\n' | BPP_CO_ASSUME_TTY=1 BPP_CONFIGS_DIR="$cfg" bash "$sc" --missing >/dev/null 2>&1 \
+        && [ ! -s "$cfg/.env" ]; then
+        pass "rejestr: brak odpowiedzi = nic nie zapisane, exit 0"
+    else
+        fail "rejestr: przerwany kreator zapisal czesc odpowiedzi albo wywrocil make up"
+    fi
+    if printf '' | BPP_CO_ASSUME_TTY=1 BPP_CONFIG_PROMPT_TIMEOUT=1 BPP_CONFIGS_DIR="$cfg" bash "$sc" --missing >/dev/null 2>&1; then
+        pass "rejestr: timeout nie blokuje make up"
+    else
+        fail "rejestr: timeout wywraca make up"
+    fi
+
+    # --- bez terminala i pod autoupdate (BPP_SKIP_HEALTH_GATE): nie pyta
+    out="$(BPP_CONFIGS_DIR="$cfg" bash "$sc" --missing </dev/null 2>&1)" || fail "rejestr: nie-TTY wywraca make up"
+    _diag_ma "rejestr: nie-TTY tylko przypomina" 'make configure' "$out"
+    out="$(printf '\n\n\n' | BPP_SKIP_HEALTH_GATE=1 BPP_CO_ASSUME_TTY=1 BPP_CONFIGS_DIR="$cfg" bash "$sc" --missing 2>&1)" \
+        || fail "rejestr: BPP_SKIP_HEALTH_GATE wywraca make up"
+    if [ -z "$out" ] && [ ! -s "$cfg/.env" ]; then
+        pass "rejestr: BPP_SKIP_HEALTH_GATE (autoupdate pod screenem) = bez pytan"
+    else
+        fail "rejestr: kreator pyta mimo BPP_SKIP_HEALTH_GATE: $out"
+    fi
+
+    # --- init-configs (--init): EOF = domyslne, PYTAJ=nie dopisane, DOMYSLNA siega do odpowiedzi wyzej
+    printf 'x@y.pl\n' | BPP_CONFIGS_DIR="$cfg" bash "$sc" --init >/dev/null 2>&1 || fail "configure.sh --init zakonczyl sie bledem"
+    env="$(cat "$cfg/.env")"
+    _diag_ma "rejestr: --init zapisuje odpowiedz" '^DJANGO_BPP_ADMIN_EMAIL=x@y.pl$' "$env"
+    _diag_ma "rejestr: LETSENCRYPT_EMAIL = niezapisany jeszcze ADMIN_EMAIL" '^DJANGO_BPP_LETSENCRYPT_EMAIL=x@y.pl$' "$env"
+    _diag_ma "rejestr: --init dopisuje PYTAJ=nie z domyslna" '^DJANGO_BPP_SSL_MODE=manual$' "$env"
+    _diag_ma "rejestr: katalog backupow obok katalogu konfiguracyjnego" "^DJANGO_BPP_HOST_BACKUP_DIR=$(dirname "$cfg")/backups\$" "$env"
+    rm -rf "$cfg"
+
+    # --- tabela w docs zgodna z rejestrem
+    if bash "$REPO_DIR/scripts/render-config-docs.sh" --check >/dev/null 2>&1; then
+        pass "rejestr: tabela w docs/konfiguracja/zmienne.md aktualna"
+    else
+        fail "rejestr: tabela w docs nieaktualna — make docs-config-table"
+    fi
+
+    # --- podpiecie pod make up / up-quick / refresh
+    local t
+    for t in up up-quick refresh; do
+        if grep -qE "^${t}:.* ask-missing-config( |$)" "$REPO_DIR/mk/deployment.mk"; then
+            pass "rejestr: make $t pyta o brakujace zmienne"
+        else
+            fail "rejestr: make $t bez prerekwizytu ask-missing-config"
+        fi
+    done
+}
+
 test_configure_rate_limits() {
     yellow "=== Test: kreator limitow nginx-a (make configure-rate-limits) ==="
     local fx cfg out env
@@ -2666,6 +2803,7 @@ test_rclone_service_declared
 test_backup_pg_image_retired
 test_diag_db_commands
 test_configure_rate_limits
+test_configure_registry
 
 echo ""
 echo "========================================"

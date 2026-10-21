@@ -116,6 +116,10 @@ run_doctor backup
 assert_log_has "backup-cycle" "backup -> make backup-cycle"
 assert_log_lines 1 "backup: dokladnie jeden cel"
 
+run_doctor config
+assert_log_has "config-check" "config -> make config-check"
+assert_log_lines 1 "config: dokladnie jeden cel"
+
 # "wszystko" = mail + ntfy + rollbar (BEZ health/backup).
 run_doctor all
 assert_exit 0 "$RUN_EXIT" "all: exit 0"
@@ -123,8 +127,8 @@ assert_log_has "test-email" "all zawiera test-email"
 assert_log_has "test-ntfy" "all zawiera test-ntfy"
 assert_log_has "test-rollbar" "all zawiera test-rollbar"
 assert_log_lines 3 "all: dokladnie trzy cele"
-if grep -qE 'health|backup-cycle' "$MAKE_LOG"; then
-    fail "all: NIE powinno zawierac health/backup"
+if grep -qE 'health|backup-cycle|config-check' "$MAKE_LOG"; then
+    fail "all: NIE powinno zawierac health/backup/config"
 else
     pass "all: bez health/backup"
 fi

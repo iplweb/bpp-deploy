@@ -228,23 +228,8 @@ if [ ! -f "$ENV_FILE" ]; then
     read -r ADMIN_USERNAME || true
     ADMIN_USERNAME="${ADMIN_USERNAME:-admin}"
 
-    printf "Email administratora [admin@example.com]: "
-    read -r ADMIN_EMAIL || true
-    ADMIN_EMAIL="${ADMIN_EMAIL:-admin@example.com}"
-
-    printf "Slack webhook URL (opcjonalny, Enter = pomin): "
-    read -r SLACK_WEBHOOK || true
-
-    DEFAULT_BACKUP_DIR="$(dirname "$ABS_CONFIG")/backups"
-    printf "Katalog backupow [%s]: " "$DEFAULT_BACKUP_DIR"
-    read -r BACKUP_DIR || true
-    BACKUP_DIR="${BACKUP_DIR:-$DEFAULT_BACKUP_DIR}"
-
-    printf "Google Analytics Property ID (opcjonalny, Enter = pomin): "
-    read -r GA_PROPERTY_ID || true
-
-    printf "Google Verification Code (opcjonalny, Enter = pomin): "
-    read -r GA_VERIFICATION_CODE || true
+    # E-mail admina, Slack, katalog backupow, Google, Freshdesk... pyta
+    # rejestr (scripts/config-registry.tsv) nizej, po wygenerowaniu pliku.
 
     SECRET_KEY="$(openssl rand -base64 48 | head -c 50)"
 
@@ -342,44 +327,14 @@ STATIC_ROOT=/staticroot/
 DJANGO_BPP_MEDIA_ROOT=/mediaroot
 DJANGO_SETTINGS_MODULE=django_bpp.settings.production
 
-# === Google (opcjonalne) ===
-DJANGO_BPP_GOOGLE_ANALYTICS_PROPERTY_ID=$GA_PROPERTY_ID
-DJANGO_BPP_GOOGLE_VERIFICATION_CODE=$GA_VERIFICATION_CODE
-
 # === Bezpieczenstwo ===
 DJANGO_BPP_SECRET_KEY=$SECRET_KEY
 
 # === Administrator ===
 DJANGO_BPP_ADMIN_USERNAME=$ADMIN_USERNAME
-DJANGO_BPP_ADMIN_EMAIL=$ADMIN_EMAIL
-ADMINS=$ADMIN_USERNAME <$ADMIN_EMAIL>
-
-# === SSL ===
-# DJANGO_BPP_SSL_MODE: ktore certyfikaty serwuje nginx.
-#   manual      - czyta z \$BPP_CONFIGS_DIR/ssl/ (snakeoil albo wgrane recznie).
-#   letsencrypt - czyta z \$BPP_CONFIGS_DIR/letsencrypt/live/<host>/. Wystaw
-#                 cert przez 'make ssl-letsencrypt-issue PROD=1'. Codzienny
-#                 renew dziala automatycznie przez Ofelia.
-# Manualne certy sa zachowane fizycznie nawet przy mode=letsencrypt - LE pisze
-# do osobnego katalogu, mozna w kazdej chwili przelaczyc tryb tam i z powrotem.
-DJANGO_BPP_SSL_MODE=manual
-# Email dla Let's Encrypt (powiadomienia o wygasajacych certach).
-# Domyslnie = DJANGO_BPP_ADMIN_EMAIL. Mozesz nadpisac jesli LE notyfikacje
-# maja chodzic na inny adres niz administrator BPP.
-DJANGO_BPP_LETSENCRYPT_EMAIL=$ADMIN_EMAIL
-
-# === Powiadomienia (opcjonalne) ===
-DJANGO_BPP_SLACK_WEBHOOK=$SLACK_WEBHOOK
-
-# === Backupy ===
-DJANGO_BPP_HOST_BACKUP_DIR=$BACKUP_DIR
-DJANGO_BPP_BACKUP_KEEP_LAST=7
-DJANGO_BPP_RCLONE_REMOTE=backup_enc:
-
-# === Rollbar (opcjonalne, dla notyfikacji backup-cycle) ===
-# Gdy puste, backup-cycle.sh pomija powiadomienia. Uzyj tokena typu
-# "post_server_item" z https://rollbar.com/<project>/settings/access_tokens/
-ROLLBAR_ACCESS_TOKEN=
+# E-mail admina (i ADMINS), SSL, powiadomienia (Slack, Rollbar), Google,
+# backupy i Freshdesk: na koncu pliku, dopisane z rejestru zmiennych
+# operatora (scripts/config-registry.tsv). Zmiana: make configure.
 
 # === Docker logging (driver "local", binarny, skompresowany zstd) ===
 # Rotacja na poziomie hosta. Czasowa retencja zyje w Loki
@@ -456,6 +411,10 @@ EOF
     ensure_env_var "DJANGO_BPP_NTFY_SERVER" "https://ntfy.sh" "" \
         "Serwer ntfy do alertow (default publiczny ntfy.sh)"
 
+    BPP_CONFIGS_DIR="$ABS_CONFIG" bash "$REPO_DIR/scripts/configure.sh" --init
+    _email="$(get_env_var DJANGO_BPP_ADMIN_EMAIL)"
+    ensure_env_var "ADMINS" "$ADMIN_USERNAME <$_email>" "" "Administrator (format Django)"
+
     echo "Wygenerowano $ENV_FILE z losowymi haslami."
 
 else
@@ -465,7 +424,6 @@ else
     echo ""
 
     DEFAULT_HOSTNAME="$(hostname -f 2>/dev/null || hostname)"
-    DEFAULT_BACKUP_DIR="$(dirname "$ABS_CONFIG")/backups"
 
     # W trybie zewnetrznej bazy - zapytaj o parametry polaczenia i nadpisz je
     # w .env (nawet jesli juz byly ustawione na stare wartosci typu "dbserver").
@@ -571,40 +529,12 @@ else
     ensure_env_var "DJANGO_BPP_MEDIA_ROOT" "/mediaroot" "" "Pliki media (upload)"
     ensure_env_var "DJANGO_SETTINGS_MODULE" \
         "django_bpp.settings.production" "" "Django settings"
-    ensure_env_var "DJANGO_BPP_GOOGLE_ANALYTICS_PROPERTY_ID" "" \
-        "Google Analytics Property ID (opcjonalny, Enter = pomin)" \
-        "Google Analytics (opcjonalne)"
-    ensure_env_var "DJANGO_BPP_GOOGLE_VERIFICATION_CODE" "" \
-        "Google Verification Code (opcjonalny, Enter = pomin)" \
-        "Google Verification (opcjonalne)"
 
     ensure_env_var "DJANGO_BPP_SECRET_KEY" \
         "$(openssl rand -base64 48 | head -c 50)" "" "Bezpieczenstwo"
 
     ensure_env_var "DJANGO_BPP_ADMIN_USERNAME" "admin" \
         "Nazwa uzytkownika administratora" "Administrator"
-    ensure_env_var "DJANGO_BPP_ADMIN_EMAIL" "admin@example.com" \
-        "Email administratora" "Administrator"
-
-    # ADMINS wymaga username + email — budujemy z istniejących wartości
-    if ! env_has_var "ADMINS"; then
-        # Odczytaj wartości które właśnie dopisaliśmy lub były wcześniej
-        _username=$(grep "^DJANGO_BPP_ADMIN_USERNAME=" "$ENV_FILE" | head -1 | cut -d= -f2-)
-        _email=$(grep "^DJANGO_BPP_ADMIN_EMAIL=" "$ENV_FILE" | head -1 | cut -d= -f2-)
-        ensure_env_var "ADMINS" "$_username <$_email>" "" "Administrator (format Django)"
-    fi
-
-    # SSL mode + Let's Encrypt email - dodajemy z domyslnymi wartosciami
-    # bezpiecznymi dla istniejacych deploymentow (mode=manual = obecne zachowanie).
-    # Email dziedziczy z DJANGO_BPP_ADMIN_EMAIL zeby uniknac drugiego prompta.
-    ensure_env_var "DJANGO_BPP_SSL_MODE" "manual" "" \
-        "SSL: 'manual' (czyta ssl/) lub 'letsencrypt' (czyta letsencrypt/live/<host>/)"
-    _admin_email_for_le="$(get_env_var DJANGO_BPP_ADMIN_EMAIL)"
-    ensure_env_var "DJANGO_BPP_LETSENCRYPT_EMAIL" "${_admin_email_for_le:-admin@example.com}" "" \
-        "Email dla Let's Encrypt (default = DJANGO_BPP_ADMIN_EMAIL)"
-
-    ensure_env_var "DJANGO_BPP_SLACK_WEBHOOK" "" \
-        "Slack webhook URL (opcjonalny, Enter = pomin)" "Powiadomienia (opcjonalne)"
     # Migracja: stara nazwa zmiennej DJANGO_BPP_BACKUP_DIR -> nowa
     # DJANGO_BPP_HOST_BACKUP_DIR (dodana gdy dbserver dostal bind-mount
     # /backup, zeby nazwa podkreslala ze to katalog na hoscie).
@@ -617,15 +547,18 @@ else
         echo "  ~ zmigrowalem DJANGO_BPP_BACKUP_DIR -> DJANGO_BPP_HOST_BACKUP_DIR"
     fi
 
-    ensure_env_var "DJANGO_BPP_HOST_BACKUP_DIR" "$DEFAULT_BACKUP_DIR" \
-        "Katalog backupow na hoscie" "Backupy"
-    ensure_env_var "DJANGO_BPP_BACKUP_KEEP_LAST" "7" \
-        "" "Backupy - ile ostatnich kopii kazdego typu trzymac lokalnie"
-    ensure_env_var "DJANGO_BPP_RCLONE_REMOTE" "backup_enc:" \
-        "" "Backupy - rclone remote (np. backup_enc:)"
-    ensure_env_var "ROLLBAR_ACCESS_TOKEN" "" \
-        "Rollbar access token (post_server_item, opcjonalny, Enter = pomin)" \
-        "Rollbar (notyfikacje backup-cycle)"
+    # Zmienne operatora (e-mail admina, SSL, Slack, Rollbar, Google, backupy,
+    # Freshdesk): jedno zrodlo = scripts/config-registry.tsv. PO migracji
+    # DJANGO_BPP_BACKUP_DIR wyzej, inaczej rejestr zapytalby o katalog
+    # backupow mimo starej wartosci.
+    BPP_CONFIGS_DIR="$ABS_CONFIG" bash "$REPO_DIR/scripts/configure.sh" --init
+
+    # ADMINS wymaga username + email — budujemy z istniejących wartości
+    if ! env_has_var "ADMINS"; then
+        _username="$(get_env_var DJANGO_BPP_ADMIN_USERNAME)"
+        _email="$(get_env_var DJANGO_BPP_ADMIN_EMAIL)"
+        ensure_env_var "ADMINS" "$_username <$_email>" "" "Administrator (format Django)"
+    fi
 
     ensure_env_var "LOG_MAX_SIZE" "150m" "" \
         "Docker log rotation - rozmiar jednego pliku (log driver=local, zstd)"
