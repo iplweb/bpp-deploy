@@ -273,7 +273,7 @@ po zmianie wystarczy `make up`:
 | Zmienna | Domyślnie | Znaczenie |
 |---|---|---|
 | `DJANGO_BPP_FRESHDESK_WIDGET_ID` | `205000000433` | ID widgetu dla **zalogowanych**. Pusta wartość wyłącza zakładkę dla zalogowanych. |
-| `DJANGO_BPP_FRESHDESK_WIDGET_ID_ANON` | *(pusta)* | ID widgetu dla **niezalogowanych**. Pusta = anonimowi nie widzą zakładki (jak dotąd). |
+| `DJANGO_BPP_FRESHDESK_WIDGET_ID_ANON` | *(pusta)* | ID widgetu dla **niezalogowanych**. Pusta = anonimowi nie widzą zakładki (jak dotąd). Przy JWT służy też zalogowanym, dla których nie da się wydać tokenu (np. konto bez e-maila). |
 | `DJANGO_BPP_FRESHDESK_WIDGET_JWT_SECRET` | *(pusta)* | Sekret do podpisywania tokenów JWT. Pusta = bez uwierzytelniania (imię i e-mail tylko wstępnie wpisane w formularz). |
 
 ID widgetu to liczba z kodu osadzenia w Freshdesku (`.../widgets/<ID>.js`). Sekret JWT:
@@ -293,6 +293,41 @@ DJANGO_BPP_FRESHDESK_WIDGET_JWT_SECRET=wklej-tu-sekret-z-freshdeska
     przypisany do instancji: ten sam trafia na każdy serwer, na którym włączysz JWT.
     Ustawiaj go tylko na serwerach, nad którymi masz pełną kontrolę (dostęp do `.env`).
     Nigdy nie commituj go do repozytorium.
+
+### Kreator: `make configure-optional` i pytanie przy `make up` {#kreator-opcjonalnych}
+
+Tych wartości nie da się wygenerować ani zgadnąć, więc kreator po prostu o nie pyta:
+
+```bash
+make configure-optional   # pyta o wszystkie trzy; Enter = bez zmian, "-" = pusta
+```
+
+**`make up` (a także `make run`, `up-quick` i `refresh`) pyta sam**, jeśli którejś
+z tych zmiennych **nie ma wcale** w `${BPP_CONFIGS_DIR}/.env`. Zwykle zdarza się to
+raz, po `git pull` wydania, które je wprowadziło. **Pusta odpowiedź (Enter) też jest
+odpowiedzią.** Zapisuje się wtedy `ZMIENNA=` (pusta wartość = funkcja wyłączona)
+i przy następnym `make up` kreator już o nią nie pyta. Jeśli zmienisz zdanie, uruchom
+`make configure-optional`. Wyjątek: przy ID widgetu dla zalogowanych Enter zapisuje
+domyślne `205000000433`, czyli dotychczasowe działanie.
+
+Kreator **nie pyta**, gdy nie ma kogo pytać. Wtedy niczego nie zapisuje i `make up`
+idzie dalej:
+
+- `make up` bez terminala (cron, CI, `| tee`): wypisuje tylko jedną linię z przypomnieniem,
+- automatyczne aktualizacje i przerwa techniczna (`make autoupdate`,
+  `make run-with-warning`), a także `restore` i `upgrade-postgres`. Wszystkie te ścieżki
+  ustawiają `BPP_SKIP_HEALTH_GATE=1`. Pytania można też wyłączyć ręcznie przez
+  `BPP_NO_CONFIG_PROMPT=1 make up`,
+- nikt nie odpowiada przez 120 s (`BPP_CONFIG_PROMPT_TIMEOUT`), np. przy `ssh -t`
+  bez człowieka po drugiej stronie.
+
+Sekret nie pojawia się na ekranie ani przy wpisywaniu, ani w podsumowaniu (kreator
+pokazuje tylko jego długość). Kreator przyjmuje tylko litery, cyfry i `. _ ~ + / = -`.
+`.env` czytają też Makefile i Compose, a dla nich `$` i `#` są składnią.
+
+Przy włączonym JWT widget dla zalogowanych nie otwiera się bez tokenu. Zalogowany bez
+tokenu dostaje widget anonimowy, a gdy `..._ANON` jest pusty, zakładka kieruje do
+support.iplweb.pl.
 
 Szczegóły działania (endpoint `/freshdesk/widget-token/`, odnawianie tokenu, użytkownicy
 bez e-maila) opisuje dokumentacja BPP: *Administrator → Widget wsparcia Freshdesk*.
