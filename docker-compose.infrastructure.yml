@@ -124,6 +124,13 @@ services:
       ALLOWED_HTTP_VERSIONS: "${ALLOWED_HTTP_VERSIONS:-HTTP/1.0 HTTP/1.1 HTTP/2 HTTP/2.0 HTTP/3 HTTP/3.0}"
       MODSEC_RULE_ENGINE: "${MODSEC_RULE_ENGINE:-On}"
       BLOCKING_PARANOIA: "${BLOCKING_PARANOIA:-1}"
+      # error_log obrazu ma poziom ${LOGLEVEL} (domyslnie warn), a nginx loguje
+      # OPOZNIENIA limit_req o poziom NIZEJ niz odmowy: przy limit_req_log_level
+      # warn linie "delaying request ... bpp_ip_slow" sa na notice i przy warn
+      # by ginely — make rate-limit-stats pokazywalby "spowolnieni: 0" mimo
+      # spowalniania. NIE "naprawiac" tego przez limit_req_log_level error:
+      # odmowy 429 wpadlyby na dashboard bledow. notice -> Alloy mapuje na info.
+      LOGLEVEL: "${LOGLEVEL:-notice}"
       # Limity ciala zadania MUSZA byc spojne z client_max_body_size 120M
       # z vhost.conf.template. Domyslne w ModSecurity to 13107200 (12,5 MiB)
       # i 131072 (128 KiB) — przy nich importy POLON/PBN oraz duze formularze

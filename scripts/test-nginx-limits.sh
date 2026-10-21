@@ -107,6 +107,7 @@ start_webserver() {
         -e DJANGO_BPP_SSL_MODE=manual \
         -e MODSEC_RULE_ENGINE=On \
         -e BLOCKING_PARANOIA=1 \
+        -e LOGLEVEL=notice \
         "$@" \
         -v "$TMP/ssl:/etc/ssl/private:ro" \
         -v "$TMP/letsencrypt:/etc/letsencrypt" \
@@ -249,7 +250,8 @@ if start_webserver -e BPP_NGINX_GLOBAL_RATE=0 -e BPP_NGINX_GLOBAL_CONN=0 \
     A="$(tr '\n' ' ' < "$TMP/a6.txt")"
     [ "$(grep -c '^200:' "$TMP/a6.txt")" -eq 7 ] && [ "$(grep -c '^429:' "$TMP/a6.txt")" -eq 3 ] \
         && ok "A: 7x200 (3 od reki + 4 z kolejki), 3x429 ponad kolejke" || zle "A: $A"
-    OPOZNIONE="$(awk -F: '$1 == 200 && $2 >= 0.8' "$TMP/a6.txt" | wc -l | tr -d ' ')"
+    # LC_ALL=C: przy locale z przecinkiem dziesietnym (pl_PL) awk zle porownuje 0.8
+    OPOZNIONE="$(LC_ALL=C awk -F: '$1 == 200 && $2 >= 0.8' "$TMP/a6.txt" | wc -l | tr -d ' ')"
     [ "$OPOZNIONE" -eq 4 ] && ok "A: 4 odpowiedzi opoznione (>= 0.8 s), nie odrzucone" \
         || zle "A: opoznionych $OPOZNIONE zamiast 4 ($A)"
     case "$B" in

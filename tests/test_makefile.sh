@@ -576,6 +576,16 @@ test_nginx_global_limits_wired() {
     local infra="$REPO_DIR/docker-compose.infrastructure.yml"
     local skrypt="defaults/webserver/25-render-bpp-limits.sh"
 
+    # Opoznienia limit_req (spowalnianie per IP) nginx loguje na notice; obraz
+    # CRS ma error_log na ${LOGLEVEL} = warn -> bez tego rate-limit-stats nie
+    # widzi spowolnionych. test-nginx-limits ustawia LOGLEVEL sam, wiec nie
+    # zauwazylby usuniecia go z compose — stad ta asercja.
+    if grep -qE '^[[:space:]]+LOGLEVEL: "\$\{LOGLEVEL:-notice\}"' "$infra"; then
+        pass "webserver: LOGLEVEL=notice (opoznienia bpp_ip_slow trafiaja do logu)"
+    else
+        fail "webserver: brak LOGLEVEL notice w $infra — 'delaying request' gina przy warn"
+    fi
+
     # awk: dla kazdego location, ktory przekazuje do @proxy_to_app, sprawdz
     # czy w tym samym bloku jest include globalnego limitu.
     local bez_limitu

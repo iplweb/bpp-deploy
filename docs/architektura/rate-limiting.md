@@ -205,6 +205,13 @@ Opóźnienia nginx loguje o poziom niżej niż odmowy (`notice`), więc
 [`make rate-limit-stats`](#ktory-limit) pokazuje je osobno: kolumna `opoznien`
 i tabela „spowolnieni (czekali w kolejce, NIE odrzuceni)".
 
+Żeby te linie w ogóle trafiły do logu, webserver ma ustawione `LOGLEVEL=notice`
+(`docker-compose.infrastructure.yml`). Obraz `owasp/modsecurity-crs:nginx` domyślnie
+loguje od `warn` i wtedy linie `delaying request` przepadają. Statystyki pokazują wtedy
+„spowolnieni: 0”, choć nginx kogoś spowalnia. W Grafanie linie `notice` mają poziom
+`info`, więc nie trafiają na dashboard błędów. Nie podnoś za to
+`limit_req_log_level` do `error`, bo odmowy 429 trafiłyby do błędów.
+
 ## Pomiar przed strojeniem
 
 Nie zgaduj progów — zmierz realny ruch:
