@@ -1,4 +1,4 @@
-.PHONY: update-ssl-certs generate-grafana-datasources update-configs configure-resources configure-rate-limits ensure-config-files zaspawaj-wersje
+.PHONY: update-ssl-certs generate-grafana-datasources update-configs configure-resources configure-rate-limits configure ask-missing-config config-check docs-config-table ensure-config-files zaspawaj-wersje
 
 # Non-interactive guard przed `make up`: dokopiowuje brakujace pliki z defaults/
 # do $BPP_CONFIGS_DIR (np. gdy nowy release dodaje kolejny bind-mount, a user
@@ -30,6 +30,28 @@ configure-resources:
 # BPP_NGINX_GLOBAL_* / BPP_NGINX_IP_*, zapis zmienionych do .env, make up-webserver.
 configure-rate-limits:
 	@bash scripts/configure-rate-limits.sh
+
+# Zmienne operatora z rejestru scripts/config-registry.tsv (e-mail admina, SSL,
+# Slack/Rollbar, Google, backupy, Freshdesk). Menu grup, zapis na koncu.
+configure:
+	@bash scripts/configure.sh
+
+# Prerequisit make up/up-quick/refresh: pyta TYLKO o zmienne z rejestru
+# (PYTAJ=tak), ktorych w .env nie ma wcale. Pusta odpowiedz zapisuje `VAR=`
+# = decyzja "nie mamy", wiec pytanie pada raz. Bez terminala / pod
+# BPP_SKIP_HEALTH_GATE / BPP_NO_CONFIG_PROMPT nie pyta (autoupdate pod
+# screenem ma pseudo-TTY).
+ask-missing-config:
+	@bash scripts/configure.sh --missing
+
+# Walidacja wartosci z rejestru w .env (tez z make doctor). Exit 1 = bledy.
+config-check:
+	@bash scripts/configure.sh --check
+
+# Przegenerowuje tabele zmiennych w docs/konfiguracja/zmienne.md z rejestru
+# (miedzy znacznikami rejestr:start / rejestr:end). Test pilnuje aktualnosci.
+docs-config-table:
+	@bash scripts/render-config-docs.sh
 
 # Przypina DOCKER_VERSION w $(BPP_CONFIGS_DIR)/.env do wersji CalVer, na
 # ktorej faktycznie chodzi appserver (lub jawnej: TAG=202606.1386).

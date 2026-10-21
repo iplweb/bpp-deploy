@@ -88,6 +88,7 @@ nav:
       - Pierwsze uruchomienie: instalacja/pierwsze-uruchomienie.md
   - Konfiguracja:
       - Architektura konfiguracji: konfiguracja/architektura.md
+      - Zmienne operatora (make configure): konfiguracja/zmienne.md
       - Struktura katalogów: konfiguracja/struktura-katalogow.md
       - SSL (manual / Let's Encrypt): konfiguracja/ssl.md
       - Multi-host: konfiguracja/multi-host.md
