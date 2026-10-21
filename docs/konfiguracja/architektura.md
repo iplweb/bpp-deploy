@@ -257,6 +257,83 @@ wartości. Samo **usunięcie linii nie wystarczy**: zostanie dopisana z powrotem
 Captcha wymaga obrazu BPP z ALTCHA (wydania od `202607.1398` wzwyż). Na starszym obrazie
 zmienne są nieszkodliwe — Django ich po prostu nie czyta.
 
+## Widget wsparcia Freshdesk — `DJANGO_BPP_FRESHDESK_WIDGET_*`
+
+Zakładka **„Pomoc"** w prawym dolnym rogu stron BPP otwiera formularz zgłoszenia
+z Freshdeska. BPP używa **dwóch osobnych widgetów**: jednego dla zalogowanych, drugiego
+dla anonimów (np. z captchą skonfigurowaną po stronie Freshdeska). Zalogowanego
+użytkownika można dodatkowo **uwierzytelnić w widgecie tokenem JWT**. Serwer BPP
+podpisuje wtedy jego imię i e-mail, a Freshdesk wie, że zgłoszenie pochodzi od
+prawdziwego konta BPP. Pola nie da się podmienić w przeglądarce.
+
+Zmienne wpisuje się w `${BPP_CONFIGS_DIR}/.env` (NIE w `.env` obok
+`docker-compose.yml`). Plik ładują przez `env_file` appserver i workery, więc
+po zmianie wystarczy `make up`:
+
+| Zmienna | Domyślnie | Znaczenie |
+|---|---|---|
+| `DJANGO_BPP_FRESHDESK_WIDGET_ID` | `205000000433` | ID widgetu dla **zalogowanych**. Pusta wartość wyłącza zakładkę dla zalogowanych. |
+| `DJANGO_BPP_FRESHDESK_WIDGET_ID_ANON` | *(pusta)* | ID widgetu dla **niezalogowanych**. Pusta = anonimowi nie widzą zakładki (jak dotąd). Przy JWT służy też zalogowanym, dla których nie da się wydać tokenu (np. konto bez e-maila). |
+| `DJANGO_BPP_FRESHDESK_WIDGET_JWT_SECRET` | *(pusta)* | Sekret do podpisywania tokenów JWT. Pusta = bez uwierzytelniania (imię i e-mail tylko wstępnie wpisane w formularz). |
+
+ID widgetu to liczba z kodu osadzenia w Freshdesku (`.../widgets/<ID>.js`). Sekret JWT:
+Freshdesk **Admin → Account → Security → Widget settings** (Freshdesk Omni:
+**Admin → Data and Security → Ticket Security**). Przykład:
+
+```
+DJANGO_BPP_FRESHDESK_WIDGET_ID_ANON=205000000999
+DJANGO_BPP_FRESHDESK_WIDGET_JWT_SECRET=wklej-tu-sekret-z-freshdeska
+```
+
+**Bez cudzysłowów**, bo `validate-env-quotes` odrzuca wartości w cudzysłowach.
+
+!!! warning "Sekret JWT jest wspólny dla całego konta Freshdesk"
+    Kto zna sekret, może podpisać token z **dowolnym** adresem e-mail i wysyłać
+    zgłoszenia w cudzym imieniu, także jako użytkownik innej uczelni. Sekret nie jest
+    przypisany do instancji: ten sam trafia na każdy serwer, na którym włączysz JWT.
+    Ustawiaj go tylko na serwerach, nad którymi masz pełną kontrolę (dostęp do `.env`).
+    Nigdy nie commituj go do repozytorium.
+
+### Kreator: `make configure-optional` i pytanie przy `make up` {#kreator-opcjonalnych}
+
+Tych wartości nie da się wygenerować ani zgadnąć, więc kreator po prostu o nie pyta:
+
+```bash
+make configure-optional   # pyta o wszystkie trzy; Enter = bez zmian, "-" = pusta
+```
+
+**`make up` (a także `make run`, `up-quick` i `refresh`) pyta sam**, jeśli którejś
+z tych zmiennych **nie ma wcale** w `${BPP_CONFIGS_DIR}/.env`. Zwykle zdarza się to
+raz, po `git pull` wydania, które je wprowadziło. **Pusta odpowiedź (Enter) też jest
+odpowiedzią.** Zapisuje się wtedy `ZMIENNA=` (pusta wartość = funkcja wyłączona)
+i przy następnym `make up` kreator już o nią nie pyta. Jeśli zmienisz zdanie, uruchom
+`make configure-optional`. Wyjątek: przy ID widgetu dla zalogowanych Enter zapisuje
+domyślne `205000000433`, czyli dotychczasowe działanie.
+
+Kreator **nie pyta**, gdy nie ma kogo pytać. Wtedy niczego nie zapisuje i `make up`
+idzie dalej:
+
+- `make up` bez terminala (cron, CI, `| tee`): wypisuje tylko jedną linię z przypomnieniem,
+- automatyczne aktualizacje i przerwa techniczna (`make autoupdate`,
+  `make run-with-warning`), a także `restore` i `upgrade-postgres`. Wszystkie te ścieżki
+  ustawiają `BPP_SKIP_HEALTH_GATE=1`. Pytania można też wyłączyć ręcznie przez
+  `BPP_NO_CONFIG_PROMPT=1 make up`,
+- nikt nie odpowiada przez 120 s (`BPP_CONFIG_PROMPT_TIMEOUT`), np. przy `ssh -t`
+  bez człowieka po drugiej stronie.
+
+Sekret nie pojawia się na ekranie ani przy wpisywaniu, ani w podsumowaniu (kreator
+pokazuje tylko jego długość). Kreator przyjmuje tylko litery, cyfry i `. _ ~ + / = -`.
+`.env` czytają też Makefile i Compose, a dla nich `$` i `#` są składnią.
+
+Przy włączonym JWT widget dla zalogowanych nie otwiera się bez tokenu. Zalogowany bez
+tokenu dostaje widget anonimowy, a gdy `..._ANON` jest pusty, zakładka kieruje do
+support.iplweb.pl.
+
+Szczegóły działania (endpoint `/freshdesk/widget-token/`, odnawianie tokenu, użytkownicy
+bez e-maila) opisuje dokumentacja BPP: *Administrator → Widget wsparcia Freshdesk*.
+Zmienne działają od wydania BPP zawierającego osobne widgety (PR iplweb/bpp#868). Na
+starszym obrazie są nieszkodliwe, bo Django ich nie czyta.
+
 ## Logowanie przez Keycloak (OIDC) — zaufane domeny i wiązanie istniejących kont
 
 BPP potrafi logować przez Keycloaka obok zwykłego hasła (metody działają równolegle —
