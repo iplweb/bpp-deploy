@@ -257,6 +257,48 @@ wartości. Samo **usunięcie linii nie wystarczy**: zostanie dopisana z powrotem
 Captcha wymaga obrazu BPP z ALTCHA (wydania od `202607.1398` wzwyż). Na starszym obrazie
 zmienne są nieszkodliwe — Django ich po prostu nie czyta.
 
+## Widget wsparcia Freshdesk — `DJANGO_BPP_FRESHDESK_WIDGET_*`
+
+Zakładka **„Pomoc"** w prawym dolnym rogu stron BPP otwiera formularz zgłoszenia
+z Freshdeska. BPP używa **dwóch osobnych widgetów**: jednego dla zalogowanych, drugiego
+dla anonimów (np. z captchą skonfigurowaną po stronie Freshdeska). Zalogowanego
+użytkownika można dodatkowo **uwierzytelnić w widgecie tokenem JWT**. Serwer BPP
+podpisuje wtedy jego imię i e-mail, a Freshdesk wie, że zgłoszenie pochodzi od
+prawdziwego konta BPP. Pola nie da się podmienić w przeglądarce.
+
+Zmienne wpisuje się w `${BPP_CONFIGS_DIR}/.env` (NIE w `.env` obok
+`docker-compose.yml`). Plik ładują przez `env_file` appserver i workery, więc
+po zmianie wystarczy `make up`:
+
+| Zmienna | Domyślnie | Znaczenie |
+|---|---|---|
+| `DJANGO_BPP_FRESHDESK_WIDGET_ID` | `205000000433` | ID widgetu dla **zalogowanych**. Pusta wartość wyłącza zakładkę dla zalogowanych. |
+| `DJANGO_BPP_FRESHDESK_WIDGET_ID_ANON` | *(pusta)* | ID widgetu dla **niezalogowanych**. Pusta = anonimowi nie widzą zakładki (jak dotąd). |
+| `DJANGO_BPP_FRESHDESK_WIDGET_JWT_SECRET` | *(pusta)* | Sekret do podpisywania tokenów JWT. Pusta = bez uwierzytelniania (imię i e-mail tylko wstępnie wpisane w formularz). |
+
+ID widgetu to liczba z kodu osadzenia w Freshdesku (`.../widgets/<ID>.js`). Sekret JWT:
+Freshdesk **Admin → Account → Security → Widget settings** (Freshdesk Omni:
+**Admin → Data and Security → Ticket Security**). Przykład:
+
+```
+DJANGO_BPP_FRESHDESK_WIDGET_ID_ANON=205000000999
+DJANGO_BPP_FRESHDESK_WIDGET_JWT_SECRET=wklej-tu-sekret-z-freshdeska
+```
+
+**Bez cudzysłowów**, bo `validate-env-quotes` odrzuca wartości w cudzysłowach.
+
+!!! warning "Sekret JWT jest wspólny dla całego konta Freshdesk"
+    Kto zna sekret, może podpisać token z **dowolnym** adresem e-mail i wysyłać
+    zgłoszenia w cudzym imieniu, także jako użytkownik innej uczelni. Sekret nie jest
+    przypisany do instancji: ten sam trafia na każdy serwer, na którym włączysz JWT.
+    Ustawiaj go tylko na serwerach, nad którymi masz pełną kontrolę (dostęp do `.env`).
+    Nigdy nie commituj go do repozytorium.
+
+Szczegóły działania (endpoint `/freshdesk/widget-token/`, odnawianie tokenu, użytkownicy
+bez e-maila) opisuje dokumentacja BPP: *Administrator → Widget wsparcia Freshdesk*.
+Zmienne działają od wydania BPP zawierającego osobne widgety (PR iplweb/bpp#868). Na
+starszym obrazie są nieszkodliwe, bo Django ich nie czyta.
+
 ## Logowanie przez Keycloak (OIDC) — zaufane domeny i wiązanie istniejących kont
 
 BPP potrafi logować przez Keycloaka obok zwykłego hasła (metody działają równolegle —
