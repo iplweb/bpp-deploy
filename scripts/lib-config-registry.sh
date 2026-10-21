@@ -19,7 +19,8 @@ REJ_PLIK="${REJ_PLIK:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/config-regis
 # (tab to "bialy" IFS), wiec pusta kolumna DOMYSLNA przesuwalaby pola.
 # Czytaj: while IFS=$'\037' read -r nazwa grupa typ dom pytaj pusta opis
 rej_wiersze() {
-	awk -F'\t' -v OFS='\037' '!/^#/ && NF == 7 { $1 = $1; print }' "$REJ_PLIK"
+	# sub(\r): checkout na Windows bez .gitattributes daje CRLF — \r wpadalby do OPIS
+	awk -F'\t' -v OFS='\037' '{ sub(/\r$/, "") } !/^#/ && NF == 7 { $1 = $1; print }' "$REJ_PLIK"
 }
 
 # Grupy w kolejnosci pierwszego wystapienia, po jednej w linii.

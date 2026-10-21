@@ -11,8 +11,12 @@ DOC="${BPP_CONFIG_DOC:-$REPO_DIR/docs/konfiguracja/zmienne.md}"
 START='<!-- rejestr:start (generowane: make docs-config-table, nie edytuj recznie) -->'
 END='<!-- rejestr:end -->'
 
+# Bez \r: checkout na Windows bez .gitattributes daje CRLF, a znaczniki
+# i porownanie nizej sa liniowe.
+DOC_TXT="$(tr -d '\r' < "$DOC")"
+
 for z in "$START" "$END"; do
-	if [ "$(grep -cxF -- "$z" "$DOC")" != 1 ]; then
+	if [ "$(printf '%s\n' "$DOC_TXT" | grep -cxF -- "$z")" != 1 ]; then
 		echo "BLAD: w $DOC musi byc dokladnie jeden znacznik: $z" >&2
 		exit 1
 	fi
@@ -23,10 +27,10 @@ NOWY="$(START="$START" END="$END" TABELA="$TABELA" awk '
 	$0 == ENVIRON["START"] { print; print ""; print ENVIRON["TABELA"]; print ""; pomin = 1; next }
 	$0 == ENVIRON["END"] { pomin = 0 }
 	!pomin { print }
-' "$DOC")"
+' <<<"$DOC_TXT")"
 
 if [ "${1:-}" = --check ]; then
-	if [ "$NOWY" != "$(cat "$DOC")" ]; then
+	if [ "$NOWY" != "$DOC_TXT" ]; then
 		echo "Tabela zmiennych w $DOC jest nieaktualna wzgledem scripts/config-registry.tsv — uruchom: make docs-config-table" >&2
 		exit 1
 	fi

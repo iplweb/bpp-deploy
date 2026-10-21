@@ -2134,6 +2134,11 @@ test_configure_registry() {
     cfg="$(mktemp -d)"
     printf 'DJANGO_BPP_ADMIN_EMAIL=a@b.pl\nDJANGO_BPP_SLACK_WEBHOOK=\nROLLBAR_ACCESS_TOKEN=\nDJANGO_BPP_GOOGLE_ANALYTICS_PROPERTY_ID=\nDJANGO_BPP_GOOGLE_VERIFICATION_CODE=\nDJANGO_BPP_HOST_BACKUP_DIR=/srv/b' > "$cfg/.env"
     chmod 600 "$cfg/.env"
+    # GNU najpierw: GNU `stat -f` NIE zawodzi (to statystyki systemu plikow),
+    # wiec fallback na BSD musi isc w druga strone. Porownujemy tryb przed/po
+    # (na Windows chmod 600 nie dziala, a i tak tryb nie moze sie zmienic).
+    local tryb_przed
+    tryb_przed="$(stat -c '%a' "$cfg/.env" 2>/dev/null || stat -f '%Lp' "$cfg/.env")"
     out="$(printf '\n\n\n' | BPP_CO_ASSUME_TTY=1 BPP_CONFIGS_DIR="$cfg" bash "$sc" --missing 2>&1)" \
         || fail "configure.sh --missing zakonczyl sie bledem"
     env="$(cat "$cfg/.env")"
@@ -2143,8 +2148,8 @@ test_configure_registry() {
     _diag_ma "rejestr: Enter na ANON = pusta (decyzja)" "^${fd}_ID_ANON=\$" "$env"
     _diag_ma "rejestr: Enter na sekret = pusty (decyzja)" "^${fd}_JWT_SECRET=\$" "$env"
     _diag_nie_ma "rejestr: make up NIE dopisuje zmiennych PYTAJ=nie" '^DJANGO_BPP_(SSL_MODE|BACKUP_KEEP_LAST)=' "$env"
-    if [ "$(stat -f '%Lp' "$cfg/.env" 2>/dev/null || stat -c '%a' "$cfg/.env")" = 600 ]; then
-        pass "rejestr: zapis zachowuje tryb 0600 .env (hasla)"
+    if [ "$(stat -c '%a' "$cfg/.env" 2>/dev/null || stat -f '%Lp' "$cfg/.env")" = "$tryb_przed" ]; then
+        pass "rejestr: zapis zachowuje tryb .env (hasla; tu ${tryb_przed})"
     else
         fail "rejestr: zapis zmienil tryb .env"
     fi
