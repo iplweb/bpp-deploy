@@ -13,8 +13,8 @@ services:
   #   1. pg_dump              -> docker exec w serwisie dbserver (haslo
   #                              czytane TAM, z DJANGO_BPP_DB_PASSWORD -
   #                              nie przechodzi przez -e)
-  #   2. tar dumpu i mediow   -> lokalnie (busybox tar; /backup i media
-  #                              zamontowane tez tutaj)
+  #   2. tar dumpu, mediow i  -> lokalnie (busybox tar; /backup, media
+  #      konfiguracji            i ${BPP_CONFIGS_DIR} zamontowane tez tutaj)
   #   3. lokalna rotacja (KEEP_LAST)
   #   4. rclone copy/lsf/purge -> docker exec w serwisie rclone (patrz shim
   #                              `rclone()` w scripts/backup-cycle.sh)
@@ -54,6 +54,12 @@ services:
       - media:/mediaroot:ro
       # :ro - patrz komentarz nad serwisem. Zapis robi wylacznie serwis `rclone`.
       - ${BPP_CONFIGS_DIR}/rclone:/config/rclone:ro
+      # Caly katalog konfiguracyjny (.env z kluczem szyfrowania sekretow,
+      # rclone.conf, ssl/...) - zrodlo kroku 2b cyklu (scripts/config-backup.sh).
+      # :ro, orkiestrator tylko go archiwizuje. Mount w `volumes:`, wiec sam
+      # `git pull` go nie dodaje - do `make up` krok konfiguracji loguje
+      # ostrzezenie, a backup bazy idzie normalnie.
+      - ${BPP_CONFIGS_DIR}:/configs:ro
       - ./scripts:/scripts:ro
     entrypoint: ["/bin/sh", "-c"]
     command: ["exec sleep infinity"]

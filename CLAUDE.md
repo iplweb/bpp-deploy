@@ -52,7 +52,7 @@ Operator topics and their canonical pages:
 | `defaults/alloy/config.alloy` | `docs/rozwoj/pulapki-alloy.md` |
 | `scripts/autoupdate.sh`, `scripts/deploy-with-warning.sh`, `scripts/site-down-warning.sh`, `mk/deployment.mk` | `docs/rozwoj/pulapki-wdrozenia.md` |
 | `defaults/webserver/*` | `docs/architektura/waf.md` + `docs/architektura/utwardzenie-brzegu.md` |
-| `scripts/backup-cycle.sh`, `scripts/lib-rclone.sh`, `scripts/lib-container.sh`, `mk/rclone.mk`, `docker-compose.backup.yml` | `docs/eksploatacja/backup-i-rclone.md` |
+| `scripts/backup-cycle.sh`, `scripts/lib-rclone.sh`, `scripts/lib-container.sh`, `scripts/config-backup.sh`, `scripts/restore-config.sh`, `mk/rclone.mk`, `docker-compose.backup.yml` | `docs/eksploatacja/backup-i-rclone.md` |
 | kompresja (`gzip_*`, brotli, zstd) w `_bpp-locations.conf` | `docs/rozwoj/pulapki-kompresji.md` |
 
 ## Configuration Architecture (essentials)
@@ -418,6 +418,10 @@ inaczej `sudo make rclone-config` wpisywałby roota.
 uruchomić prawdziwy skrypt na hoście — asercja „copy, nie sync" musi odpalać kod,
 bo grep po źródle nie widzi tego, co naprawdę poleci do rclone. Operator doc:
 `docs/eksploatacja/backup-i-rclone.md`.
+
+### Backup konfiguracji (`.env` z kluczem szyfrowania)
+
+`$BPP_CONFIGS_DIR` (`.env` z `DJANGO_BPP_FIELD_ENCRYPTION_KEY`, `rclone.conf`, `ssl/`…) is archived **like the DB**: step 2b of `backup-cycle.sh` writes `config-backup-<TS>.tar.gz` (same `TIMESTAMP`, mode 0600, owner = backup dir owner) next to the dumps — same `prune_type` rotation, same `rclone copy`. Single source: `scripts/config-backup.sh` (POSIX, busybox-tested in `test-rclone.sh` §6), also behind `make config-backup` (ephemeral `alpine`, like `media-backup`) and `make backup`. Source mount `${BPP_CONFIGS_DIR}:/configs:ro` on `backup-runner` → needs `make up`. **Anti-fixes — do NOT:** (1) let the config step change the cycle's exit code — `scripts/` rides the bind-mount, so after a bare `git pull` the old container has no `/configs`; a fatal step would fail every nightly DB backup until `make up` (missing mount = exit 4 → `config=BRAK-MOUNTU(make up)`, tar error → `config=BLAD(...)`, both annotations only); (2) put `.env` inside the DB tarball; (3) `chmod` after creating instead of `umask 077` before (world-readable window). `make restore-config FILE=…` (`scripts/restore-config.sh`) is defined **before** `ifdef FIRST_RUN` — on a fresh host `make` → `setup` → `init-configs` would mint a NEW encryption key; it requires typing `tak` (EOF/no TTY = abort), shows var NAMES only, saves `.env.przed-restore-<TS>`, extracts from the archive with `p` (never from the 0700 mktemp stage — that would chmod the config dir 0700 and lock out non-root containers). Tests: `test_config_backup_script`, `test_restore_config*` in `tests/test_makefile.sh`, §3b in `scripts/test-rclone.sh`. Operator doc: `docs/eksploatacja/backup-i-rclone.md#backup-konfiguracji-env`.
 
 ### Planned downtime — `make run-with-warning`
 
