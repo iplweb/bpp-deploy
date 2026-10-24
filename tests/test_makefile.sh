@@ -2837,6 +2837,23 @@ test_init_configs_path_validation() {
 
 perm_of() { stat -c '%a' "$1" 2>/dev/null || stat -f '%Lp' "$1"; }
 
+# Git Bash na NTFS nie ma uniksowych praw (stat zawsze pokazuje 644), wiec tam
+# asercje trybu 0600 sa pomijane. Produkcyjnie archiwa i tak powstaja w
+# linuksowym kontenerze (backup-runner / alpine).
+_no_posix_modes() {
+    command -v cygpath >/dev/null 2>&1 && return 0
+    case "$(uname -s 2>/dev/null || echo unknown)" in
+        MINGW*|MSYS*|CYGWIN*) return 0 ;;
+    esac
+    return 1
+}
+assert_mode_600() {
+    if _no_posix_modes; then skip "$1 (Windows/NTFS: brak praw POSIX)"; return; fi
+    local p
+    p="$(perm_of "$2" 2>/dev/null || echo brak)"
+    if [ "$p" = "600" ]; then pass "$1"; else fail "$1 (oczekiwane 600, jest $p)"; fi
+}
+
 # Minimalny katalog konfiguracyjny z sekretami i logiem do wykluczenia.
 _make_cfg_dir() {
     local cfg="$1"
@@ -2866,13 +2883,7 @@ test_config_backup_script() {
     fi
     assert_file_exists "archiwum konfiguracji powstalo obok zrzutow" "$arch"
     # MUTACYJNY: bez `umask 077` (albo chmod) archiwum z kluczem bylo by 0644.
-    local p
-    p="$(perm_of "$arch")"
-    if [ "$p" = "600" ]; then
-        pass "MUTACYJNY: archiwum konfiguracji ma tryb 600"
-    else
-        fail "archiwum konfiguracji ma tryb 600 (jest: $p)"
-    fi
+    assert_mode_600 "MUTACYJNY: archiwum konfiguracji ma tryb 600" "$arch"
     local list
     list="$(tar tzf "$arch" 2>/dev/null || true)"
     if printf '%s\n' "$list" | grep -qx './.env'; then
@@ -2994,12 +3005,8 @@ test_restore_config() {
     else
         fail "kopia poprzedniego .env zachowana (.env.przed-restore-*)"
     fi
-    if [ -n "$prev" ] && [ "$(perm_of "$prev")" = "600" ]; then
-        pass "kopia poprzedniego .env ma tryb 600"
-    else
-        fail "kopia poprzedniego .env ma tryb 600"
-    fi
-    assert_eq_rc "odtworzony .env ma tryb 600" "600" "$(perm_of "$cfg/.env")"
+    assert_mode_600 "kopia poprzedniego .env ma tryb 600" "${prev:-/nie-ma}"
+    assert_mode_600 "odtworzony .env ma tryb 600" "$cfg/.env"
     assert_eq_rc "MUTACYJNY: uprawnienia katalogu konfiguracyjnego zachowane (755)" \
         "755" "$(perm_of "$cfg")"
     if ls "$w"/config-przed-restore-cfg-*.tar.gz >/dev/null 2>&1; then
