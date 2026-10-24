@@ -1,5 +1,5 @@
 .PHONY: do-migrate stop-denorm-celery start-denorm-celery migrate \
-       backup db-backup media-backup restore dbshell dbshell-psql ps-dbserver \
+       backup db-backup media-backup config-backup restore dbshell dbshell-psql ps-dbserver \
        dump-local-postgresql-and-copy-to-remote \
        restore-db-stop-servers restore-db-remove-db-rebuild-db-rm-backup \
        restore-remote-db-from-dump restore-remote-db-from-dump-dont-backup \
@@ -44,7 +44,7 @@ start-denorm-celery:
 
 migrate: stop-denorm-celery do-migrate start-denorm-celery
 
-backup: db-backup media-backup
+backup: db-backup media-backup config-backup
 
 db-backup:
 	@mkdir -p $(DJANGO_BPP_HOST_BACKUP_DIR)
@@ -81,6 +81,24 @@ media-backup:
 		tar czf /backup/$(MEDIA_BACKUP_TAR) -C /src .
 	@echo "Media backup saved to: $(MEDIA_BACKUP_FULL_PATH)"
 	@echo "Restore: tar xzf $(MEDIA_BACKUP_TAR) -C /mediaroot/"
+
+# Archiwum katalogu konfiguracyjnego ($BPP_CONFIGS_DIR: .env z kluczem
+# szyfrowania sekretow, rclone.conf, ssl/...) -> config-backup-<TS>.tar.gz
+# (0600) obok zrzutow bazy, ten sam timestamp co db-/media-backup w `make
+# backup`. Efemeryczny kontener alpine (jak media-backup): dziala jako root,
+# wiec czyta tez pliki root:root (letsencrypt/), i nie wymaga dzialajacego
+# stacku. Ta sama logika co krok 2b nocnego cyklu: scripts/config-backup.sh.
+# Odtworzenie: make restore-config FILE=... (Makefile, przed ifdef FIRST_RUN).
+config-backup:
+	@mkdir -p $(DJANGO_BPP_HOST_BACKUP_DIR)
+	@echo "Creating configuration backup..."
+	@docker run --rm \
+		-v $(BPP_CONFIGS_DIR):/configs:ro \
+		-v $(DJANGO_BPP_HOST_BACKUP_DIR):/backup \
+		-v $(CURDIR)/scripts:/scripts:ro \
+		alpine \
+		sh /scripts/config-backup.sh $(BACKUP_TIMESTAMP)
+	@echo "Restore: make restore-config FILE=$(DJANGO_BPP_HOST_BACKUP_DIR)/config-backup-$(BACKUP_TIMESTAMP).tar.gz"
 
 # Restore z backupow zrobionych przez `make backup` (lub backup-cycle).
 # Cala logika w scripts/restore.sh - target jest tylko thin wrapperem.

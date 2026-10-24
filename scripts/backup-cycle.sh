@@ -1,7 +1,7 @@
 #!/bin/sh
 #
-# Codzienny cykl backupu: pg_dump -> tar media -> lokalna rotacja -> rclone
-# copy -> retencja zdalna -> Rollbar notify. Wywolywane przez Ofelie (label na kontenerze
+# Codzienny cykl backupu: pg_dump -> tar media -> tar konfiguracji -> lokalna
+# rotacja -> rclone copy -> retencja zdalna -> Rollbar notify. Wywolywane przez Ofelie (label na kontenerze
 # backup-runner) lub recznie: `make backup-cycle`.
 #
 # Wymagane zmienne srodowiskowe (z env_file w docker-compose.backup.yml):
@@ -25,6 +25,11 @@
 #   2 - tar media failed
 #   3 - rclone copy failed (lokalne backupy zostaly utworzone)
 #
+# Backup konfiguracji (krok 2b) i retencja zdalna (krok 5) NIGDY nie zmieniaja
+# exit code'u. Konfiguracja: brak mountu /configs (kontener sprzed `make up`)
+# albo blad tar to ostrzezenie w logu i `config=...` w komunikacie do
+# Rollbara - inaczej sam `git pull` (scripts/ to bind-mount) wywracalby kazdy
+# nocny backup bazy az do najblizszego `make up`.
 # Retencja zdalna (krok 5) NIGDY nie zmienia exit code'u: sprzatanie nie ma
 # prawa zamienic udanego backupu w alert. Nieudany purge to ostrzezenie w logu
 # i adnotacja w komunikacie do Rollbara.
@@ -99,6 +104,7 @@ rclone() {
 # grep po zrodle nie widzi tego, co naprawde poleci do rclone.
 BACKUP_DIR="${BPP_BACKUP_DIR:-/backup}"
 MEDIA_DIR="${BPP_MEDIA_DIR:-/mediaroot}"
+CONFIG_SRC_DIR="${BPP_CONFIG_SRC_DIR:-/configs}"
 RCLONE_CONFIG="${BPP_RCLONE_CONFIG:-/config/rclone/rclone.conf}"
 LOG="${BPP_BACKUP_LOG:-/tmp/backup-cycle.log}"
 
@@ -119,6 +125,7 @@ KEEP_LAST="${DJANGO_BPP_BACKUP_KEEP_LAST:-7}"
 KEEP_MONTHS="${DJANGO_BPP_RCLONE_KEEP_MONTHS-12}"
 PARALLEL_JOBS="${PARALLEL_JOBS:-4}"
 RETENCJA_MSG="off"
+CONFIG_MSG="brak"
 
 : > "$LOG"
 exec > >(tee -a "$LOG") 2>&1
@@ -262,6 +269,32 @@ fi
 MEDIA_SIZE=$(stat -c%s "$MEDIA_TAR" 2>/dev/null || stat -f%z "$MEDIA_TAR" 2>/dev/null || echo 0)
 log "media-backup ok: $MEDIA_TAR ($(fmt_size "$MEDIA_SIZE"))"
 
+# --- 2b. tar katalogu konfiguracyjnego (.env, rclone.conf, ssl, ...) ---
+#
+# Osobny plik config-backup-<TS>.tar.gz obok dumpu (nie wewnatrz niego), ten
+# sam timestamp, ta sama rotacja (krok 3) i ta sama wysylka (krok 4 - `copy`
+# calego $BACKUP_DIR). Logika w scripts/config-backup.sh (wspolna z
+# `make config-backup`). Archiwum zawiera klucz szyfrowania sekretow
+# (DJANGO_BPP_FIELD_ENCRYPTION_KEY) - plik 0600.
+#
+# Blad tego kroku NIE wywraca cyklu (patrz naglowek): ostrzezenie + adnotacja.
+log "tar config from $CONFIG_SRC_DIR..."
+if CONFIG_OUT="$(BPP_CONFIG_SRC_DIR="$CONFIG_SRC_DIR" BPP_BACKUP_DIR="$BACKUP_DIR" \
+        sh "$SCRIPT_DIR/config-backup.sh" "$TIMESTAMP")"; then
+    CONFIG_SIZE=$(stat -c%s "$CONFIG_OUT" 2>/dev/null || stat -f%z "$CONFIG_OUT" 2>/dev/null || echo 0)
+    CONFIG_MSG="$(fmt_size "$CONFIG_SIZE")"
+    log "config-backup ok: $CONFIG_OUT ($CONFIG_MSG)"
+else
+    config_rc=$?
+    if [ "$config_rc" = 4 ]; then
+        CONFIG_MSG="BRAK-MOUNTU(make up)"
+        log "UWAGA: brak $CONFIG_SRC_DIR/.env - konfiguracja NIE zostala zarchiwizowana; wykonaj make up"
+    else
+        CONFIG_MSG="BLAD(exit=$config_rc)"
+        log "UWAGA: backup konfiguracji nieudany (exit=$config_rc) - kontynuuje cykl"
+    fi
+fi
+
 # --- 3. Lokalna rotacja - zachowaj N najnowszych kopii kazdego typu ---
 prune_type() {
     local prefix="$1"
@@ -283,6 +316,7 @@ prune_type() {
 log "local rotation: keep last $KEEP_LAST per type"
 prune_type db-backup
 prune_type media-backup
+prune_type config-backup
 
 # --- 4. rclone copy do katalogu MIESIECZNEGO ---
 #
@@ -379,7 +413,7 @@ prune_remote_months
 # --- 6. Sukces - notify ---
 END_TS=$(date +%s)
 DURATION=$(( END_TS - START_TS ))
-MSG="Backup OK on ${DJANGO_BPP_HOSTNAME:-unknown}: db=$(fmt_size "$DB_SIZE") media=$(fmt_size "$MEDIA_SIZE") remote=$REMOTE_DIR duration=${DURATION}s keep_last=$KEEP_LAST retencja_zdalna=$RETENCJA_MSG"
+MSG="Backup OK on ${DJANGO_BPP_HOSTNAME:-unknown}: db=$(fmt_size "$DB_SIZE") media=$(fmt_size "$MEDIA_SIZE") config=$CONFIG_MSG remote=$REMOTE_DIR duration=${DURATION}s keep_last=$KEEP_LAST retencja_zdalna=$RETENCJA_MSG"
 log "$MSG"
 notify_rollbar info "$MSG"
 

@@ -170,6 +170,18 @@ for a in "$@"; do
     case "$prev" in czf|-czf) out="$a"; break ;; esac
     prev="$a"
 done
+# Archiwum konfiguracji (krok 2b, scripts/config-backup.sh) idzie przez
+# PRAWDZIWY tar: test sprawdza jego zawartosc (.env), wykluczenia i realny
+# blad odczytu. Zrzut bazy i media zostaja atrapa (pg_dump i tak jest atrapa).
+case "$(basename "${out:-x}")" in
+    .config-backup-*)
+        for t in /usr/bin/tar /bin/tar; do [ -x "$t" ] && exec "$t" "$@"; done
+        exit 127 ;;
+esac
+# `tar tzf` (asercje w tescie) - tez prawdziwy.
+case "${1:-}" in
+    t*|-t*) for t in /usr/bin/tar /bin/tar; do [ -x "$t" ] && exec "$t" "$@"; done; exit 127 ;;
+esac
 [ -n "$out" ] && printf 'archiwum-atrapa' > "$out"
 exit 0
 MOCK
@@ -254,6 +266,30 @@ run_cycle() {
     local work="$TEST_ROOT/work"
     rm -rf "$work"; mkdir -p "$work/backup" "$work/mediaroot" "$work/config"
     printf '[backup_enc]\ntype = local\n' > "$work/config/rclone.conf"
+    # Katalog konfiguracyjny instancji (krok 2b). CONFIG_SRC_MODE:
+    #   ok (domyslnie) - .env + rclone.conf,
+    #   missing        - brak katalogu (kontener sprzed `make up`, bez mountu),
+    #   unreadable     - plik bez prawa odczytu -> tar pada (tylko nie-root).
+    case "${CONFIG_SRC_MODE:-ok}" in
+        missing) ;;
+        *)
+            mkdir -p "$work/cfgsrc/rclone"
+            printf 'DJANGO_BPP_FIELD_ENCRYPTION_KEY=klucz\n' > "$work/cfgsrc/.env"
+            printf '[backup_enc]\n' > "$work/cfgsrc/rclone/rclone.conf"
+            if [ "${CONFIG_SRC_MODE:-ok}" = unreadable ]; then
+                printf 'x\n' > "$work/cfgsrc/zablokowany"
+                chmod 000 "$work/cfgsrc/zablokowany"
+            fi
+            ;;
+    esac
+    # Stare kopie do rotacji (KEEP_LAST=7): PRE_CONFIG_BACKUPS sztuk.
+    # Petla while, nie `seq`: BSD seq (macOS) dla `seq 1 0` liczy W DOL (1, 0).
+    local i=1
+    while [ "$i" -le "${PRE_CONFIG_BACKUPS:-0}" ]; do
+        : > "$work/backup/config-backup-2020010$i-000000.tar.gz"
+        i=$((i + 1))
+    done
+    CYCLE_WORK="$work"
     CYCLE_LOG="$work/cycle.log"
     set +e
     env ${unset_opt[@]+"${unset_opt[@]}"} PATH="$BIN:$PATH" \
@@ -264,6 +300,7 @@ run_cycle() {
         MOCK_FAIL_ON_STEP="${MOCK_FAIL_ON_STEP:-}" \
         BPP_BACKUP_DIR="$work/backup" \
         BPP_MEDIA_DIR="$work/mediaroot" \
+        BPP_CONFIG_SRC_DIR="$work/cfgsrc" \
         BPP_RCLONE_CONFIG="$work/config/rclone.conf" \
         BPP_BACKUP_LOG="$work/backup-cycle.log" \
         DJANGO_BPP_DB_HOST=db DJANGO_BPP_DB_PORT=5432 \
@@ -348,6 +385,59 @@ assert_contains "$RECORD_CONTENT" "service=rclone" \
 
 MOCK_YM=2026-08 MOCK_LSF_DIRS="" KEEP_MONTHS_ENV=__unset__ MOCK_FAIL_ON=copy run_cycle
 assert_eq "3" "$CYCLE_RC" "nieudany copy -> exit 3 (jak dotad przy sync)"
+
+# ==========================================================================
+# 3b. Krok 2b — backup katalogu konfiguracyjnego
+# ==========================================================================
+echo
+echo "3b. backup-cycle krok 2b — konfiguracja (.env z kluczem szyfrowania)"
+
+perm_of_cfg() { stat -c '%a' "$1" 2>/dev/null || stat -f '%Lp' "$1"; }
+
+MOCK_YM=2026-08 KEEP_MONTHS_ENV=0 PRE_CONFIG_BACKUPS=9 run_cycle
+assert_eq "0" "$CYCLE_RC" "cykl z konfiguracja konczy sie sukcesem"
+CFG_NEW="$(find "$CYCLE_WORK/backup" -maxdepth 1 -name 'config-backup-*.tar.gz' \
+    ! -name 'config-backup-2020*' | sed -n '1p')"
+if [ -n "$CFG_NEW" ] && tar tzf "$CFG_NEW" | grep -qx './.env'; then
+    pass "cykl tworzy config-backup-<TS>.tar.gz z .env obok zrzutow"
+else
+    fail "cykl tworzy config-backup-<TS>.tar.gz z .env (jest: '$CFG_NEW')"
+fi
+DB_TS="$(find "$CYCLE_WORK/backup" -maxdepth 1 -name 'db-backup-*.tar.gz' | sed -n 's|.*/db-backup-||; s|\.tar\.gz$||p')"
+assert_eq "config-backup-$DB_TS.tar.gz" "$(basename "${CFG_NEW:-brak}")" \
+    "archiwum konfiguracji ma ten sam timestamp co zrzut bazy"
+if [ -n "$CFG_NEW" ]; then
+    assert_eq "600" "$(perm_of_cfg "$CFG_NEW")" "archiwum konfiguracji ma tryb 600"
+fi
+assert_eq "7" "$(find "$CYCLE_WORK/backup" -maxdepth 1 -name 'config-backup-*.tar.gz' | wc -l | tr -d ' ')" \
+    "MUTACYJNY: rotacja lokalna obejmuje config-backup (KEEP_LAST=7)"
+CFG_LOG="$(cat "$CYCLE_LOG")"
+assert_contains "$CFG_LOG" "config-backup ok" "log potwierdza backup konfiguracji"
+assert_contains "$CFG_LOG" "Backup OK on test.example: db=" "komunikat sukcesu jest"
+assert_not_contains "$CFG_LOG" "config=brak" "komunikat sukcesu podaje rozmiar konfiguracji"
+
+# Kontener sprzed `make up` (brak mountu /configs): backup bazy idzie dalej.
+MOCK_YM=2026-08 KEEP_MONTHS_ENV=0 CONFIG_SRC_MODE=missing run_cycle
+assert_eq "0" "$CYCLE_RC" \
+    "MUTACYJNY: brak mountu konfiguracji NIE wywraca cyklu (exit 0)"
+CFG_LOG="$(cat "$CYCLE_LOG")"
+assert_contains "$CFG_LOG" "config=BRAK-MOUNTU(make up)" \
+    "brak mountu -> adnotacja w komunikacie do Rollbara"
+assert_contains "$(cat "$RECORD")" "copy " "brak mountu -> wysylka i tak sie odbywa"
+
+# Blad tar (np. plik bez prawa odczytu) - tylko jako nie-root.
+if [ "$(id -u)" != 0 ]; then
+    MOCK_YM=2026-08 KEEP_MONTHS_ENV=0 CONFIG_SRC_MODE=unreadable run_cycle
+    chmod 600 "$CYCLE_WORK/cfgsrc/zablokowany" 2>/dev/null || true
+    assert_eq "0" "$CYCLE_RC" "blad tar konfiguracji NIE wywraca cyklu (exit 0)"
+    assert_contains "$(cat "$CYCLE_LOG")" "config=BLAD(exit=1)" \
+        "blad tar konfiguracji -> adnotacja w komunikacie"
+    if find "$CYCLE_WORK/backup" -maxdepth 1 -name '*config-backup-*' | grep -q .; then
+        fail "blad tar konfiguracji -> zadnego (czesciowego) archiwum"
+    else
+        pass "blad tar konfiguracji -> zadnego (czesciowego) archiwum"
+    fi
+fi
 
 # ==========================================================================
 # 4. Krok 5 — retencja zdalna
@@ -692,6 +782,9 @@ MOCK
     ash_work="$TEST_ROOT/ash-work"
     mkdir -p "$ash_work/backup" "$ash_work/media" "$ash_work/config"
     printf '[backup_enc]\ntype = local\n' > "$ash_work/config/rclone.conf"
+    mkdir -p "$ash_work/cfgsrc/logs"
+    printf 'DJANGO_BPP_FIELD_ENCRYPTION_KEY=klucz\n' > "$ash_work/cfgsrc/.env"
+    printf 'log\n' > "$ash_work/cfgsrc/logs/a.log"
     ash_log="$ash_work/backup-cycle.log"
     : > "$ash_work/rclone-calls.log"
 
@@ -713,6 +806,7 @@ MOCK
         -e "PATH=/stub:/usr/local/bin:/usr/bin:/bin" \
         -e BPP_BACKUP_DIR=/work/backup \
         -e BPP_MEDIA_DIR=/work/media \
+        -e BPP_CONFIG_SRC_DIR=/work/cfgsrc \
         -e BPP_RCLONE_CONFIG=/work/config/rclone.conf \
         -e BPP_BACKUP_LOG=/work/backup-cycle.log \
         -e DJANGO_BPP_DB_HOST=db -e DJANGO_BPP_DB_PORT=5432 \
@@ -736,6 +830,16 @@ MOCK
         "MUTACYJNY: udany cykl NIE zglasza sie przez on_exit jako unexpected-error"
     assert_contains "$ASH_LOG" "Backup OK on" \
         "udany cykl zostawia w logu komunikat sukcesu"
+    # Krok 2b pod busybox tar (--exclude, umask, stat -c, chown jako root).
+    assert_contains "$ASH_LOG" "config-backup ok" \
+        "pod ash: backup konfiguracji (busybox tar) sie udaje"
+    ash_cfg="$(find "$ash_work/backup" -maxdepth 1 -name 'config-backup-*.tar.gz' | sed -n '1p')"
+    if [ -n "$ash_cfg" ] && tar tzf "$ash_cfg" | grep -qx './.env' \
+            && ! tar tzf "$ash_cfg" | grep -q 'logs/'; then
+        pass "pod ash: archiwum konfiguracji ma .env i nie ma logs/"
+    else
+        fail "pod ash: archiwum konfiguracji ma .env i nie ma logs/ ($ash_cfg)"
+    fi
 
     # Retencja zdalna musi FAKTYCZNIE wykonac sie pod busyboksem: to w niej
     # siedzi _ym_index - jedyna funkcja przepisana specjalnie pod ash - a

@@ -4,7 +4,9 @@
 
 ```bash
 make db-backup        # Pojedynczy pg_dump (równoległy, tar.gz)
-make backup-cycle     # Pełen cykl: pg_dump + tar mediów + rclone copy + retencja zdalna
+make config-backup    # Archiwum katalogu konfiguracyjnego (.env, rclone.conf, ssl/ ...)
+make restore-config FILE=...   # Odtworzenie konfiguracji z archiwum
+make backup-cycle     # Pełen cykl: pg_dump + tar mediów i konfiguracji + rclone copy + retencja zdalna
 make rclone-config    # Konfiguracja zdalnego backupu (Google Drive, S3, ...)
 make rclone-sync      # Wymuszona wysyłka do chmury (ten sam układ co cykl nocny)
 make rclone-check     # Sprawdzenie spójności kopii zdalnej
@@ -19,7 +21,8 @@ do kontenerów, które i tak istnieją i mają właściwe narzędzia:
 
 1. `pg_dump` — w kontenerze `dbserver`, więc wersja klienta zawsze równa się wersji
    serwera (w trybie external — sentinela `postgres:<major>-alpine`),
-2. tar dumpu i mediów — lokalnie (busybox `tar`; `/backup` i wolumen `media` są
+2. tar dumpu, mediów i [katalogu konfiguracyjnego](#backup-konfiguracji-env) —
+   lokalnie (busybox `tar`; `/backup`, wolumen `media` i `$BPP_CONFIGS_DIR` są
    zamontowane także w orkiestratorze),
 3. rotacja lokalna (`DJANGO_BPP_BACKUP_KEEP_LAST`),
 4. `rclone copy` + retencja zdalna — w serwisie `rclone` (patrz niżej),
@@ -78,7 +81,8 @@ backup_enc:
   2026-07/
     db-backup-20260701-023000.tar.gz
     media-backup-20260701-023000.tar.gz
-    ...                                  (2 pliki na dzień)
+    config-backup-20260701-023000.tar.gz
+    ...                                  (3 pliki na dzień)
   2026-08/
     ...
 ```
@@ -217,6 +221,104 @@ Nazwa remote'a musi się zgadzać z `DJANGO_BPP_RCLONE_REMOTE` w `.env`
     udało, zobaczysz `UWAGA:` z kodem błędu — backupy działają dalej, ale katalog
     konfiguracyjny przenoś wtedy przez `sudo rsync`.
 
+## Backup konfiguracji (`.env`)
+
+Zrzut bazy bez katalogu konfiguracyjnego jest tylko w połowie użyteczny.
+`$BPP_CONFIGS_DIR/.env` trzyma m.in. hasło bazy, `DJANGO_BPP_SECRET_KEY` i
+**klucz szyfrowania sekretów integracji `DJANGO_BPP_FIELD_ENCRYPTION_KEY`**
+(patrz [Architektura konfiguracji](../konfiguracja/architektura.md#klucz-szyfrowania-sekretow-integracji-django_bpp_field_encryption_key)).
+Bez tego klucza tokeny PBN, hasło Clarivate, sekret ORCID i hasło DSpace w
+odtworzonej bazie są nieczytelne. Dlatego katalog konfiguracyjny jest
+archiwizowany **tak samo jak baza**:
+
+- **ten sam cykl** — nocny `backup-cycle` (02:30) robi `config-backup-<TS>.tar.gz`
+  zaraz po zrzucie bazy i mediów, z **tym samym timestampem**;
+- **to samo miejsce** — osobny plik obok zrzutów w `$DJANGO_BPP_HOST_BACKUP_DIR`
+  (nie wewnątrz dumpu bazy);
+- **ta sama rotacja** — `DJANGO_BPP_BACKUP_KEEP_LAST` (domyślnie 7) i ta sama
+  wysyłka na zdalny (`rclone copy` całego katalogu backupów, katalog miesięczny);
+- **tryb 0600**, właściciel = właściciel katalogu backupów (żeby
+  `make restore-config` działał z konta operatora bez `sudo`).
+
+Archiwum obejmuje cały `$BPP_CONFIGS_DIR`: `.env`, `rclone/rclone.conf` (z hasłem
+remote'a `backup_enc:`), `ssl/`, `letsencrypt/`, konfigurację monitoringu.
+Pominięte są logi (`logs/`, `*.log`). To kilka–kilkadziesiąt KiB.
+
+!!! danger "Kto ma backup, ma dane i klucz"
+    Backup konfiguracji zawiera klucz szyfrowania sekretów, więc katalog backupów
+    (i zdalny remote) trzeba chronić tak jak sam serwer — kto ma backup, ma też
+    dane i klucz.
+
+!!! warning "Wymaga `make up` po aktualizacji"
+    Orkiestrator potrzebuje nowego mountu `${BPP_CONFIGS_DIR}:/configs:ro`
+    w `docker-compose.backup.yml`, a mounty wchodzą dopiero przy `make up`.
+    Do tego czasu cykl nocny działa jak dotąd (baza + media), loguje
+    `UWAGA: brak /configs/.env ...` i dopisuje `config=BRAK-MOUNTU(make up)`
+    do komunikatu w Rollbarze. Błąd archiwizacji konfiguracji **nigdy nie
+    wywraca** backupu bazy (kod wyjścia cyklu się nie zmienia) — jest
+    ostrzeżeniem w logu i adnotacją `config=BLAD(...)` w komunikacie.
+
+!!! info "Hasło do kopii zdalnej — w menedżerze haseł"
+    Kopia zdalna jest szyfrowana przez remote `backup_enc:` (rclone crypt), którego
+    hasło siedzi w `rclone.conf` — czyli **w tym samym katalogu, który
+    archiwizujemy**. Po utracie serwera zdalnej kopii nie da się odszyfrować bez
+    tego hasła: zapisz hasło (i salt) `backup_enc:` w menedżerze haseł.
+
+### Ręczny backup — `make config-backup`
+
+```bash
+make config-backup    # samo archiwum konfiguracji
+make backup           # baza + media + konfiguracja, jeden timestamp
+```
+
+Działa w efemerycznym kontenerze `alpine` (jak `media-backup`), więc nie wymaga
+działającego stacku i czyta także pliki `root:root` (np. `letsencrypt/`).
+
+### Odtworzenie — `make restore-config`
+
+```bash
+make restore-config FILE=~/backups/config-backup-20261024-023000.tar.gz
+make restore-config FILE=... ONLY_ENV=1     # tylko .env, reszta katalogu nietknięta
+```
+
+Co robi `scripts/restore-config.sh`:
+
+1. Sprawdza archiwum (odmawia wpisów absolutnych i z `..`) i rozpakowuje je
+   najpierw do prywatnego katalogu tymczasowego.
+2. Gdy docelowy `.env` istnieje — pokazuje różnice (**tylko nazwy zmiennych**,
+   bez wartości; osobne ostrzeżenie, gdy zmienia się
+   `DJANGO_BPP_FIELD_ENCRYPTION_KEY`) i pyta o potwierdzenie. Trzeba wpisać
+   `tak`; cokolwiek innego, EOF albo brak terminala = **nic nie zostaje
+   zmienione**. (Bez pytania: `BPP_RESTORE_CONFIG_YES=1`.)
+3. Przed nadpisaniem zapisuje kopię: `.env.przed-restore-<TS>` (0600) obok
+   `.env`, a przy pełnym restore także archiwum dotychczasowego katalogu
+   `config-przed-restore-<nazwa>-<TS>.tar.gz` (0600) w katalogu nadrzędnym.
+4. Rozpakowuje archiwum z zachowaniem uprawnień i ustawia `.env` na 0600.
+
+Po odtworzeniu: `make up` (albo `make restore` + `make up`, jeśli odtwarzasz
+też bazę). **Klucz z `.env` musi pochodzić z tego samego okresu co baza** —
+`.env` sprzed dodania klucza nie odczyta sekretów zaszyfrowanych później.
+
+#### Nowy serwer po awarii
+
+Na świeżym hoście nie ma repo-lokalnego `.env`, więc `make` uruchomiłby
+`setup` → `init-configs`, który **wygenerowałby nowe sekrety, w tym nowy klucz
+szyfrowania**. Zamiast tego:
+
+```bash
+git clone https://github.com/iplweb/bpp-deploy.git ~/bpp-deploy && cd ~/bpp-deploy
+# skopiuj backupy (z dysku albo: rclone copy backup_enc:YYYY-MM/ ~/backups/)
+make restore-config FILE=~/backups/config-backup-<TS>.tar.gz \
+    BPP_CONFIGS_DIR=/home/bpp/moja-instancja
+make restore          # baza + media z tego samego <TS>
+make up
+```
+
+`restore-config` działa bez repo-lokalnego `.env` i sam go zapisuje
+(`BPP_CONFIGS_DIR` + `COMPOSE_PROJECT_NAME` = nazwa katalogu, ta sama reguła co
+`init-configs`). Przy bazie zewnętrznej dopisz tam ręcznie
+`BPP_DATABASE_COMPOSE=docker-compose.database.external.yml`.
+
 ## Awaria TLS: `certificate signed by unknown authority`
 
 **Symptom** — `rclone` nie dogaduje się ze zdalnym, a komunikat sugeruje wygasły token:
@@ -278,7 +380,8 @@ Wykorzystywane przy [przenosinach serwera](przenosiny-serwera.md).
 
 ## Co NIE jest backupowane przez `make backup`
 
-`make backup` zapisuje tylko bazę danych i wolumeny mediów. Loki/Netdata/Grafana (logi
+`make backup` zapisuje bazę danych, wolumen mediów i
+[katalog konfiguracyjny](#backup-konfiguracji-env). Loki/Netdata/Grafana (logi
 i metryki historyczne) **nie są przenoszone** — po starcie na nowym hoście zaczynają od
 pustego stanu. Jeśli zależy Ci na historii monitoringu, skopiuj dodatkowo wolumeny
 `loki_data`, `netdata_lib`, `netdata_cache` i `grafana_data` (przy zatrzymanym stacku):

@@ -13,9 +13,14 @@ cd ~/bpp-deploy
 make backup
 ```
 
-`make backup` uruchamia `db-backup` (równoległy `pg_dump -Fd`, `tar.gz`) i `media-backup`
-(wolumen `media` jako `tar.gz`). Oba archiwa lądują w `$DJANGO_BPP_HOST_BACKUP_DIR` z
-timestampem.
+`make backup` uruchamia `db-backup` (równoległy `pg_dump -Fd`, `tar.gz`), `media-backup`
+(wolumen `media` jako `tar.gz`) i `config-backup` (katalog konfiguracyjny z `.env`).
+Archiwa lądują w `$DJANGO_BPP_HOST_BACKUP_DIR` z jednym timestampem.
+
+!!! tip "Nie masz już starej maszyny?"
+    Gdy serwer padł i zostały tylko backupy (lokalne albo zdalne), katalog
+    konfiguracyjny odtwarzasz z `config-backup-<TS>.tar.gz` — patrz
+    [Nowy serwer po awarii](backup-i-rclone.md#nowy-serwer-po-awarii).
 
 ### 2. Skopiuj trzy katalogi
 
@@ -83,5 +88,5 @@ starej maszynie w momencie `make backup`.
 
 ## Co NIE jest backupowane
 
-`make backup` zapisuje tylko bazę i media. Historia monitoringu (Loki/Netdata/Grafana)
+`make backup` zapisuje bazę, media i katalog konfiguracyjny. Historia monitoringu (Loki/Netdata/Grafana)
 nie jest przenoszona — patrz [Backup i rclone](backup-i-rclone.md#co-nie-jest-backupowane-przez-make-backup).

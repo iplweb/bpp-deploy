@@ -43,6 +43,19 @@ test:
 	@./scripts/test-pgbouncer.sh
 	@./scripts/test-waf.sh
 
+# --- Odtworzenie konfiguracji: dziala w OBU trybach ---
+#
+# Definiowany PRZED `ifdef FIRST_RUN` z tego samego powodu co `test`: na
+# swiezym hoscie (odtwarzanie po awarii) nie ma repo-lokalnego .env, wiec
+# istnieje tylko `setup` -> init-configs, ktory wygenerowalby NOWE sekrety,
+# w tym nowy DJANGO_BPP_FIELD_ENCRYPTION_KEY (zaszyfrowane sekrety w bazie
+# stalyby sie nieczytelne). Na swiezym hoscie podaj BPP_CONFIGS_DIR=...
+# Logika w scripts/restore-config.sh. Patrz docs/eksploatacja/backup-i-rclone.md.
+.PHONY: restore-config
+restore-config:
+	@FILE="$(FILE)" ONLY_ENV="$(ONLY_ENV)" BPP_CONFIGS_DIR="$(BPP_CONFIGS_DIR)" \
+		bash scripts/restore-config.sh
+
 ifdef FIRST_RUN
 
 .DEFAULT_GOAL := setup

@@ -288,8 +288,11 @@ openssl rand -base64 32 | tr '+/' '-_'
 ```
 
 !!! danger "Backup klucza razem z `.env`"
-    Klucz jest jedyną drogą do odczytania zaszyfrowanych sekretów. Archiwizuj
-    `${BPP_CONFIGS_DIR}/.env` (np. przy przenosinach serwera kopiuj go razem z bazą).
+    Klucz jest jedyną drogą do odczytania zaszyfrowanych sekretów. `${BPP_CONFIGS_DIR}/.env`
+    jest archiwizowany automatycznie razem z bazą (nocny cykl i `make backup` —
+    patrz [Backup konfiguracji](../eksploatacja/backup-i-rclone.md#backup-konfiguracji-env));
+    odtwarzanie: `make restore-config FILE=...`. Backup konfiguracji zawiera klucz,
+    więc katalog backupów chroń tak jak sam serwer.
     **Utrata klucza** = sekrety w bazie stają się nieczytelne: trzeba ponownie wpisać
     w BPP (Redagowanie → Uczelnia) token aplikacji PBN, hasło Clarivate, sekret ORCID
     i hasło DSpace, a użytkownicy muszą raz ponownie zalogować się do PBN.

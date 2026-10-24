@@ -2831,6 +2831,259 @@ test_init_configs_path_validation() {
 # Sedno kontraktu: galaz windowsowa MUSI wykonac sie PRZED sprawdzeniem
 # roota. Test biegnie jako zwykly user, wiec gdyby ktos ja przestawil nizej,
 # skrypt skonczylby sie komunikatem o sudo i asercje pojda na czerwono.
+# ============================================================
+# Backup konfiguracji (.env z kluczem szyfrowania sekretow)
+# ============================================================
+
+perm_of() { stat -c '%a' "$1" 2>/dev/null || stat -f '%Lp' "$1"; }
+
+# Git Bash na NTFS nie ma uniksowych praw (stat zawsze pokazuje 644), wiec tam
+# asercje trybu 0600 sa pomijane. Produkcyjnie archiwa i tak powstaja w
+# linuksowym kontenerze (backup-runner / alpine).
+_no_posix_modes() {
+    command -v cygpath >/dev/null 2>&1 && return 0
+    case "$(uname -s 2>/dev/null || echo unknown)" in
+        MINGW*|MSYS*|CYGWIN*) return 0 ;;
+    esac
+    return 1
+}
+assert_mode_600() {
+    if _no_posix_modes; then skip "$1 (Windows/NTFS: brak praw POSIX)"; return; fi
+    local p
+    p="$(perm_of "$2" 2>/dev/null || echo brak)"
+    if [ "$p" = "600" ]; then pass "$1"; else fail "$1 (oczekiwane 600, jest $p)"; fi
+}
+
+# Minimalny katalog konfiguracyjny z sekretami i logiem do wykluczenia.
+_make_cfg_dir() {
+    local cfg="$1"
+    mkdir -p "$cfg/rclone" "$cfg/logs" "$cfg/ssl"
+    chmod 755 "$cfg"
+    printf 'DJANGO_BPP_SECRET_KEY=s3kret\nDJANGO_BPP_FIELD_ENCRYPTION_KEY=beRCn4RUNneKiOizMZEEZDjeZVwdOJ6m2etsvwC3wfs=\nDJANGO_BPP_DB_PASSWORD=haslo\n' > "$cfg/.env"
+    chmod 600 "$cfg/.env"
+    printf '[backup_enc]\ntype = crypt\npassword = xyz\n' > "$cfg/rclone/rclone.conf"
+    echo "duzy log" > "$cfg/logs/autoupdate-cron.log"
+}
+
+test_config_backup_script() {
+    yellow "=== Test: scripts/config-backup.sh — archiwum konfiguracji ==="
+
+    local w cfg bk out rc
+    w=$(mktemp -d); cfg="$w/cfg"; bk="$w/backup"
+    mkdir -p "$bk"; _make_cfg_dir "$cfg"
+
+    rc=0
+    out="$(BPP_CONFIG_SRC_DIR="$cfg" BPP_BACKUP_DIR="$bk" \
+        sh "$REPO_DIR/scripts/config-backup.sh" 20261024-023000 2>&1)" || rc=$?
+    local arch="$bk/config-backup-20261024-023000.tar.gz"
+    if [ "$rc" = 0 ] && [ "$(printf '%s\n' "$out" | tail -n 1)" = "$arch" ]; then
+        pass "config-backup.sh: exit 0, ostatnia linia stdout = sciezka archiwum"
+    else
+        fail "config-backup.sh: exit 0 i sciezka na stdout (rc=$rc, out=$out)"
+    fi
+    assert_file_exists "archiwum konfiguracji powstalo obok zrzutow" "$arch"
+    # MUTACYJNY: bez `umask 077` (albo chmod) archiwum z kluczem bylo by 0644.
+    assert_mode_600 "MUTACYJNY: archiwum konfiguracji ma tryb 600" "$arch"
+    local list
+    list="$(tar tzf "$arch" 2>/dev/null || true)"
+    if printf '%s\n' "$list" | grep -qx './.env'; then
+        pass "archiwum zawiera .env"
+    else
+        fail "archiwum zawiera .env (lista: $list)"
+    fi
+    if printf '%s\n' "$list" | grep -qx './rclone/rclone.conf'; then
+        pass "archiwum zawiera rclone/rclone.conf (haslo backup_enc:)"
+    else
+        fail "archiwum zawiera rclone/rclone.conf"
+    fi
+    if printf '%s\n' "$list" | grep -q 'logs/\|\.log$'; then
+        fail "archiwum NIE zawiera logow (lista: $list)"
+    else
+        pass "archiwum NIE zawiera logow (logs/, *.log)"
+    fi
+    # Odtworzenie bajt-w-bajt.
+    mkdir -p "$w/x"
+    tar xzf "$arch" -C "$w/x"
+    if cmp -s "$cfg/.env" "$w/x/.env"; then
+        pass "rozpakowany .env identyczny z oryginalem"
+    else
+        fail "rozpakowany .env identyczny z oryginalem"
+    fi
+    if [ -n "$(find "$bk" -maxdepth 1 -name '*.tmp')" ]; then
+        fail "po udanym backupie nie zostaje plik .tmp"
+    else
+        pass "po udanym backupie nie zostaje plik .tmp"
+    fi
+
+    # Brak mountu (kontener sprzed `make up`): exit 4, zadnego pliku.
+    rm -rf "$bk"; mkdir -p "$bk"
+    rc=0
+    BPP_CONFIG_SRC_DIR="$w/nie-ma" BPP_BACKUP_DIR="$bk" \
+        sh "$REPO_DIR/scripts/config-backup.sh" 20261024-023000 >/dev/null 2>&1 || rc=$?
+    assert_eq_rc "brak katalogu konfiguracyjnego -> exit 4" "4" "$rc"
+    if [ -z "$(ls -A "$bk")" ]; then
+        pass "brak katalogu konfiguracyjnego -> zadnego pliku w katalogu backupow"
+    else
+        fail "brak katalogu konfiguracyjnego -> zadnego pliku (jest: $(ls -A "$bk"))"
+    fi
+    rm -rf "$w"
+}
+
+# Prosta asercja rownosci (test_makefile.sh nie ma assert_eq).
+assert_eq_rc() {
+    if [ "$2" = "$3" ]; then pass "$1"; else fail "$1 (oczekiwane '$2', jest '$3')"; fi
+}
+
+test_restore_config() {
+    yellow "=== Test: scripts/restore-config.sh — odtwarzanie konfiguracji ==="
+
+    local w cfg bk arch rc
+    w=$(mktemp -d); cfg="$w/cfg"; bk="$w/backup"
+    mkdir -p "$bk"; _make_cfg_dir "$cfg"
+    BPP_CONFIG_SRC_DIR="$cfg" BPP_BACKUP_DIR="$bk" \
+        sh "$REPO_DIR/scripts/config-backup.sh" 20261024-023000 >/dev/null
+    arch="$bk/config-backup-20261024-023000.tar.gz"
+    cp "$cfg/.env" "$w/env.oryginal"
+
+    # Zmieniony .env (np. po awarii / pomylkowej edycji).
+    printf 'DJANGO_BPP_SECRET_KEY=inny\nNOWA=1\n' > "$cfg/.env"
+    cp "$cfg/.env" "$w/env.zmieniony"
+
+    # 1. EOF na stdin (brak TTY, autoupdate, cron) -> NIE nadpisuje.
+    rc=0
+    FILE="$arch" BPP_CONFIGS_DIR="$cfg" BPP_REPO_ENV_FILE="$w/repo.env" \
+        bash "$REPO_DIR/scripts/restore-config.sh" </dev/null >/dev/null 2>&1 || rc=$?
+    if [ "$rc" != 0 ] && cmp -s "$cfg/.env" "$w/env.zmieniony"; then
+        pass "MUTACYJNY: EOF zamiast potwierdzenia -> .env nietkniety, exit != 0"
+    else
+        fail "EOF zamiast potwierdzenia -> .env nietkniety (rc=$rc)"
+    fi
+    # 2. Odpowiedz inna niz "tak" -> NIE nadpisuje.
+    rc=0
+    echo "t" | FILE="$arch" BPP_CONFIGS_DIR="$cfg" BPP_REPO_ENV_FILE="$w/repo.env" \
+        bash "$REPO_DIR/scripts/restore-config.sh" >/dev/null 2>&1 || rc=$?
+    if [ "$rc" != 0 ] && cmp -s "$cfg/.env" "$w/env.zmieniony"; then
+        pass "odpowiedz 't' (nie 'tak') -> .env nietkniety"
+    else
+        fail "odpowiedz 't' -> .env nietkniety (rc=$rc)"
+    fi
+    if ls "$cfg"/.env.przed-restore-* >/dev/null 2>&1; then
+        fail "po odmowie nie powstaje kopia .env.przed-restore-*"
+    else
+        pass "po odmowie nie powstaje kopia .env.przed-restore-*"
+    fi
+    # Wartosci sekretow nie wyciekaja na ekran (tylko nazwy zmiennych).
+    local screen
+    screen="$(FILE="$arch" BPP_CONFIGS_DIR="$cfg" BPP_REPO_ENV_FILE="$w/repo.env" \
+        bash "$REPO_DIR/scripts/restore-config.sh" </dev/null 2>&1 || true)"
+    if printf '%s' "$screen" | grep -q 's3kret\|beRCn4RUN\|haslo'; then
+        fail "lista roznic NIE pokazuje wartosci sekretow"
+    else
+        pass "lista roznic NIE pokazuje wartosci sekretow"
+    fi
+    if printf '%s' "$screen" | grep -q 'DJANGO_BPP_FIELD_ENCRYPTION_KEY'; then
+        pass "lista roznic ostrzega o zmianie klucza szyfrowania"
+    else
+        fail "lista roznic ostrzega o zmianie klucza szyfrowania"
+    fi
+
+    # 3. "tak" -> .env identyczny z archiwizowanym, kopia poprzedniego 600,
+    #    uprawnienia katalogu zachowane (kontenery nie-root czytaja bind-mounty).
+    rc=0
+    echo "tak" | FILE="$arch" BPP_CONFIGS_DIR="$cfg" BPP_REPO_ENV_FILE="$w/repo.env" \
+        bash "$REPO_DIR/scripts/restore-config.sh" >/dev/null 2>&1 || rc=$?
+    assert_eq_rc "potwierdzony restore -> exit 0" "0" "$rc"
+    if cmp -s "$cfg/.env" "$w/env.oryginal"; then
+        pass "odtworzony .env identyczny z archiwizowanym"
+    else
+        fail "odtworzony .env identyczny z archiwizowanym"
+    fi
+    local prev
+    prev="$(find "$cfg" -maxdepth 1 -name '.env.przed-restore-*' | sed -n '1p')"
+    if [ -n "$prev" ] && cmp -s "$prev" "$w/env.zmieniony"; then
+        pass "kopia poprzedniego .env zachowana (.env.przed-restore-*)"
+    else
+        fail "kopia poprzedniego .env zachowana (.env.przed-restore-*)"
+    fi
+    assert_mode_600 "kopia poprzedniego .env ma tryb 600" "${prev:-/nie-ma}"
+    assert_mode_600 "odtworzony .env ma tryb 600" "$cfg/.env"
+    assert_eq_rc "MUTACYJNY: uprawnienia katalogu konfiguracyjnego zachowane (755)" \
+        "755" "$(perm_of "$cfg")"
+    if ls "$w"/config-przed-restore-cfg-*.tar.gz >/dev/null 2>&1; then
+        pass "pelny restore archiwizuje poprzedni katalog konfiguracyjny"
+    else
+        fail "pelny restore archiwizuje poprzedni katalog konfiguracyjny"
+    fi
+    assert_file_exists "brak repo .env -> restore zapisuje wskaznik BPP_CONFIGS_DIR" "$w/repo.env"
+    assert_file_contains "repo .env wskazuje odtworzony katalog" "^BPP_CONFIGS_DIR=$cfg\$" "$w/repo.env"
+    assert_file_contains "repo .env: COMPOSE_PROJECT_NAME = basename (jak init-configs)" \
+        "^COMPOSE_PROJECT_NAME=cfg\$" "$w/repo.env"
+
+    # 4. Swiezy host: katalog nie istnieje -> bez pytania, pelne odtworzenie.
+    rc=0
+    FILE="$arch" BPP_CONFIGS_DIR="$w/nowy" BPP_REPO_ENV_FILE="$w/repo2.env" \
+        bash "$REPO_DIR/scripts/restore-config.sh" </dev/null >/dev/null 2>&1 || rc=$?
+    assert_eq_rc "swiezy host (brak katalogu) -> exit 0 bez pytania" "0" "$rc"
+    if cmp -s "$w/nowy/.env" "$w/env.oryginal" && [ -f "$w/nowy/rclone/rclone.conf" ]; then
+        pass "swiezy host: .env i rclone.conf odtworzone"
+    else
+        fail "swiezy host: .env i rclone.conf odtworzone"
+    fi
+
+    # 5. Archiwum z wpisem `..` -> odmowa, nic nie zapisane poza celem.
+    # Budowane python3/tarfile: GNU tar przy tworzeniu zdejmuje wiodace `../`
+    # ("Removing leading ../"), wiec archiwum z tar-a nie testowaloby niczego.
+    if ! command -v python3 >/dev/null 2>&1; then
+        skip "brak python3 - pomijam test archiwum z wpisem '..'"
+        rm -rf "$w"; return
+    fi
+    python3 - "$w/evil.tar.gz" <<'PY'
+import io, sys, tarfile
+with tarfile.open(sys.argv[1], "w:gz") as t:
+    for name, data in ((".env", b"X=1\n"), ("../pwned", b"zlo\n")):
+        ti = tarfile.TarInfo(name); ti.size = len(data)
+        t.addfile(ti, io.BytesIO(data))
+PY
+    rc=0
+    FILE="$w/evil.tar.gz" BPP_CONFIGS_DIR="$w/cel" BPP_REPO_ENV_FILE="$w/repo3.env" \
+        bash "$REPO_DIR/scripts/restore-config.sh" </dev/null >/dev/null 2>&1 || rc=$?
+    if [ "$rc" != 0 ] && [ ! -e "$w/cel" ]; then
+        pass "archiwum z wpisem '..' odrzucone przed rozpakowaniem"
+    else
+        fail "archiwum z wpisem '..' odrzucone (rc=$rc)"
+    fi
+    rm -rf "$w"
+}
+
+test_restore_config_first_run() {
+    yellow "=== Test: make restore-config dostepny bez repo .env (swiezy host) ==="
+    # Na swiezym hoscie Makefile w trybie FIRST_RUN definiuje tylko `setup`
+    # (-> init-configs -> NOWY klucz szyfrowania). restore-config musi byc
+    # zdefiniowany przed `ifdef FIRST_RUN`.
+    local w out
+    w=$(mktemp -d)
+    cp "$REPO_DIR/Makefile" "$w/Makefile"
+    cp -R "$REPO_DIR/mk" "$w/mk"
+    out="$(make -n -C "$w" restore-config FILE=/x BPP_CONFIGS_DIR=/y 2>&1 || true)"
+    if printf '%s' "$out" | grep -q 'scripts/restore-config.sh'; then
+        pass "make restore-config dziala w trybie FIRST_RUN"
+    else
+        fail "make restore-config dziala w trybie FIRST_RUN ($out)"
+    fi
+    rm -rf "$w"
+}
+
+test_backup_runner_mounts_configs() {
+    yellow "=== Test: backup-runner montuje katalog konfiguracyjny :ro ==="
+    local runner
+    runner="$(svc_block backup-runner "$REPO_DIR/docker-compose.backup.yml")"
+    # shellcheck disable=SC2016  # wzorzec doslowny
+    assert_svc_contains "backup-runner: \${BPP_CONFIGS_DIR}:/configs:ro (zrodlo kroku 2b)" \
+        '${BPP_CONFIGS_DIR}:/configs:ro' "$runner"
+    assert_file_contains "make backup obejmuje config-backup" \
+        '^backup: db-backup media-backup config-backup' "$REPO_DIR/mk/database.mk"
+}
+
 test_install_docker_windows() {
     yellow "=== Test: install-docker pod Windows (winget) ==="
 
@@ -2953,6 +3206,10 @@ test_diag_db_commands
 test_configure_rate_limits
 test_configure_registry
 test_ostrzezenie_polityki_hasel
+test_config_backup_script
+test_restore_config
+test_restore_config_first_run
+test_backup_runner_mounts_configs
 
 echo ""
 echo "========================================"

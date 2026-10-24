@@ -180,7 +180,10 @@ Szczegóły: [SSL](../konfiguracja/ssl.md), [Limity zasobów](../konfiguracja/li
 
 ```bash
 make db-backup        # Pojedynczy pg_dump (równoległy, tar.gz)
-make backup-cycle     # Pełen cykl: pg_dump + tar mediów + rclone copy + retencja zdalna
+make backup           # Baza + media + konfiguracja (jeden timestamp)
+make config-backup    # Archiwum katalogu konfiguracyjnego (.env z kluczem szyfrowania)
+make restore-config FILE=...   # Odtworzenie konfiguracji (z potwierdzeniem i kopią)
+make backup-cycle     # Pełen cykl: pg_dump + tar mediów i konfiguracji + rclone copy + retencja zdalna
 make rclone-config    # Konfiguracja zdalnego backupu (Google Drive, S3, ...)
 make rclone-sync      # Wymuszona wysyłka do chmury (bez retencji — ta należy do cyklu nocnego)
 make rclone-check     # Sprawdzenie spójności kopii zdalnej
