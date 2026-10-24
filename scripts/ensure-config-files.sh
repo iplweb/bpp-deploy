@@ -185,6 +185,15 @@ if [ -f "$_ENV" ]; then
     # Wszystkie serwisy Django czytaja .env przez env_file, wiec zaden dodatkowy
     # wpis w compose nie jest potrzebny.
     _ensure_secret ALTCHA_HMAC_KEY "$(openssl rand -hex 32)"
+    # Klucz Fernet szyfrujacy sekrety integracji w bazie BPP (tokeny PBN,
+    # hasla Clarivate/DSpace, sekret ORCID). Format Fernet = 32 losowe bajty
+    # w base64 URL-safe (44 znaki z '=' na koncu) - openssl + tr daje dokladnie
+    # to, bez Pythona na hoscie. NIGDY nie rotujemy istniejacego klucza (inaczej
+    # zapisane sekrety stana sie nieczytelne); dawny DSPACE_CREDENTIALS_KEY,
+    # jesli ktos go ustawil recznie, zostaje - BPP czyta nim stare szyfrogramy.
+    # Klucz trzeba backupowac razem z .env (utrata = ponowne wpisanie tokenow).
+    _ensure_secret DJANGO_BPP_FIELD_ENCRYPTION_KEY \
+        "$(openssl rand -base64 32 | tr '+/' '-_')"
     # ...i od razu zapal captche. KOLEJNOSC JEST ISTOTNA: flage dopisujemy PO
     # kluczu, wiec w momencie jej zapalenia realny klucz juz jest w .env. Captcha
     # z nieustawionym kluczem byla by bezwartosciowa - Django bierze wtedy

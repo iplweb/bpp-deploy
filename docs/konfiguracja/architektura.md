@@ -257,6 +257,47 @@ wartości. Samo **usunięcie linii nie wystarczy**: zostanie dopisana z powrotem
 Captcha wymaga obrazu BPP z ALTCHA (wydania od `202607.1398` wzwyż). Na starszym obrazie
 zmienne są nieszkodliwe — Django ich po prostu nie czyta.
 
+## Klucz szyfrowania sekretów integracji — `DJANGO_BPP_FIELD_ENCRYPTION_KEY`
+
+BPP przechowuje w bazie sekrety integracji: token aplikacji PBN, tokeny PBN
+użytkowników, hasło Clarivate, sekret klienta ORCID i hasło API DSpace. Są one
+szyfrowane (Fernet) kluczem z tej zmiennej.
+
+| Zmienna | Wartość | Znaczenie |
+|---|---|---|
+| `DJANGO_BPP_FIELD_ENCRYPTION_KEY` | klucz Fernet (44 znaki, base64 URL-safe) | Szyfruje sekrety integracji w bazie |
+| `DSPACE_CREDENTIALS_KEY` | klucz Fernet (opcjonalnie) | Dawna nazwa — jeśli jest w `.env`, zostaw ją: BPP odczyta nią wcześniej zaszyfrowane wartości |
+
+Klucz ustawia się automatycznie — dopisuje go `scripts/ensure-config-files.sh` przy
+każdym `make up`/`refresh` (a `make init-configs` woła ten skrypt, więc nowe instalacje
+dostają go tak samo). Na starym `.env` wystarczy `git pull && make up`. Istniejąca
+wartość **nigdy** nie jest podmieniana.
+
+Po dodaniu klucza do działającej instalacji BPP szyfruje istniejące wartości przy
+migracji bazy. Jeśli obraz BPP był już zaktualizowany wcześniej (bez klucza), dokończ
+szyfrowanie ręcznie:
+
+```bash
+docker compose exec appserver python src/manage.py zaszyfruj_sekrety
+```
+
+Ręczne wygenerowanie klucza (bez Pythona):
+
+```bash
+openssl rand -base64 32 | tr '+/' '-_'
+```
+
+!!! danger "Backup klucza razem z `.env`"
+    Klucz jest jedyną drogą do odczytania zaszyfrowanych sekretów. Archiwizuj
+    `${BPP_CONFIGS_DIR}/.env` (np. przy przenosinach serwera kopiuj go razem z bazą).
+    **Utrata klucza** = sekrety w bazie stają się nieczytelne: trzeba ponownie wpisać
+    w BPP (Redagowanie → Uczelnia) token aplikacji PBN, hasło Clarivate, sekret ORCID
+    i hasło DSpace, a użytkownicy muszą raz ponownie zalogować się do PBN.
+    Nie zmieniaj klucza ręcznie — rotację opisuje dokumentacja BPP
+    (`zaszyfruj_sekrety --rotuj`, kilka kluczy po przecinku).
+
+Starsze obrazy BPP zmienną ignorują — jest nieszkodliwa.
+
 ## Widget wsparcia Freshdesk — `DJANGO_BPP_FRESHDESK_WIDGET_*`
 
 Zakładka **„Pomoc"** w prawym dolnym rogu stron BPP otwiera formularz zgłoszenia
