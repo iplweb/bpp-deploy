@@ -2563,6 +2563,104 @@ test_ensure_config_files_netdata_floor() {
     rm -rf "$cfg"
 }
 
+# ============================================================
+# TEST: klucz szyfrowania pol BPP (DJANGO_BPP_FIELD_ENCRYPTION_KEY)
+# ============================================================
+# Swiezy .env i stary .env dostaja klucz Fernet (32 bajty base64 URL-safe);
+# istniejacy klucz (i dawny DSPACE_CREDENTIALS_KEY) nigdy nie jest podmieniany.
+_klucz_fernet_ok() {
+    # 44 znaki base64 URL-safe z '=' na koncu => 32 bajty po zdekodowaniu.
+    printf '%s' "$1" | grep -qE '^[A-Za-z0-9_-]{43}=$'
+}
+
+test_init_configs_generates_field_encryption_key() {
+    yellow "=== Test: init-configs generuje DJANGO_BPP_FIELD_ENCRYPTION_KEY ==="
+
+    setup_temp
+    mkdir -p "$CONFIG_DIR"
+
+    make -C "$REPO_COPY" init-configs BPP_CONFIGS_DIR="$CONFIG_DIR" >/dev/null 2>&1
+
+    local key
+    key=$(grep '^DJANGO_BPP_FIELD_ENCRYPTION_KEY=' "$CONFIG_DIR/.env" \
+        | cut -d= -f2- || true)
+    if _klucz_fernet_ok "$key"; then
+        pass "DJANGO_BPP_FIELD_ENCRYPTION_KEY ma format klucza Fernet"
+    else
+        fail "DJANGO_BPP_FIELD_ENCRYPTION_KEY ma format klucza Fernet (jest: '${key}')"
+    fi
+
+    cleanup_temp
+}
+
+test_ensure_config_files_field_encryption_key_selfheal() {
+    yellow "=== Test: ensure-config-files dosypuje klucz szyfrowania pol ==="
+
+    local cfg
+    cfg=$(mktemp -d)
+    printf 'BPP_CONFIGS_DIR=%s\nDJANGO_BPP_SECRET_KEY=stary-sekret\n' "$cfg" > "$cfg/.env"
+
+    if ! BPP_CONFIGS_DIR="$cfg" bash "$REPO_DIR/scripts/ensure-config-files.sh" >/dev/null 2>&1; then
+        fail "ensure-config-files zwrocil blad (stary .env bez klucza)"
+        rm -rf "$cfg"; return
+    fi
+
+    local key key2 lines
+    key=$(grep '^DJANGO_BPP_FIELD_ENCRYPTION_KEY=' "$cfg/.env" | cut -d= -f2- || true)
+    if _klucz_fernet_ok "$key"; then
+        pass "self-heal: klucz szyfrowania pol ma format Fernet"
+    else
+        fail "self-heal: klucz szyfrowania pol ma format Fernet (jest: '${key}')"
+    fi
+
+    # Jesli jest python3 z cryptography - sprawdz, ze Fernet faktycznie go
+    # przyjmuje (format sprawdzony wyzej i tak; to dodatkowa asercja).
+    if command -v python3 >/dev/null 2>&1 \
+        && python3 -c 'import cryptography' >/dev/null 2>&1; then
+        if python3 -c 'import sys; from cryptography.fernet import Fernet; Fernet(sys.argv[1])' \
+            "$key" >/dev/null 2>&1; then
+            pass "klucz szyfrowania pol akceptowany przez Fernet"
+        else
+            fail "klucz szyfrowania pol akceptowany przez Fernet"
+        fi
+    else
+        skip "brak python3+cryptography - pomijam walidacje przez Fernet"
+    fi
+
+    if ! BPP_CONFIGS_DIR="$cfg" bash "$REPO_DIR/scripts/ensure-config-files.sh" >/dev/null 2>&1; then
+        fail "ensure-config-files zwrocil blad (drugi przebieg)"
+        rm -rf "$cfg"; return
+    fi
+    key2=$(grep '^DJANGO_BPP_FIELD_ENCRYPTION_KEY=' "$cfg/.env" | cut -d= -f2- || true)
+    if [ "$key" = "$key2" ]; then
+        pass "klucz szyfrowania pol stabilny miedzy przebiegami"
+    else
+        fail "klucz szyfrowania pol stabilny miedzy przebiegami (zrotowal sie)"
+    fi
+    lines=$(grep -c '^DJANGO_BPP_FIELD_ENCRYPTION_KEY=' "$cfg/.env" || true)
+    if [ "$lines" = "1" ]; then
+        pass "klucz szyfrowania pol wystepuje raz"
+    else
+        fail "klucz szyfrowania pol wystepuje raz (jest: $lines)"
+    fi
+    rm -rf "$cfg"
+
+    # Istniejacy klucz i dawny DSPACE_CREDENTIALS_KEY zostaja nietkniete.
+    cfg=$(mktemp -d)
+    local stary="beRCn4RUNneKiOizMZEEZDjeZVwdOJ6m2etsvwC3wfs="
+    printf 'BPP_CONFIGS_DIR=%s\nDJANGO_BPP_FIELD_ENCRYPTION_KEY=%s\nDSPACE_CREDENTIALS_KEY=%s\n' \
+        "$cfg" "$stary" "$stary" > "$cfg/.env"
+    if ! BPP_CONFIGS_DIR="$cfg" bash "$REPO_DIR/scripts/ensure-config-files.sh" >/dev/null 2>&1; then
+        fail "ensure-config-files zwrocil blad (.env z kluczem)"
+        rm -rf "$cfg"; return
+    fi
+    assert_file_contains "istniejacy klucz szyfrowania pol NIE zostal podmieniony" \
+        "^DJANGO_BPP_FIELD_ENCRYPTION_KEY=$stary\$" "$cfg/.env"
+    assert_file_contains "DSPACE_CREDENTIALS_KEY zachowany" \
+        "^DSPACE_CREDENTIALS_KEY=$stary\$" "$cfg/.env"
+    rm -rf "$cfg"
+}
+
 test_ensure_config_files_altcha_selfheal() {
     yellow "=== Test: ensure-config-files dosypuje ALTCHA do starego .env ==="
 
@@ -2841,6 +2939,8 @@ test_init_configs_generates_altcha
 test_loki_retention_migration
 test_netdata_docker_interval
 test_ensure_config_files_altcha_selfheal
+test_init_configs_generates_field_encryption_key
+test_ensure_config_files_field_encryption_key_selfheal
 test_ensure_config_files_netdata_floor
 test_init_configs_path_validation
 test_install_docker_windows
