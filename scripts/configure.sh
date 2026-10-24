@@ -63,6 +63,11 @@ if [ -z "${BPP_CONFIGS_DIR:-}" ] || [ ! -f "$BPP_CONFIGS_DIR/.env" ]; then
 	exit 1
 fi
 REJ_ENV="$BPP_CONFIGS_DIR/.env"
+
+# Nie blokuje — tylko widoczne ostrzezenie przy make up / config-check / doctor.
+if [ "$TRYB" = brakujace ] || [ "$TRYB" = sprawdz ]; then
+	rej_ostrzez_polityka_hasel
+fi
 DOKUMENTACJA="https://iplweb.github.io/bpp-deploy/konfiguracja/zmienne/"
 
 # --- --check ------------------------------------------------------------------
