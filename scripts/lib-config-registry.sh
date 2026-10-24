@@ -187,3 +187,34 @@ rej_docs() {
 		print "| `" $1 "` | " md(typ) " | " md(d) " | " $5 " | " $6 " | " md($7) " |"
 	}'
 }
+
+# --- polityka hasel -------------------------------------------------------------
+# BPP od 2026.10 (iplweb/bpp#892): haslo min. 15 znakow, bez cyklicznej zmiany
+# (NIST SP 800-63B). Zmienne aplikacji nadpisujace te domyslne siedza w .env
+# poza rejestrem — ostrzegamy (stderr), ale nie blokujemy deployu: to moze byc
+# swiadoma decyzja uczelni, a moze pozostalosc po starej konfiguracji.
+rej_ostrzez_polityka_hasel() {
+	local v
+	if rej_env_has DJANGO_BPP_PASSWORD_DURATION_SECONDS; then
+		v="$(rej_env_get DJANGO_BPP_PASSWORD_DURATION_SECONDS)"
+		case "$v" in
+			"" | 0) ;;
+			*[!0-9]*)
+				echo "  ⚠ UWAGA: niezgodna polityka hasel — DJANGO_BPP_PASSWORD_DURATION_SECONDS=${v} nie jest liczba sekund; BPP nie wystartuje. Usun zmienna albo wpisz 0." >&2 ;;
+			*)
+				echo "  ⚠ UWAGA: niezgodna polityka hasel — DJANGO_BPP_PASSWORD_DURATION_SECONDS=${v} ($((v / 86400)) dni) wymusza cykliczna zmiane hasla; BPP od 2026.10 domyslnie jej nie wymusza (NIST SP 800-63B). Jesli to pozostalosc, usun zmienna z ${REJ_ENV}." >&2 ;;
+		esac
+	fi
+	if rej_env_has DJANGO_BPP_PASSWORD_MIN_LENGTH; then
+		v="$(rej_env_get DJANGO_BPP_PASSWORD_MIN_LENGTH)"
+		case "$v" in
+			"" | *[!0-9]*)
+				echo "  ⚠ UWAGA: niezgodna polityka hasel — DJANGO_BPP_PASSWORD_MIN_LENGTH=${v} nie jest liczba; BPP nie wystartuje. Usun zmienna (domyslnie 15)." >&2 ;;
+			*)
+				if [ "$v" -lt 15 ]; then
+					echo "  ⚠ UWAGA: niezgodna polityka hasel — DJANGO_BPP_PASSWORD_MIN_LENGTH=${v} jest ponizej zalecanych 15 znakow (domyslna BPP od 2026.10). Jesli to pozostalosc, usun zmienna z ${REJ_ENV}." >&2
+				fi ;;
+		esac
+	fi
+	return 0
+}

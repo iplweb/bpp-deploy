@@ -10,7 +10,8 @@ powiadomienia, katalog backupów, widgety Freshdesk. Zebrane są w jednym rejest
   w `.env` jeszcze nie ma, np. po aktualizacji, która dodała nową zmienną,
 - **`make configure`**: menu grup do przejrzenia i zmiany wartości,
 - **`make config-check`** i **`make doctor`** (pozycja *config*): sprawdzają, czy wartości są
-  poprawne (e-mail wygląda jak e-mail, ID widgetu jest liczbą itd.),
+  poprawne (e-mail wygląda jak e-mail, ID widgetu jest liczbą itd.) i ostrzegają przed
+  [niezgodną polityką haseł](#polityka-hasel),
 - tabela niżej na tej stronie, generowana z rejestru.
 
 ## Kreator: `make configure`
@@ -73,6 +74,24 @@ można tylko w `make configure`.
 to komentarz, a `$` to składnia) i skrypty. Dlatego kreator nie przyjmuje w wartościach
 `$`, `#`, cudzysłowów, `\` ani `` ` ``. Sekrety mogą zawierać tylko litery, cyfry
 i `. _ ~ + / = -`.
+
+## Ostrzeżenie: niezgodna polityka haseł {#polityka-hasel}
+
+Od BPP 2026.10 ([iplweb/bpp#892](https://github.com/iplweb/bpp/pull/892)) hasło ma co
+najmniej 15 znaków i system **nie wymusza** cyklicznej zmiany hasła (zalecenie NIST
+SP 800-63B). Jeśli `.env` instalacji nadal ustawia starą politykę, `make up`,
+`make config-check` i `make doctor` pokazują ostrzeżenie `⚠ UWAGA: niezgodna polityka
+hasel`:
+
+| Zmienna w `.env` | Kiedy ostrzega |
+|---|---|
+| `DJANGO_BPP_PASSWORD_DURATION_SECONDS` | wartość różna od `0` (np. `2592000` = zmiana co 30 dni) albo nie-liczba |
+| `DJANGO_BPP_PASSWORD_MIN_LENGTH` | mniej niż `15` albo nie-liczba |
+
+Ostrzeżenie **nie blokuje** deployu, bo inna polityka może być świadomą decyzją uczelni.
+Jeśli to pozostałość po starej konfiguracji, usuń zmienną z `.env` i zrób `make up`.
+Wymuszenie zmiany hasła po podejrzeniu wycieku robi się w BPP poleceniem
+`manage.py wymus_zmiane_hasel`, nie przez rotację.
 
 ## Lista zmiennych
 

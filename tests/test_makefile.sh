@@ -2118,6 +2118,39 @@ _rlc_access() {  # ile_linii status upstream_time [minuta]
     }'
 }
 
+# BPP od 2026.10 (iplweb/bpp#892): haslo min. 15 znakow, bez cyklicznej
+# zmiany. Stare ustawienia w .env instalacji (rotacja, krotsza dlugosc)
+# po cichu by te polityke cofnely — config-check i make up maja ostrzec,
+# ale nie blokowac deployu.
+test_ostrzezenie_polityki_hasel() {
+    yellow "=== Test: ostrzezenie o niezgodnej polityce hasel (config-check / make up) ==="
+    local cfg out sc="$REPO_DIR/scripts/configure.sh"
+
+    cfg="$(mktemp -d)"
+    printf 'DJANGO_BPP_ADMIN_EMAIL=a@b.pl\n' > "$cfg/.env"
+    out="$(BPP_CONFIGS_DIR="$cfg" bash "$sc" --check 2>&1)" || true
+    _diag_nie_ma "hasla: brak ostrzezenia bez zmiennych hasel" 'polityka hasel' "$out"
+
+    printf 'DJANGO_BPP_PASSWORD_DURATION_SECONDS=0\n' >> "$cfg/.env"
+    out="$(BPP_CONFIGS_DIR="$cfg" bash "$sc" --check 2>&1)" || true
+    _diag_nie_ma "hasla: DURATION=0 nie ostrzega" 'polityka hasel' "$out"
+
+    sed -i.bak 's/^DJANGO_BPP_PASSWORD_DURATION_SECONDS=.*/DJANGO_BPP_PASSWORD_DURATION_SECONDS=2592000/' "$cfg/.env"
+    printf 'DJANGO_BPP_PASSWORD_MIN_LENGTH=8\n' >> "$cfg/.env"
+    if out="$(BPP_CONFIGS_DIR="$cfg" bash "$sc" --check 2>&1)"; then
+        pass "hasla: ostrzezenie nie zmienia wyniku config-check"
+    else
+        fail "hasla: ostrzezenie o hasle zablokowalo config-check"
+    fi
+    _diag_ma "hasla: ostrzega o rotacji (dni)" 'UWAGA: niezgodna polityka hasel.*DJANGO_BPP_PASSWORD_DURATION_SECONDS=2592000 \(30 dni\)' "$out"
+    _diag_ma "hasla: ostrzega o krotkim hasle" 'DJANGO_BPP_PASSWORD_MIN_LENGTH=8' "$out"
+
+    out="$(BPP_CONFIGS_DIR="$cfg" bash "$sc" --missing 2>&1 </dev/null)" \
+        || fail "hasla: configure.sh --missing zakonczyl sie bledem"
+    _diag_ma "hasla: make up (--missing) tez ostrzega" 'UWAGA: niezgodna polityka hasel' "$out"
+    rm -rf "$cfg"
+}
+
 test_configure_registry() {
     yellow "=== Test: rejestr zmiennych operatora (make configure / ask-missing-config / config-check) ==="
     local cfg out env sc="$REPO_DIR/scripts/configure.sh"
@@ -2819,6 +2852,7 @@ test_backup_pg_image_retired
 test_diag_db_commands
 test_configure_rate_limits
 test_configure_registry
+test_ostrzezenie_polityki_hasel
 
 echo ""
 echo "========================================"
