@@ -218,7 +218,7 @@ make test-alloy              # Czy pipeline logów nadaje poprawny poziom i pola
 make test-docker-versions    # Logika mapowania digest ↔ CalVer
 make test-config-path        # Normalizacja ścieżki katalogu konfiguracyjnego
 make test-grafana-datasources # Render datasources.yaml (działa bez gettexta)
-make test-upgrade            # Próba generalna migracji na kopii produkcyjnej bazy
+make test-upgrade            # Próba generalna: migracje + start kandydata na kopii bazy
 make test-deploy-with-warning # Sesja wdrożenia z ostrzeżeniem (mocki, bez Dockera)
 ```
 
@@ -295,7 +295,7 @@ Inne dystrybucje Linuksa (Fedora, Arch, openSUSE) i macOS — patrz
 ```bash
 make zaspawaj-wersje          # Przypnij DOCKER_VERSION do wersji działającego appservera
 make zaspawaj-wersje TAG=...  # Przypnij jawnie podaną wersję (tag CalVer)
-make test-upgrade             # Próba generalna: migracje kandydata na kopii bazy
+make test-upgrade             # Próba generalna: migracje + start kandydata na kopii bazy
 make test-upgrade TAG=...     # Próba generalna jawnie wskazanego kandydata
 make test-upgrade-clean       # Sprzątnięcie shadow stacka po nieudanej próbie
 make autoupdate               # Pętla: co ~2h sprawdź nowy obraz/commit → auto-deploy

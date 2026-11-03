@@ -177,14 +177,21 @@ fallback `${DOCKER_VERSION:-latest}` must stay for backwards compat).
 `make zaspawaj-wersje` welds the version **actually running in the appserver
 container** (not the local `latest` tag) into `.env` via the stable
 `set_env_var` helper; updating a pinned host requires an explicit
-`make zaspawaj-wersje TAG=<new>`. `make test-upgrade` is the migration
-rehearsal: fresh `db-backup` → shadow stack (`bpp-shadow-*`, plain
-`docker run` outside the Compose project) → `pg_restore` → candidate-image
-`manage.py migrate` with overridden entrypoint. It must never touch
-production containers, volumes, the local `latest` tag, or `.env`. Candidate
+`make zaspawaj-wersje TAG=<new>`. `make test-upgrade` is the upgrade
+rehearsal: DB size (prod `dbserver` volume via `du`; external → `pg_database_size`
+through the sentinel) → disk check (2.5×) → RAM check (sum of `SHADOW_*_MEM`, migrate and app counted as max — they never overlap — vs `MemAvailable` read **from a container**, i.e. the Docker VM on macOS) → fresh `db-backup` → shadow stack
+(`bpp-shadow-*`, plain `docker run` outside the Compose project; shadow DB =
+**the image the running prod `dbserver` uses** + bind-mounted `dbserver/`
+autotune, pinned `PGDATA`, ICU — never the discontinued `iplweb/bpp_dbserver`)
+→ `pg_restore --no-owner --no-privileges` → candidate-image `manage.py migrate`
+→ candidate appserver started on the copy, must answer `/health/` and `/`
+(2xx/3xx). Success = both. No monitoring/workers/nginx. Non-interactive by contract (exit 0/1, `2` = another run holds the host-wide lock — `bpp-shadow-*` names are global to the Docker daemon); after a failure the shadow stack is kept only when stdin is a TTY, otherwise cleaned after printing the candidate log (`KEEP_SHADOW=0|1` overrides). It must never touch
+production containers, volumes, the local `latest` tag, or `.env`. Under
+`pipefail`, every probe whose failure has a fallback needs `|| true` (a bare
+failing `df` used to kill the script silently). Candidate
 images are pulled **by version tag**, never via `:latest`. Shared
 digest↔CalVer logic lives in `scripts/lib-docker-versions.sh`
-(tests: `make test-docker-versions`). Detail: `docs/eksploatacja/komendy.md`.
+(tests: `make test-docker-versions`, incl. a mocked full `test-upgrade` run). Detail: `docs/eksploatacja/aktualizacje.md`.
 
 ## Critical Deployment Patterns
 
