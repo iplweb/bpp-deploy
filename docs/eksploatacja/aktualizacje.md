@@ -1,7 +1,7 @@
 # Aktualizacje i wersje obrazów
 
 Jak bezpiecznie aktualizować obrazy `iplweb/bpp_*` na działającej instalacji:
-przypięcie wersji (`make zaspawaj-wersje`), próba generalna migracji na kopii
+przypięcie wersji (`make zaspawaj-wersje`), próba generalna aktualizacji na kopii
 produkcyjnej bazy (`make test-upgrade`) i zalecany przepływ aktualizacji.
 
 ## Problem: ruchomy tag `latest`
@@ -55,32 +55,56 @@ Nic nie jest restartowane w momencie zaspawania — pin obowiązuje od
 następnej operacji compose. Host bez zaspawania (brak `DOCKER_VERSION`
 w `.env`) działa po staremu, na `latest`.
 
-## `make test-upgrade` — próba generalna migracji
+## `make test-upgrade` — próba generalna aktualizacji
 
 Najczęstszy scenariusz katastrofy przy aktualizacji to nowy obraz, którego
-migracje bazodanowe nie przechodzą — wykrywany dopiero w trakcie deployu,
-gdy stare kontenery już nie działają. `test-upgrade` wykrywa go **obok**
-produkcji, na świeżej kopii produkcyjnych danych:
+migracje bazodanowe nie przechodzą albo który po migracji po prostu nie
+wstaje — wykrywany dopiero w trakcie deployu, gdy stare kontenery już nie
+działają. `test-upgrade` wykrywa go **obok** produkcji, na świeżej kopii
+produkcyjnych danych:
 
 ```bash
 make test-upgrade                  # kandydat = najnowszy tag CalVer z Docker Huba
 make test-upgrade TAG=202606.1386  # jawny kandydat
 ```
 
+**Sukces oznacza dwie rzeczy:** migracje kandydata przeszły na kopii bazy
+**i** kandydat postawiony na tej kopii wstał i odpowiada (`/health/` oraz
+strona główna). Monitoring, workery i nginx nie są uruchamiane — nie są
+potrzebne do tej odpowiedzi.
+
 Przebieg:
 
 1. **Kandydat** — obraz pobierany **po tagu wersji**, nigdy przez `:latest`
    (lokalny `latest`, na którym chodzi produkcja, pozostaje nietknięty).
-2. **Kontrola miejsca** — wymagane ≈ 2,5× rozmiaru bazy (dump + rozpakowanie
-   + shadow-wolumen); brak miejsca przerywa próbę zanim cokolwiek ruszy.
-   Wymuszenie pominięcia: `SKIP_DISK_CHECK=1 make test-upgrade`.
+2. **Rozmiar bazy i kontrola miejsca** — najpierw mierzony jest rozmiar
+   bazy: w trybie lokalnym rozmiar wolumenu danych produkcyjnego
+   `dbserver`a (`du` w jednorazowym kontenerze, wolumen tylko do odczytu),
+   przy bazie zewnętrznej — `pg_database_size` przez kontener-wartownika.
+   Potem kontrola: wymagane ≈ 2,5× tego rozmiaru wolnego miejsca (dump +
+   rozpakowanie + shadow-wolumen); brak miejsca przerywa próbę, zanim
+   cokolwiek ruszy. Wymuszenie pominięcia: `SKIP_DISK_CHECK=1 make test-upgrade`.
+   Zaraz potem **kontrola pamięci**: suma limitów shadow stacka (baza + redis
+   + większy z: migracja, kandydat — domyślnie ≈ 3,3 GB) porównana
+   z `MemAvailable` odczytanym z kontenera (na Docker Desktop/OrbStack to
+   pamięć VM Dockera, nie Maca). Za mało → stop przed backupem, z podpowiedzią:
+   zatrzymać na czas próby monitoring, zmniejszyć `SHADOW_APP_MEM`/
+   `SHADOW_MIGRATE_MEM` albo wymusić `SKIP_MEM_CHECK=1`.
 3. **Backup** — świeży `make db-backup`; błąd backupu przerywa całość.
-4. **Shadow stack** — `bpp-shadow-dbserver` (ta sama wersja PostgreSQL co
-   produkcja) + `bpp-shadow-redis` na osobnej sieci dockerowej `bpp-shadow`,
-   poza projektem Compose, z przyciętymi limitami zasobów.
-5. **Restore** dumpa do shadow-bazy (`pg_restore -j`).
+4. **Shadow stack** — `bpp-shadow-dbserver` + `bpp-shadow-redis` na osobnej
+   sieci dockerowej `bpp-shadow`, poza projektem Compose, z przyciętymi
+   limitami zasobów. Shadow-baza startuje z **tego samego obrazu co
+   produkcyjny `dbserver`** (obraz odczytany z działającego kontenera), z tym
+   samym autotune z `dbserver/`, przypiętym `PGDATA` i kolacją ICU `pl-PL`.
+5. **Restore** dumpa do shadow-bazy (`pg_restore -j`, bez właścicieli
+   i uprawnień — shadow ma tylko rolę aplikacji).
 6. **Migracja** — `manage.py migrate` obrazem-kandydatem z nadpisanym
    entrypointem: nic poza migracją się nie uruchamia.
+7. **Start kandydata** — `bpp-shadow-appserver` z normalnym entrypointem
+   obrazu, na kopii bazy, z własnymi pustymi wolumenami na pliki statyczne
+   i media. Próba czeka, aż odpowie na `/health/` (domyślnie do 600 s),
+   a potem pyta o stronę główną pod pierwszym skonfigurowanym hostname —
+   akceptowane jest 2xx/3xx. Rollbar i Slack są w tym kontenerze wyzerowane.
 
 Wynik:
 
@@ -89,18 +113,63 @@ Wynik:
 - **Porażka (exit 1)** — shadow stack **zostaje** do inspekcji:
 
 ```bash
+docker logs bpp-shadow-appserver   # gdy kandydat nie wstał / nie odpowiada
 docker exec -it bpp-shadow-dbserver psql -U $DJANGO_BPP_DB_USER -d $DJANGO_BPP_DB_NAME
-make test-upgrade-clean   # sprzątnięcie po obejrzeniu
+make test-upgrade-clean            # sprzątnięcie po obejrzeniu
 ```
+
+### Uruchamianie bez nadzoru (cron, skrypty)
+
+`make test-upgrade` niczego nie pyta — wynik to kod wyjścia, więc nadaje się
+do crona albo do skryptu przed wdrożeniem:
+
+```bash
+make -C /ścieżka/do/bpp-deploy test-upgrade >> /var/log/bpp-test-upgrade.log 2>&1
+```
+
+| Kod | Znaczenie |
+|---|---|
+| `0` | migracje przeszły, kandydat wstał i odpowiada |
+| `1` | błąd (brak miejsca/pamięci, backup, migracja, kandydat nie wstał…) |
+| `2` | na tym hoście trwa już inna próba — nic nie zostało ruszone |
+
+Różnice względem uruchomienia z terminala:
+
+- **Po błędzie shadow stack jest sprzątany.** Z terminalem zostaje do
+  obejrzenia; bez terminala (stdin to nie TTY) nikt go nie obejrzy, a na
+  produkcji zajmowałby pamięć. Ostatnie linie logu kandydata trafiają na
+  wyjście **przed** sprzątaniem. Wymuszenie: `KEEP_SHADOW=1` (zostaw)
+  albo `KEEP_SHADOW=0` (sprzątaj także przy terminalu).
+- **Jedna próba na hosta.** Nazwy kontenerów `bpp-shadow-*` są wspólne dla
+  całego Dockera, więc drugi przebieg (np. cron i ręczny naraz) kończy się
+  kodem `2`, zamiast zniszczyć pierwszemu bazę w trakcie restore. Blokada po
+  procesie, który zginął (SIGKILL, restart hosta), jest przejmowana
+  automatycznie.
+
+### Baza zewnętrzna
+
+Przy bazie zewnętrznej (`BPP_DATABASE_COMPOSE=docker-compose.database.external.yml`)
+próba działa tak samo, z trzema różnicami:
+
+- produkcyjna baza jest tylko **czytana** — `make db-backup` robi `pg_dump`
+  przez kontener-wartownika, a dump ląduje w lokalnym katalogu backupów;
+- shadow-baza to **lokalny** kontener na tym hoście (nie na serwerze bazy),
+  z Debianowego `postgres:<major>` w majorze z `.env`
+  (`DJANGO_BPP_POSTGRESQL_VERSION_MAJOR`) — wartownik jest `-alpine`
+  i nie uruchomi autotune;
+- dlatego miejsce na dysku i pamięć liczą się **na hoście BPP**, nie na
+  serwerze bazy, a zgodność wersji jest na poziomie majora (minor i
+  konfiguracja serwera zewnętrznego mogą się różnić).
 
 Gwarancje: próba nie dotyka kontenerów ani wolumenów produkcji, nie zmienia
 lokalnego tagu `latest`, nie zapisuje niczego do `.env`. Jedyny koszt to
-obciążenie CPU/IO podczas dump+restore — na małych hostach uruchamiaj poza
-godzinami szczytu.
+obciążenie CPU/IO podczas dump+restore i startu kandydata — na małych hostach
+uruchamiaj poza godzinami szczytu.
 
 Limity zasobów shadow stacka można nadpisać zmiennymi środowiskowymi:
 `SHADOW_DB_MEM` (domyślnie `1g`), `SHADOW_DB_CPUS` (`1.0`),
 `SHADOW_REDIS_MEM` (`256m`), `SHADOW_MIGRATE_MEM` (`2g`),
+`SHADOW_APP_MEM` (`2g`), `SHADOW_APP_TIMEOUT` (`600` s),
 `PARALLEL_JOBS` (`4`, liczba wątków pg_restore).
 
 ## Zalecany przepływ aktualizacji
@@ -368,7 +437,7 @@ np. `AUTOUPDATE_INTERVAL=3600 make autoupdate` czy
     **wyłączony** (zakłada się, że wystarcza nocny backup) — jeśli chcesz
     dodatkowej ochrony, ustaw `AUTOUPDATE_DB_BACKUP=1`. Przed włączeniem
     auto-update na produkcji warto raz przejść ręcznie przez
-    [`make test-upgrade`](#make-test-upgrade-proba-generalna-migracji), by
+    [`make test-upgrade`](#make-test-upgrade-proba-generalna-aktualizacji), by
     upewnić się, że migracje kandydata przechodzą.
 
 ### Współistnienie z zaspawaną wersją

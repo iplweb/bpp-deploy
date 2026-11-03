@@ -53,7 +53,9 @@ db-backup:
 	# bind-mountem z hosta $(DJANGO_BPP_HOST_BACKUP_DIR). Nic nie laduje
 	# w writable layer kontenera, wiec dbserver nie puchnie przy kolejnych
 	# backupach (nawet jesli wywolanie bedzie przerwane).
-	@docker compose exec -e PGPASSWORD=$(DJANGO_BPP_DB_PASSWORD) dbserver pg_dump \
+	# -T: bez TTY - target wolaja tez cron/autoupdate/test-upgrade, a starsze
+	# Compose bez terminala odmawialy "the input device is not a TTY".
+	@docker compose exec -T -e PGPASSWORD=$(DJANGO_BPP_DB_PASSWORD) dbserver pg_dump \
 		-Fd \
 		-j $(PARALLEL_JOBS) \
 		-h $(DJANGO_BPP_DB_HOST) \
@@ -62,8 +64,8 @@ db-backup:
 		$(DJANGO_BPP_DB_NAME) \
 		-f /backup/$(BACKUP_DIRNAME)
 	@echo "Archiving backup..."
-	docker compose exec dbserver tar czf /backup/$(BACKUP_TAR) -C /backup $(BACKUP_DIRNAME)
-	docker compose exec dbserver rm -rf /backup/$(BACKUP_DIRNAME)
+	docker compose exec -T dbserver tar czf /backup/$(BACKUP_TAR) -C /backup $(BACKUP_DIRNAME)
+	docker compose exec -T dbserver rm -rf /backup/$(BACKUP_DIRNAME)
 	@echo "Backup saved to: $(BACKUP_FULL_PATH)"
 	@echo "Restore: tar xzf $(BACKUP_TAR) && pg_restore -Fd -j $(PARALLEL_JOBS) -d $(DJANGO_BPP_DB_NAME) $(BACKUP_DIRNAME)"
 
