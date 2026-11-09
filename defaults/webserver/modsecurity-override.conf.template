@@ -689,3 +689,66 @@ SecAction \
     pass,\
     nolog,\
     ctl:ruleRemoveTargetByTag=OWASP_CRS;REQUEST_COOKIES:ph_phc_hnhlqe6D2Q4IcQNrFItaqdXJAxQ8RcHkPAFAp74pubv_posthog"
+
+# ---------------------------------------------------------------------------
+# 10013: formularz multiseek (`json`) — JSON w JSON-ie to nie SQLi
+# ---------------------------------------------------------------------------
+# ZGLOSZENIE 2026-11-09: "nie dzialaja formularze" w wyszukiwaniu
+# zaawansowanym. Od 2026-11-04 (webserver przeciagniety na OWASP_CRS/4.30.0
+# wieczorem 03.11) ~45% POST-ow na /multiseek/ dostaje 444:
+#
+#   "POST /multiseek/live-results/ HTTP/2.0" 444 0     (631x w 6 dni)
+#   "POST /multiseek/results/ HTTP/2.0" 444 0          ( 96x)
+#
+# audit log, ZAWSZE ten sam jeden wzor:
+#
+#   942550 JSON-Based SQL Injection
+#     Matched Data: "[2017,2022]" found within ARGS:json:
+#       {"form_data":[null,...,{"field":"Zakres lat","operator":"w zakresie",
+#        "value":"[2017,2022]"}]],...}
+#   949110 Inbound Anomaly Score Exceeded (Total Score: 5)
+#
+# SKAD TA WARTOSC: front multiseek serializuje caly formularz do JSON-a
+# w polu `json`, a pola z wartoscia zlozona — "Zakres lat", "Data utworzenia"
+# (rowna / w zakresie) — maja `value` bedace TABLICA JSON ZAPISANA JAKO
+# STRING: `"[2021,2025]"`, `"[\"2026-11-04\"]"`. Wzorzec 942550
+# `["'`][\[\{][^#\]\}]*[\]\}]+["'`]` to doslownie "cudzyslow, nawias, ...,
+# nawias, cudzyslow" — czyli kazde zapytanie z zakresem lat albo data.
+# Nie ma tu zadnego wyboru uzytkownika, ktory daloby sie "ominac".
+#
+# ENDPOINTY: wszystko, co przyjmuje `json` z formularza multiseek —
+# results/ i live-results/ (csrf_exempt, anonimowe — to publiczna
+# wyszukiwarka), export/<format>/ (to samo, inny renderer), save_form/
+# (zapis formularza zalogowanego uzytkownika) i do-djangoql/ (tlumaczenie
+# formularza na DjangoQL). Trasy: bpp/src/django_bpp/urls.py.
+#
+# DLACZEGO NIE `ctl:ruleRemoveTargetById=942550`: w `value` siedzi tez WOLNY
+# TEKST (tytul, slowa kluczowe, nazwisko), wiec nastepna regula z dowolnej
+# rodziny zapali sie na nastepnym tytule — ta sama lekcja co w 10009/10011.
+#
+# ZAKRES = SINKI, jak w 10011:
+#   - formularz jest parsowany (json.loads) i zamieniany na filtry ORM-a —
+#     wartosci ida do SQL-a jako PARAMETRY, nie do powloki, pliku, include'a
+#     ani PHP. Zdejmujemy 930 (LFI), 931 (RFI), 932 (RCE), 933 (PHP)
+#     i 942 (SQLi) wylacznie z argumentu `json`;
+#   - wartosci wracaja do strony (opis zapytania w wynikach, zapisany
+#     formularz ladowany z powrotem do JS-a), a results/ jest csrf_exempt,
+#     wiec 941 (XSS) ZOSTAJE jako druga warstwa. Pilnuje tego asercja
+#     kontrolna w test-waf.sh.
+#
+# Pozostale argumenty tych endpointow (np. `name` w save_form) i `json`
+# na kazdej innej sciezce dalej sa chronione w pelni — kontrole w test-waf.sh.
+#
+# `REQUEST_FILENAME`, nie `REQUEST_URI` — z tego samego powodu co w 10009:
+# query string nie moze domknac wzorca na cudzej sciezce.
+SecRule REQUEST_FILENAME "@rx ^/multiseek/(?:results|live-results|save_form|do-djangoql|export/[\w-]+)/$" \
+    "id:10013,\
+    phase:1,\
+    pass,\
+    nolog,\
+    t:none,\
+    ctl:ruleRemoveTargetByTag=attack-lfi;ARGS:json,\
+    ctl:ruleRemoveTargetByTag=attack-rfi;ARGS:json,\
+    ctl:ruleRemoveTargetByTag=attack-rce;ARGS:json,\
+    ctl:ruleRemoveTargetByTag=attack-injection-php;ARGS:json,\
+    ctl:ruleRemoveTargetByTag=attack-sqli;ARGS:json"

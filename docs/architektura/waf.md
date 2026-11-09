@@ -240,6 +240,13 @@ Obecnie jest ich dwanaście:
   zdejmujemy z niego cały CRS — i tylko z niego. Szczegóły:
   [Ciasteczko PostHoga z Netdaty](#ciasteczko-posthoga).
 
+- **`id:10013` — formularz multiseek (`json`) bez reguł, które nie mają tu sinka.**
+  Argument `json` na `/multiseek/{results,live-results,save_form,do-djangoql,export/<format>}/`
+  nie jest skanowany rodzinami 930/931/932/933/942. **XSS (941) zostaje.**
+  Zgłoszenie 2026-11-09: od CRS 4.30 każde wyszukiwanie z „Zakres lat"
+  albo „Data utworzenia" → `942550` → zerwane połączenie. Szczegóły:
+  [Formularz multiseek](#formularz-multiseek).
+
 Reguły 10002 i 10003 schodzą dla swoich ścieżek do `ctl:ruleEngine=DetectionOnly`:
 trafienia nadal trafiają do audit logu (i posłużą do napisania precyzyjnych
 wykluczeń), ale nikomu nie urywają połączenia. To **tępe narzędzie na start** —
@@ -1001,6 +1008,66 @@ klienta PostHoga, payload nie ma dokąd trafić.
 
 Kontrole celowo **nie** używają wartości z produkcji — na 4.29 ona nigdzie
 nie blokuje, więc kontrola na niej przechodziłaby niczego nie dowodząc.
+
+## Formularz multiseek — reguła 10013 {#formularz-multiseek}
+
+### Objaw
+
+„Nie działają formularze" w wyszukiwaniu zaawansowanym: wyniki się nie
+odświeżają, „Szukaj" nic nie robi albo pokazuje zerwane połączenie. W logu
+Django nic, w access logu:
+
+```
+"POST /multiseek/live-results/ HTTP/2.0" 444 0
+"POST /multiseek/results/ HTTP/2.0" 444 0
+```
+
+Pierwsza instalacja: 2026-11-04, dzień po przeciągnięciu obrazu webservera na
+`OWASP_CRS/4.30.0`. W 6 dni 727 zablokowanych POST-ów, ok. 45% wszystkich
+POST-ów na `/multiseek/`, z kilkunastu adresów sieci uczelni.
+
+### Przyczyna
+
+Front multiseek wysyła cały formularz jako JSON w argumencie `json`. Pola
+z wartością złożoną — „Zakres lat", „Data utworzenia" (równa / w zakresie) —
+mają `value` będące **tablicą JSON zapisaną jako string**:
+
+```
+942550 JSON-Based SQL Injection
+Matched Data: "[2017,2022]" found within ARGS:json:
+{"form_data":[null,…,{"field":"Zakres lat","operator":"w zakresie","value":"[2017,2022]"}]],…}
+```
+
+Wzorzec `942550` (`["'`][\[\{][^#\]\}]*[\]\}]+["'`]`) to dosłownie
+„cudzysłów, nawias, …, nawias, cudzysłów" — każde zapytanie z zakresem lat
+albo datą. Użytkownik nie ma jak tego ominąć.
+
+### Zakres i dlaczego wolno
+
+Tak samo jak [10011](#tytul-raportu): zdejmujemy rodziny bez sinka, tylko
+z argumentu `json`, tylko na endpointach, które ten formularz przyjmują.
+
+- Formularz jest parsowany (`json.loads`) i zamieniany na filtry ORM-a —
+  wartości idą do SQL-a jako **parametry**. 930/931/932/933/942 nie mają tu
+  czego chronić.
+- Wartości wracają do strony (opis zapytania, zapisany formularz ładowany do
+  JS-a), a `results/` jest `csrf_exempt` — **941 (XSS) zostaje**.
+- Nie `ruleRemoveTargetById=942550`: w `value` jest też wolny tekst (tytuł,
+  słowa kluczowe), więc wyliczanka ID przegrałaby jak w 10009.
+
+### Kontrole w `make test-waf`
+
+| Wynik | Przypadek |
+|---|---|
+| PASS | formularze z produkcji („Zakres lat", „Data utworzenia") na results, live-results, export, save_form, do-djangoql |
+| PASS — `CENA:` | realne SQLi i RCE w wartości formularza |
+| BLOK | XSS w `json` |
+| BLOK | SQLi w `name` na `save_form/` |
+| BLOK | formularz z produkcji na `/bpp/szukaj/` i na `/multiseek/reset/` |
+
+Ostatnie dwie kontrole biorą wartość **z produkcji** — dowodzą przy okazji,
+że obraz testowy ma `942550` w wersji, która ją łapie. Gdy upstream poprawi
+wzorzec i zaczną przechodzić, przebudować je na realne SQLi (jak w 10011).
 
 ## Logi WAF-a w Grafanie
 
