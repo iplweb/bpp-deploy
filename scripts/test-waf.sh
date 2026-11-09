@@ -854,6 +854,76 @@ for para in "PASS|FP 942550 prod: Zakres lat|multiseek/live-results/|json=$MS_ZA
 done
 
 # --------------------------------------------------------------------------
+# Reguly 10014-10017: `next` przy logowaniu, /api/v1/whoami/, serwer MCP
+# --------------------------------------------------------------------------
+# Znalezione 2026-11-09 przy okazji 10013 w audit logu produkcji:
+#   10014 — `next=/multiseek/results/?all=1&print=1` -> 932370 (`&print`),
+#   10015 — `GET /api/v1/whoami/` -> 932260 (nazwa polecenia w SCIEZCE),
+#   10016 — klucz `_meta.claudecode/toolUseId` -> 930120 (`.claude` w nazwie),
+#   10017 — DjangoQL w argumencie narzedzia na /mcp/auth -> 942100.
+# Uzasadnienia w komentarzach przy regulach.
+#
+# Pola: oczekiwany wynik | opis | metoda | sciezka z query stringiem (juz
+# zakodowanym) | typ ciala (-, F = formularz, J = JSON) | cialo.
+# Grupy jak wyzej: FP z produkcji, CENA, KONTROLE (inna rodzina na tym samym
+# argumencie, ten sam payload w innym argumencie albo na innej sciezce).
+echo
+printf "%-6s %-46s %s\n" "WYNIK" "LOGOWANIE / WHOAMI / MCP (10014-10017)" "SZCZEGOLY"
+printf "%s\n" "----------------------------------------------------------------------------------"
+NEXT_PROD='next=%2Fmultiseek%2Fresults%2F%3Fall%3D1%26print%3D1'
+NEXT_RCE='next=%2Fx%3B%24%28id%29'
+NEXT_SQLI='next=%27%20UNION%20ALL%20SELECT%20NULL%2CNULL--%20a'
+MCP_META='"_meta":{"claudecode/toolUseId":"toolu_01AbCdEfGhIjKlMnOpQrStUv"}'
+MCP_DJANGOQL="{\"jsonrpc\":\"2.0\",\"id\":7,\"method\":\"tools/call\",\"params\":{$MCP_META,\"name\":\"zapytanie_autorzy\",\"arguments\":{\"q\":\"nazwisko in (\\\"Przykładowska\\\", \\\"Kowalski\\\", \\\"Nowak\\\", \\\"Wiśniewska\\\")\"}}}"
+MCP_SZUKAJ="{\"jsonrpc\":\"2.0\",\"id\":8,\"method\":\"tools/call\",\"params\":{$MCP_META,\"name\":\"szukaj_publikacji\",\"arguments\":{\"q\":\"choroby odzwierzęce\"}}}"
+MCP_SQLI="{\"jsonrpc\":\"2.0\",\"id\":9,\"method\":\"tools/call\",\"params\":{$MCP_META,\"name\":\"szukaj_publikacji\",\"arguments\":{\"q\":\"x' UNION ALL SELECT NULL,NULL-- a\"}}}"
+for para in "PASS|FP 932370 prod: next z wydruku multiseek|GET|accounts/login/?$NEXT_PROD|-|" \
+            "PASS|FP 932370: to samo na /admin/login/|GET|admin/login/?$NEXT_PROD|-|" \
+            "PASS|FP 932370: POST formularza logowania|POST|accounts/login/|F|username=zofia&password=haslo123&$NEXT_PROD" \
+            "PASS|CENA: realne RCE w next|GET|accounts/login/?$NEXT_RCE|-|" \
+            "BLOK|kontrola: SQLi w next|GET|accounts/login/?$NEXT_SQLI|-|" \
+            "BLOK|kontrola: RCE z next w polu username|POST|accounts/login/|F|username=%2Fx%3B%24%28id%29&password=x" \
+            "BLOK|kontrola: next z prod na innej sciezce|GET|bpp/szukaj/?$NEXT_PROD|-|" \
+            "PASS|FP 932260 prod: GET /api/v1/whoami/|GET|api/v1/whoami/|-|" \
+            "BLOK|kontrola: RCE w query stringu whoami|GET|api/v1/whoami/?x=%3Bcat%20%2Fetc%2Fpasswd|-|" \
+            "BLOK|kontrola: whoami na innej sciezce|GET|api/v1/whoami/x/|-|" \
+            "PASS|FP 942100+930120 prod: DjangoQL na /mcp/auth|POST|mcp/auth|J|$MCP_DJANGOQL" \
+            "PASS|FP 930120: _meta Claude Code na /mcp|POST|mcp|J|$MCP_SZUKAJ" \
+            "PASS|CENA: realne SQLi na /mcp/auth|POST|mcp/auth|J|$MCP_SQLI" \
+            "BLOK|kontrola: realne SQLi na publicznym /mcp|POST|mcp|J|$MCP_SQLI" \
+            "BLOK|kontrola: DjangoQL z prod na innej sciezce|POST|bpp/szukaj/|J|$MCP_DJANGOQL" \
+            "BLOK|kontrola: _meta Claude Code na innej sciezce|POST|bpp/szukaj/|J|$MCP_SZUKAJ"; do
+    IFS='|' read -r oczek opis metoda sciezka typ cialo <<< "$para"
+    LACZNIE=$((LACZNIE + 1))
+    case "$typ" in
+        F) dane=(-H "Content-Type: application/x-www-form-urlencoded" --data-binary "$cialo") ;;
+        J) dane=(-H "Content-Type: application/json" --data-binary "$cialo") ;;
+        *) dane=() ;;
+    esac
+    kod=$(curl -sk --http1.1 -o /dev/null -w '%{http_code}' --max-time 8 \
+        --resolve "$HOST_NAME:$PORT:127.0.0.1" \
+        -X "$metoda" "${dane[@]}" \
+        "https://$HOST_NAME:$PORT/$sciezka" 2>/dev/null)
+    rc=$?
+    if [ "$rc" -eq 52 ] || [ "$rc" -eq 56 ] || [ "$rc" -eq 92 ]; then
+        faktyczny="BLOK"; szczegol="polaczenie zerwane (curl $rc)"
+    elif [ "$rc" -ne 0 ]; then
+        faktyczny="BLAD"; szczegol="curl $rc"
+    elif [ "$kod" = "403" ]; then
+        faktyczny="BLOK"; szczegol="HTTP 403 od ModSecurity"
+    else
+        faktyczny="PASS"; szczegol="HTTP $kod"
+    fi
+    if [ "$faktyczny" = "$oczek" ]; then
+        printf "  \033[32mOK\033[0m   %-46s %s\n" "$opis" "$szczegol"
+    else
+        printf "  \033[31mFAIL\033[0m %-46s oczekiwano %s, jest %s (%s)\n" \
+            "$opis" "$oczek" "$faktyczny" "$szczegol"
+        BLEDY=$((BLEDY + 1))
+    fi
+done
+
+# --------------------------------------------------------------------------
 # Przypadek osobny: legalne zadanie po HTTP/3
 # --------------------------------------------------------------------------
 # Nie siedzi w tablicy PRZYPADKI, bo tamte strzelaja `curl --http1.1` Z HOSTA,
