@@ -3091,6 +3091,50 @@ test_backup_runner_mounts_configs() {
         '^backup: db-backup media-backup config-backup' "$REPO_DIR/mk/database.mk"
 }
 
+test_db_autotune_external() {
+    yellow "=== Test: make db-autotune-external (gotowiec dla zewnetrznej bazy) ==="
+    local out rc skrypt="$REPO_DIR/scripts/db-autotune-external.sh"
+    _ma() { if grep -qF -- "$2" <<<"$out"; then pass "$1"; else fail "$1 (brak '$2')"; fi; }
+
+    rc=0; out="$(BPP_AUTOTUNE_LIVE=0 bash "$skrypt" 16G 8 </dev/null 2>&1)" || rc=$?
+    if [ "$rc" -eq 0 ]; then pass "16G/8: exit 0"; else fail "16G/8: exit $rc"; fi
+    # Te same wzory co baza w Dockerze (dbserver/autotune.sh)
+    _ma "shared_buffers = 25% RAM"               "shared_buffers = 4GB"
+    _ma "max_connections z RAM (cap 250)"        "max_connections = 250"
+    _ma "CPU podane, nie wykryte z hosta"        "max_worker_processes = 8"
+    _ma "wersja ALTER SYSTEM"                    "ALTER SYSTEM SET shared_buffers = '4GB';"
+    _ma "reload po ALTER SYSTEM"                 "SELECT pg_reload_conf();"
+    _ma "lista parametrow wymagajacych restartu" "(reload nie wystarczy): max_connections"
+    if grep -q "POSTGRESQL_RAM_THIS_MUCH" <<<"$out"; then
+        fail "komentarze o zmiennych kontenera nie trafiaja do gotowca"
+    else
+        pass "komentarze o zmiennych kontenera nie trafiaja do gotowca"
+    fi
+
+    # 2 rdzenie maja dac 2, nawet gdy host testowy ma ich wiecej
+    out="$(BPP_AUTOTUNE_LIVE=0 bash "$skrypt" 512M 2 </dev/null 2>&1)" || true
+    _ma "512M: max_connections = 50"             "max_connections = 50"
+    _ma "512M: max_worker_processes = 2"         "max_worker_processes = 2"
+    _ma "512M: ostrzezenie o malej bazie"        "to malo dla BPP"
+
+    local zle
+    for zle in "3x 8" "16G 0" "16G abc" "100M 4"; do
+        # shellcheck disable=SC2086  # celowo: dwa argumenty
+        rc=0; BPP_AUTOTUNE_LIVE=0 bash "$skrypt" $zle </dev/null >/dev/null 2>&1 || rc=$?
+        if [ "$rc" -eq 2 ]; then pass "odrzuca '$zle' (exit 2)"; else fail "odrzuca '$zle' (exit $rc)"; fi
+    done
+    rc=0; BPP_AUTOTUNE_LIVE=0 bash "$skrypt" </dev/null >/dev/null 2>&1 || rc=$?
+    if [ "$rc" -eq 2 ]; then pass "bez parametrow i bez TTY: usage, nie wisi"; else fail "bez parametrow: exit $rc"; fi
+
+    # Kontener: bez POSTGRESQL_NPROC autotune dalej wykrywa rdzenie sam
+    out="$(POSTGRESQL_RAM_THIS_MUCH_GB=1024 sh "$REPO_DIR/dbserver/autotune.sh")"
+    _ma "autotune w kontenerze: rdzenie wykryte" \
+        "max_worker_processes = $(getconf _NPROCESSORS_ONLN 2>/dev/null || nproc)"
+    # shellcheck disable=SC2016  # wzorzec doslowny
+    assert_file_contains "make db-autotune-external przekazuje RAM i CPU" \
+        'db-autotune-external.sh "$(RAM)" "$(CPU)"' "$REPO_DIR/mk/database.mk"
+}
+
 test_install_docker_windows() {
     yellow "=== Test: install-docker pod Windows (winget) ==="
 
@@ -3217,6 +3261,7 @@ test_config_backup_script
 test_restore_config
 test_restore_config_first_run
 test_backup_runner_mounts_configs
+test_db_autotune_external
 
 echo ""
 echo "========================================"

@@ -53,6 +53,7 @@ make db-backup        # Backup bazy (równoległy pg_dump, tar.gz)
 make dbshell          # Django database shell
 make dbshell-psql     # Bezpośredni psql
 make upgrade-postgres # Upgrade major wersji PostgreSQL (np. 16.13 → 18.3)
+make db-autotune-external RAM=16G CPU=8  # Gotowiec postgresql.conf dla bazy zewnętrznej
 ```
 
 Szczegóły: [Baza danych](baza-danych.md), [PostgreSQL](../konfiguracja/postgresql.md).

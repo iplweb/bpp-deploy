@@ -33,6 +33,7 @@ Operator topics and their canonical pages:
 - Multi-host: `docs/konfiguracja/multi-host.md`
 - Resource limits: `docs/konfiguracja/limity-zasobow.md`
 - PostgreSQL versions/upgrade: `docs/konfiguracja/postgresql.md`
+- External DB (server prep, roles, ICU, pg_hba, `make db-autotune-external`): `docs/konfiguracja/baza-zewnetrzna.md`
 - pgbouncer (appserver connection pool): `docs/konfiguracja/pgbouncer.md`
 - Make commands: `docs/eksploatacja/komendy.md`
 - Planned-downtime deploys (`run-with-warning`): `docs/eksploatacja/przerwa-techniczna.md`

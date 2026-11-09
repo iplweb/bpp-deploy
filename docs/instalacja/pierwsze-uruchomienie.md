@@ -40,7 +40,8 @@ Sciezka: /home/deploy/moja-instancja
 - wygeneruje losowe hasła do bazy danych,
 - utworzy plik `.env` z konfiguracją,
 - uruchomi [`configure-resources`](../konfiguracja/limity-zasobow.md) (limity RAM/CPU),
-- wybierze [wersję PostgreSQL](../konfiguracja/postgresql.md).
+- wybierze [wersję PostgreSQL](../konfiguracja/postgresql.md) albo podłączy
+  [bazę zewnętrzną](../konfiguracja/baza-zewnetrzna.md) — przygotuj ją **przed** `make`.
 
 ## 2. Sprawdź i dostosuj konfigurację
 

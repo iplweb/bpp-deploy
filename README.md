@@ -218,6 +218,8 @@ make
 
 Przy pierwszym uruchomieniu `make` zapyta o ścieżkę do **katalogu konfiguracyjnego** (musi znajdować się poza repozytorium — jego nazwa stanie się nazwą projektu Docker Compose; pod Windows możesz podać ścieżkę windowsową, np. `C:\dane\bpp`) i automatycznie: utworzy strukturę katalogów, skopiuje szablony z `defaults/`, wygeneruje losowe hasła i utworzy plik `.env`.
 
+Zapyta też o tryb bazy danych: PostgreSQL w kontenerze (domyślnie) albo **zewnętrzny serwer** — ten trzeba przygotować przed `make` (rola, baza z kolacją ICU `pl-PL`, `pg_hba.conf`); opis krok po kroku: [Baza zewnętrzna](https://iplweb.github.io/bpp-deploy/konfiguracja/baza-zewnetrzna/).
+
 ### 2. Sprawdź i dostosuj konfigurację
 
 Otwórz `.env` z katalogu konfiguracyjnego (ścieżka wyświetli się po pierwszym `make`, np. `/home/deploy/moja-instancja/.env`) i ustaw:
@@ -259,7 +261,7 @@ Pełna dokumentacja: **[iplweb.github.io/bpp-deploy](https://iplweb.github.io/bp
 | Sekcja | Tematy |
 |--------|--------|
 | [Instalacja](https://iplweb.github.io/bpp-deploy/instalacja/) | Linux / macOS / Windows, pierwsze uruchomienie |
-| [Konfiguracja](https://iplweb.github.io/bpp-deploy/konfiguracja/architektura/) | architektura, SSL, multi-host, limity zasobów, PostgreSQL |
+| [Konfiguracja](https://iplweb.github.io/bpp-deploy/konfiguracja/architektura/) | architektura, SSL, multi-host, limity zasobów, PostgreSQL, baza zewnętrzna |
 | [Eksploatacja](https://iplweb.github.io/bpp-deploy/eksploatacja/komendy/) | komendy `make`, baza danych, backupy, przenosiny serwera, wydania |
 | [Monitoring i logi](https://iplweb.github.io/bpp-deploy/monitoring/przeglad/) | Netdata, Loki, Grafana, alerty ntfy, wolne zapytania |
 | [Architektura](https://iplweb.github.io/bpp-deploy/architektura/uslugi/) | usługi, przepływ danych, healthchecks, zadania Ofelii |
