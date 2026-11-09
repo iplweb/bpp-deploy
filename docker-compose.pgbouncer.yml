@@ -53,4 +53,4 @@ services:
       resources:
         limits:
           memory: ${PGBOUNCER_MEM_LIMIT:-64m}
-          cpus: "${PGBOUNCER_CPU_LIMIT:-0.5}"
+          cpus: "${PGBOUNCER_CPU_LIMIT:-2}"

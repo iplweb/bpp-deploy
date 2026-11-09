@@ -469,6 +469,15 @@ for i in "${!RESULT_NAMES[@]}"; do
     fi
 done
 
+# pgbouncer: stale 2 CPU (nie z puli wag). Przy CONN_MAX_AGE=0 kazde zadanie
+# appservera to nowe logowanie SCRAM liczone przez pgbouncera; przy 0,5 CPU
+# byl dlawiony przez CFS (dziesiatki tysiecy throttlingow na dobe, ~14 ms na
+# pierwszym zapytaniu zamiast <1 ms). Nie wiecej niz ma host — Docker odrzuca
+# `cpus` powyzej liczby rdzeni.
+pgbouncer_cpu=2
+[ "$CPU_COUNT" -lt "$pgbouncer_cpu" ] && pgbouncer_cpu=$CPU_COUNT
+set_env_var "PGBOUNCER_CPU_LIMIT" "$pgbouncer_cpu"
+
 # Dodatkowo: wewnetrzny limit Redisa - ~80% Docker limit, zostawia pole
 # dla bufora sieciowego i metadanych.
 redis_mem_mb=$(mem_for redis || true)
