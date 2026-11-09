@@ -199,7 +199,8 @@ floodzie baza kończy na `too many clients` (incydent z 27.09.2026 —
 z jednym rdzeniem 1 (Docker odrzuca `cpus` powyżej liczby rdzeni). Każde
 żądanie appservera to nowe logowanie, które pgbouncer liczy sam; przy 0,5 CPU
 był dławiony i pierwsze zapytanie w połączeniu trwało ~14 ms zamiast <1 ms.
-`PGBOUNCER_POOL_SIZE` (80) to sufit połączeń puli do bazy;
+`PGBOUNCER_POOL_SIZE` (80, obniżane przez
+[budżet połączeń](pgbouncer.md#budzet-polaczen)) to sufit połączeń puli do bazy;
 musi się zmieścić w `max_connections` razem z połączeniami bezpośrednimi.
 Łańcuch zależności: `DBSERVER_MEM_LIMIT` → autotune `max_connections`
 (100 na 1 GB, maks. 250) → pula przycinana przy starcie do

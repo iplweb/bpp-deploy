@@ -72,7 +72,11 @@ wymagana DJANGO_BPP_DB_USER
 wymagana DJANGO_BPP_DB_PASSWORD
 DB_PORT="${DJANGO_BPP_DB_PORT:-5432}"
 
-PULA=$(liczba_lub_domyslna PGBOUNCER_POOL_SIZE 80)
+# Kolejnosc: jawne PGBOUNCER_POOL_SIZE > BPP_BUDGET_POOL (scripts/db-budget.sh,
+# z RAM bazy; tylko obniza) > 80. Ponizej i tak przycinamy do max_connections.
+DOMYSLNA_PULA=$(liczba_lub_domyslna BPP_BUDGET_POOL 80)
+[ "$DOMYSLNA_PULA" -ge 1 ] || DOMYSLNA_PULA=80
+PULA=$(liczba_lub_domyslna PGBOUNCER_POOL_SIZE "$DOMYSLNA_PULA")
 KLIENCI=$(liczba_lub_domyslna PGBOUNCER_MAX_CLIENT_CONN 1000)
 # Odcinanie zgubionych sesji. W trybie session klient trzyma backend przez cale
 # swoje polaczenie. Appserver (CONN_MAX_AGE=0) ma oddawac polaczenie po kazdym

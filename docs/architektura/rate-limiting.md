@@ -116,7 +116,7 @@ i wszystkich vhostów**:
 |---|---|---|
 | `BPP_NGINX_GLOBAL_RATE` | `20` | Żądań/s do appservera łącznie, ze wszystkich IP (1200/min). |
 | `BPP_NGINX_GLOBAL_BURST` | `200` | Górka ponad `RATE` obsługiwana od ręki (~10 s szczytu). |
-| `BPP_NGINX_GLOBAL_CONN` | `60` | Żądań do appservera obsługiwanych **naraz**. |
+| `BPP_NGINX_GLOBAL_CONN` | `60`, obniżane przez [budżet połączeń](../konfiguracja/pgbouncer.md#budzet-polaczen) | Żądań do appservera obsługiwanych **naraz**. Bez jawnej wartości nie więcej, niż pula pgbouncera ma połączeń. |
 
 Ponad limit nginx oddaje od razu **429** (nie 503 — ten sam powód co
 [wyżej](#status-429-nie-503-i-poziom-logu)), zamiast pozwolić, żeby żądania

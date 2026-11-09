@@ -5,6 +5,8 @@
 # nie uruchomil `make init-configs` po git pullu).
 ensure-config-files:
 	@bash scripts/ensure-config-files.sh
+	@# Budzet polaczen (RAM bazy -> pula pgbouncera -> nginx); fail-open.
+	@bash scripts/db-budget.sh --zapisz
 
 update-ssl-certs:
 	@if docker compose ps webserver 2>/dev/null | grep -q "Up"; then \

@@ -189,6 +189,19 @@ pomaga — przy skanie botów baza padnie z braku pamięci, zanim zabraknie poł
 Po każdej zmianie `max_connections` zrestartuj pgbouncer:
 `docker compose restart pgbouncer`.
 
+**Wpisz RAM serwera bazy do `.env`** — z niego `make up` liczy
+[budżet połączeń](pgbouncer.md#budzet-polaczen), czyli pulę pgbouncera i limit
+równoczesnych żądań w nginksie, tak żeby nadmiar ruchu dostawał 429, zamiast
+dochodzić do bazy:
+
+```bash
+BPP_DB_RAM=16G
+BPP_DB_CPUS=8     # opcjonalnie; domyślne CPU= dla make db-autotune-external
+```
+
+Z tymi zmiennymi `make db-autotune-external` nie potrzebuje już parametrów.
+Sprawdzenie: `make db-budget`.
+
 Jak sprawdzić, kto trzyma połączenia: `make db-connection-stats` i
 `make pgbouncer-stats` (w trybie zewnętrznym zamiast nazw kontenerów zobaczysz
 zwykle adres hosta BPP).
@@ -252,6 +265,7 @@ BPP (`make test-upgrade`) robi lokalną kopię bazy na hoście BPP —
 - [ ] `listen_addresses`, `pg_hba.conf` (`bpp` + `bpp_monitor` z adresu hosta BPP), firewall
 - [ ] `make` → tryb **2**, kreator wykrył wersję
 - [ ] `make db-autotune-external RAM=… CPU=…` → wklejone, PostgreSQL zrestartowany
+- [ ] `BPP_DB_RAM` (i `BPP_DB_CPUS`) w `.env`, `make db-budget` pokazuje pulę i limit nginx
 - [ ] `make up`, `/setup/` w przeglądarce
 - [ ] `make create-monitoring-user` → SQL wykonany; Grafana pokazuje metryki bazy
 - [ ] `make db-backup` przechodzi

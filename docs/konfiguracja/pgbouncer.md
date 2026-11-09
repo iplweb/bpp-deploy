@@ -37,7 +37,7 @@ w obu trybach. Logowanie tym samym kontem co dotąd
 |---|---|---|
 | `BPP_APPSERVER_DB_HOST` | `pgbouncer` | dokąd łączy się appserver |
 | `BPP_APPSERVER_DB_PORT` | `6432` | port dla powyższego |
-| `PGBOUNCER_POOL_SIZE` | `80` | maks. połączeń pgbouncera do bazy |
+| `PGBOUNCER_POOL_SIZE` | `80`, obniżane przez [budżet](#budzet-polaczen) | maks. połączeń pgbouncera do bazy |
 | `PGBOUNCER_MAX_CLIENT_CONN` | `1000` | maks. połączeń appservera do pgbouncera |
 | `PGBOUNCER_IDLE_SESSION_TIMEOUT` | `600` | po ilu sekundach bezczynności PostgreSQL zamyka sesję z puli, a pgbouncer zwalnia jej miejsce (`idle_session_timeout` na backendach puli; `0` = nigdy); chroni pulę przed sesjami, które appserver zgubił |
 | `PGBOUNCER_VERSION` | `v1.25.2-p0` | tag obrazu `edoburu/pgbouncer` |
@@ -63,6 +63,47 @@ się nie mieści — **przycina ją** z ostrzeżeniem w logu:
 ```
 bpp-pgbouncer: OSTRZEZENIE: PGBOUNCER_POOL_SIZE=80 przekracza max_connections=100 minus rezerwa 40 — przycinam do 60. Obniz BPP_NGINX_GLOBAL_CONN do <= 60 albo podnies DBSERVER_MEM_LIMIT (autotune: 100 polaczen na 1 GB).
 ```
+
+## Budżet połączeń {#budzet-polaczen}
+
+Ogniwa łańcucha „bot → nginx → appserver → pgbouncer → PostgreSQL" muszą do
+siebie pasować. Jeśli nginx wpuszcza więcej żądań naraz, niż pula ma połączeń,
+nadmiar **czeka w kolejce pgbouncera** do 15 s (`query_wait_timeout`) i kończy się
+timeoutem, zamiast od razu dostać czytelne **429**. Dlatego `make up` liczy
+budżet z jednego źródła — RAM-u bazy:
+
+```text
+RAM bazy        → max_connections   (te same wzory co autotune dbservera: 100 na 1 GB, maks. 250)
+max_connections → pula pgbouncera   (minus rezerwa max(40, 20 + ¾ × rdzenie) na połączenia bezpośrednie)
+pula            → nginx: żądań naraz (BPP_NGINX_GLOBAL_CONN; ponad to 429)
+```
+
+Podgląd całego łańcucha (tylko do odczytu):
+
+```bash
+make db-budget
+```
+
+Skąd RAM bazy:
+
+| Tryb bazy | Źródło |
+|---|---|
+| w Dockerze | `DBSERVER_MEM_LIMIT` × `POSTGRESQL_RAM_PERCENT` (0,95) — tak samo jak autotune w kontenerze |
+| zewnętrzna | **`BPP_DB_RAM`** w `.env` (np. `BPP_DB_RAM=16G`). Bez niej budżetu nie ma — zostają domyślne limity, a pula jest przycinana tylko do `max_connections` odczytanego z bazy |
+
+Zasady:
+
+- budżet **tylko obniża** wartości domyślne (pula 80, nginx 60) — nigdy ich nie podnosi;
+- jawne `PGBOUNCER_POOL_SIZE` i `BPP_NGINX_GLOBAL_CONN` w `.env` **wygrywają**;
+  `make db-budget` i log startu nginksa ostrzegają, gdy łamią budżet;
+- wynik `make up` zapisuje w `.env` jako `BPP_BUDGET_POOL` i `BPP_BUDGET_NGINX_CONN` —
+  **nie edytuj ich**, są przeliczane przy każdym `make up`;
+- pgbouncer przy starcie i tak przycina pulę do **prawdziwego** `max_connections`
+  (patrz wyżej) — to siatka bezpieczeństwa, gdy baza zewnętrzna ma inne
+  `max_connections`, niż wynika z `BPP_DB_RAM`.
+
+Przykład: baza w Dockerze z `DBSERVER_MEM_LIMIT=512m` → `max_connections` 47 →
+pula 10 → nginx przepuszcza 10 żądań naraz, jedenaste dostaje 429 od razu.
 
 ## Diagnostyka
 

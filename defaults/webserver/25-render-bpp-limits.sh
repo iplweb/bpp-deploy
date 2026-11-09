@@ -47,7 +47,7 @@
 set -eu
 
 ME="25-render-bpp-limits.sh"
-OUT_DIR="/etc/nginx/conf.d"
+OUT_DIR="${BPP_LIMITS_OUT_DIR:-/etc/nginx/conf.d}"   # zmienna: tylko testy
 HTTP_CONF="$OUT_DIR/05-bpp-global-limits.conf"
 LOC_INC="$OUT_DIR/bpp-global-limits.inc"
 
@@ -84,6 +84,19 @@ liczba_lub_domyslna() {
 RATE=$(liczba_lub_domyslna BPP_NGINX_GLOBAL_RATE 20)
 BURST=$(liczba_lub_domyslna BPP_NGINX_GLOBAL_BURST 200)
 CONN=$(liczba_lub_domyslna BPP_NGINX_GLOBAL_CONN 60)
+# Budzet polaczen (scripts/db-budget.sh, BPP_BUDGET_NGINX_CONN = pula
+# pgbouncera): bez jawnego BPP_NGINX_GLOBAL_CONN nginx nie wpuszcza wiecej
+# zadan naraz, niz pula ma polaczen — nadmiar dostaje 429 od reki, zamiast
+# czekac w kolejce pgbouncera do 15 s. Linia wyzej zostaje w formie
+# `liczba_lub_domyslna VAR N` — z niej czyta domyslne make configure-rate-limits.
+BUDZET_CONN=$(liczba_lub_domyslna BPP_BUDGET_NGINX_CONN 0)
+_jawny_conn=$(printf '%s' "${BPP_NGINX_GLOBAL_CONN:-}" | tr -d '[:space:]')
+if [ -z "$_jawny_conn" ] && [ "$BUDZET_CONN" -gt 0 ] && [ "$BUDZET_CONN" -lt "$CONN" ]; then
+    log "rownoleglosc z budzetu polaczen: $BUDZET_CONN (pula pgbouncera), zamiast $CONN"
+    CONN=$BUDZET_CONN
+elif [ "$BUDZET_CONN" -gt 0 ] && [ "$CONN" -gt "$BUDZET_CONN" ]; then
+    log "OSTRZEZENIE: BPP_NGINX_GLOBAL_CONN=$CONN przekracza pule pgbouncera ($BUDZET_CONN) — nadmiar czeka w kolejce zamiast dostac 429" >&2
+fi
 IP_RATE=$(liczba_lub_domyslna BPP_NGINX_IP_RATE 10)
 IP_BURST=$(liczba_lub_domyslna BPP_NGINX_IP_BURST 50)
 IP_QUEUE=$(liczba_lub_domyslna BPP_NGINX_IP_QUEUE 100)

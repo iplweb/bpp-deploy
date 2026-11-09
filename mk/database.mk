@@ -158,7 +158,7 @@ dbshell-psql:
 #   make db-autotune-external RAM=16G CPU=8
 .PHONY: db-autotune-external
 db-autotune-external:
-	@bash scripts/db-autotune-external.sh "$(RAM)" "$(CPU)"
+	@bash scripts/db-autotune-external.sh "$(or $(RAM),$(BPP_DB_RAM))" "$(or $(CPU),$(BPP_DB_CPUS))"
 
 ps-dbserver:
 	@docker compose exec -e PGPASSWORD=$(DJANGO_BPP_DB_PASSWORD) dbserver \
