@@ -3194,6 +3194,7 @@ test_db_budget() {
     # pgbouncer: jawne PGBOUNCER_POOL_SIZE > budzet > 80
     local blok
     blok="$(sed -n '/^liczba_lub_domyslna() {/,/^}/p; /^DOMYSLNA_PULA=/,/^PULA=/p' "$REPO_DIR/pgbouncer/entrypoint.sh")"
+    # shellcheck disable=SC2016  # $1/$PULA rozwija sh -c, nie ten skrypt
     _pula() { env -i PATH="$PATH" "$@" sh -c 'log() { :; }; eval "$1"; echo "$PULA"' sh "$blok"; }
     _jest "pgbouncer: bez budzetu 80"     "$(_pula)"                                          "80"
     _jest "pgbouncer: budzet 10"          "$(_pula BPP_BUDGET_POOL=10)"                       "10"

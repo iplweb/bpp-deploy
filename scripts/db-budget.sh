@@ -54,8 +54,9 @@ koniec_bledem() {
     exit 1
 }
 
-[ -n "${BPP_CONFIGS_DIR:-}" ] && [ -f "$ENV_FILE" ] \
-    || koniec_bledem "brak $ENV_FILE (BPP_CONFIGS_DIR)"
+if [ -z "${BPP_CONFIGS_DIR:-}" ] || [ ! -f "$ENV_FILE" ]; then
+    koniec_bledem "brak $ENV_FILE (BPP_CONFIGS_DIR)"
+fi
 
 # get VAR [PLIK] — ostatnia wartosc z .env, bez \r i bialych znakow z brzegow
 get() {
