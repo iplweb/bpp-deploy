@@ -1,0 +1,2809 @@
+
+<!doctype html>
+<html lang="pl" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Dokumentacja wdrożeniowa systemu BPP (Bibliografia Publikacji Pracowników) — orkiestracja Docker Compose, monitoring, backupy i konfiguracja.">
+      
+      
+      
+        <link rel="canonical" href="https://iplweb.github.io/bpp-deploy/konfiguracja/baza-zewnetrzna/">
+      
+      
+        <link rel="prev" href="../postgresql/">
+      
+      
+        <link rel="next" href="../pgbouncer/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.8.1">
+    
+    
+      
+        <title>Baza zewnętrzna - BPP Deploy — dokumentacja</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.57a0d79d.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.fb2fffe2.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#baza-zewnetrzna-postgresql-poza-dockerem" class="md-skip">
+          Przejdź do treści
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+<header class="md-header" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Nagłówek">
+    <a href="../.." title="BPP Deploy — dokumentacja" class="md-header__button md-logo" aria-label="BPP Deploy — dokumentacja" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            BPP Deploy — dokumentacja
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Baza zewnętrzna
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Tryb ciemny"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Tryb ciemny" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m17.75 4.09-2.53 1.94.91 3.06-2.63-1.81-2.63 1.81.91-3.06-2.53-1.94L12.44 4l1.06-3 1.06 3zm3.5 6.91-1.64 1.25.59 1.98-1.7-1.17-1.7 1.17.59-1.98L15.75 11l2.06-.05L18.5 9l.69 1.95zm-2.28 4.95c.83-.08 1.72 1.1 1.19 1.85-.32.45-.66.87-1.08 1.27C15.17 23 8.84 23 4.94 19.07c-3.91-3.9-3.91-10.24 0-14.14.4-.4.82-.76 1.27-1.08.75-.53 1.93.36 1.85 1.19-.27 2.86.69 5.83 2.89 8.02a9.96 9.96 0 0 0 8.02 2.89m-1.64 2.02a12.08 12.08 0 0 1-7.8-3.47c-2.17-2.19-3.33-5-3.49-7.82-2.81 3.14-2.7 7.96.31 10.98 3.02 3.01 7.84 3.12 10.98.31"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Tryb jasny"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Tryb jasny" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 7a5 5 0 0 1 5 5 5 5 0 0 1-5 5 5 5 0 0 1-5-5 5 5 0 0 1 5-5m0 2a3 3 0 0 0-3 3 3 3 0 0 0 3 3 3 3 0 0 0 3-3 3 3 0 0 0-3-3m0-7 2.39 3.42C13.65 5.15 12.84 5 12 5s-1.65.15-2.39.42zM3.34 7l4.16-.35A7.2 7.2 0 0 0 5.94 8.5c-.44.74-.69 1.5-.83 2.29zm.02 10 1.76-3.77a7.131 7.131 0 0 0 2.38 4.14zM20.65 7l-1.77 3.79a7.02 7.02 0 0 0-2.38-4.15zm-.01 10-4.14.36c.59-.51 1.12-1.14 1.54-1.86.42-.73.69-1.5.83-2.29zM12 22l-2.41-3.44c.74.27 1.55.44 2.41.44.82 0 1.63-.17 2.37-.44z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Szukaj" placeholder="Szukaj" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Szukaj">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Wyczyść" aria-label="Wyczyść" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Inicjowanie wyszukiwania
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/iplweb/bpp-deploy" title="Przejdź do repozytorium" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    iplweb/bpp-deploy
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+            
+<nav class="md-tabs" aria-label="Zakładki" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../.." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Start
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../instalacja/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Instalacja
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    
+    
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="../architektura/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Konfiguracja
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../eksploatacja/komendy/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Eksploatacja
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../monitoring/przeglad/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Monitoring i logi
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../architektura/uslugi/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Architektura
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../rozwiazywanie-problemow/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Rozwiązywanie problemów
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../rozwoj/testy/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Rozwój pakietu
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ul>
+  </div>
+</nav>
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Nawigacja" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="BPP Deploy — dokumentacja" class="md-nav__button md-logo" aria-label="BPP Deploy — dokumentacja" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    BPP Deploy — dokumentacja
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/iplweb/bpp-deploy" title="Przejdź do repozytorium" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    iplweb/bpp-deploy
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Start
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../instalacja/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Instalacja
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_2" id="__nav_2_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Instalacja
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../instalacja/linux/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Linux
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../instalacja/macos/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    macOS
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../instalacja/windows/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Windows
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../instalacja/pierwsze-uruchomienie/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pierwsze uruchomienie
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Konfiguracja
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Konfiguracja
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../architektura/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architektura konfiguracji
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../zmienne/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Zmienne operatora (make configure)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../struktura-katalogow/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Struktura katalogów
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../ssl/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    SSL (manual / Let's Encrypt)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../multi-host/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Multi-host
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../limity-zasobow/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Limity zasobów
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../postgresql/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PostgreSQL — wersje i upgrade
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Baza zewnętrzna
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Baza zewnętrzna
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Spis treści">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Spis treści
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#co-sie-zmienia-w-trybie-zewnetrznym" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Co się zmienia w trybie zewnętrznym
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#1-wymagania-wobec-serwera" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Wymagania wobec serwera
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-przygotowanie-serwera-bazy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Przygotowanie serwera bazy
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="2. Przygotowanie serwera bazy">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#rola-i-baza" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Rola i baza
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#dostep-sieciowy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Dostęp sieciowy (pg_hba.conf, listen_addresses)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-podaczenie-bpp" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Podłączenie BPP
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-strojenie" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. Strojenie serwera bazy
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-monitoring" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. Monitoring
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#6-backup" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6. Backup
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#7-aktualizacje-postgresql" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7. Aktualizacje PostgreSQL
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#lista-kontrolna" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Lista kontrolna
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#rozwiazywanie-problemow" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Rozwiązywanie problemów
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../pgbouncer/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    pgbouncer (pula połączeń)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Eksploatacja
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Eksploatacja
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../eksploatacja/komendy/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Najważniejsze komendy
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../eksploatacja/aktualizacje/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Aktualizacje i wersje obrazów
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../eksploatacja/przerwa-techniczna/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Przerwa techniczna z ostrzeżeniem
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../eksploatacja/baza-danych/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Baza danych
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../eksploatacja/migracja-collation-stock-pg/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Migracja bazy na stockowy postgres
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../eksploatacja/backup-i-rclone/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Backup i rclone
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../eksploatacja/przenosiny-serwera/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Przenosiny serwera
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../eksploatacja/wydanie/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Wydanie
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Monitoring i logi
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Monitoring i logi
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../monitoring/przeglad/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Przegląd
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../monitoring/logowanie/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Logowanie
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../monitoring/netdata-alerty/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Netdata i alerty ntfy
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../monitoring/slow-queries/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Wolne zapytania (slow queries)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../monitoring/dashboardy-grafany/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Dashboardy Grafany
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architektura
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Architektura
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architektura/uslugi/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Usługi i przepływ danych
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architektura/rate-limiting/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Rate limiting (nginx)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architektura/utwardzenie-brzegu/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Utwardzenie brzegu (nginx)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architektura/waf/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    WAF (ModSecurity + OWASP CRS)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architektura/healthchecks-autoheal/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Healthchecks i autoheal
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architektura/zadania-ofelia/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Zadania okresowe (Ofelia)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../rozwiazywanie-problemow/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Rozwiązywanie problemów
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_8" >
+        
+          
+          <label class="md-nav__link" for="__nav_8" id="__nav_8_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Rozwój pakietu
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_8_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_8">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Rozwój pakietu
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../rozwoj/testy/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Testy
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../rozwoj/pre-commit/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pre-commit hooks
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../rozwoj/backwards-compatibility/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Backwards compatibility
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../rozwoj/pulapki-grafany/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pułapki — dashboardy Grafany
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../rozwoj/pulapki-alloy/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pułapki — pipeline Alloy
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../rozwoj/pulapki-wdrozenia/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pułapki — wdrożenie i auto-update
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../rozwoj/pulapki-kompresji/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pułapki — kompresja odpowiedzi
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Spis treści">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Spis treści
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#co-sie-zmienia-w-trybie-zewnetrznym" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Co się zmienia w trybie zewnętrznym
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#1-wymagania-wobec-serwera" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Wymagania wobec serwera
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-przygotowanie-serwera-bazy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Przygotowanie serwera bazy
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="2. Przygotowanie serwera bazy">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#rola-i-baza" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Rola i baza
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#dostep-sieciowy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Dostęp sieciowy (pg_hba.conf, listen_addresses)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-podaczenie-bpp" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Podłączenie BPP
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-strojenie" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. Strojenie serwera bazy
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-monitoring" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. Monitoring
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#6-backup" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6. Backup
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#7-aktualizacje-postgresql" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7. Aktualizacje PostgreSQL
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#lista-kontrolna" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Lista kontrolna
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#rozwiazywanie-problemow" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Rozwiązywanie problemów
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+    <a href="https://github.com/iplweb/bpp-deploy/edit/main/docs/konfiguracja/baza-zewnetrzna.md" title="Edytuj tę stronę" class="md-content__button md-icon" rel="edit">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"/></svg>
+    </a>
+  
+  
+
+
+<h1 id="baza-zewnetrzna-postgresql-poza-dockerem">Baza zewnętrzna (PostgreSQL poza Dockerem)<a class="headerlink" href="#baza-zewnetrzna-postgresql-poza-dockerem" title="Permanent link">&para;</a></h1>
+<p>Domyślnie BPP uruchamia PostgreSQL w kontenerze <code>dbserver</code> i sam o niego dba:
+wersja, strojenie, kodowanie, backup. W trybie <strong>bazy zewnętrznej</strong> BPP łączy się
+z istniejącym serwerem PostgreSQL (osobna maszyna, klaster uczelniany, usługa
+zarządzana). Ta strona opisuje cały proces: co przygotować na serwerze bazy, jak
+podłączyć BPP i za co od tej pory odpowiadasz sam.</p>
+<div class="admonition tip">
+<p class="admonition-title">Kiedy baza zewnętrzna ma sens</p>
+<p>Gdy uczelnia ma już administrowany serwer PostgreSQL (z backupem, replikacją,
+monitoringiem), albo baza ma dostać więcej zasobów, niż zmieści host aplikacji.
+W innych przypadkach baza w Dockerze jest prostsza — stroi się sama i nie
+wymaga niczego po drugiej stronie.</p>
+</div>
+<h2 id="co-sie-zmienia-w-trybie-zewnetrznym">Co się zmienia w trybie zewnętrznym<a class="headerlink" href="#co-sie-zmienia-w-trybie-zewnetrznym" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th></th>
+<th>Baza w Dockerze</th>
+<th>Baza zewnętrzna</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Kontener <code>dbserver</code></td>
+<td>prawdziwy PostgreSQL</td>
+<td><strong>wartownik</strong> (<code>postgres:&lt;major&gt;-alpine</code>): loguje się do bazy (healthcheck), i daje <code>psql</code>/<code>pg_dump</code> w pasującej wersji</td>
+</tr>
+<tr>
+<td>Strojenie (<code>shared_buffers</code>, <code>max_connections</code>…)</td>
+<td>automatyczne przy każdym starcie</td>
+<td><strong>Twoje</strong> — gotowiec: <a href="#4-strojenie"><code>make db-autotune-external</code></a></td>
+</tr>
+<tr>
+<td>Kodowanie i kolacja (ICU <code>pl-PL</code>)</td>
+<td>ustawiane przy pierwszym starcie</td>
+<td><strong>Twoje</strong> — przy <code>CREATE DATABASE</code></td>
+</tr>
+<tr>
+<td>Upgrade PostgreSQL</td>
+<td><code>make upgrade-postgres</code></td>
+<td>po Twojej stronie (<a href="../postgresql/#tryb-external">PostgreSQL</a>)</td>
+</tr>
+<tr>
+<td>Nocny backup (<code>pg_dump</code>)</td>
+<td>działa</td>
+<td><strong>działa</strong> — przez wartownika, dump ląduje na hoście BPP</td>
+</tr>
+<tr>
+<td>Metryki (Netdata, Grafana)</td>
+<td>automatycznie</td>
+<td>po założeniu roli <code>bpp_monitor</code> (<a href="#5-monitoring">krok 5</a>)</td>
+</tr>
+<tr>
+<td>Logi serwera bazy w Grafanie</td>
+<td>tak</td>
+<td><strong>nie</strong> — BPP nie widzi logów obcej maszyny</td>
+</tr>
+<tr>
+<td>Wolne zapytania</td>
+<td><code>make pg-monitoring-setup</code></td>
+<td>ten sam target wypisuje SQL do wykonania ręcznie</td>
+</tr>
+</tbody>
+</table>
+<p>Połączenia: <code>appserver</code> łączy się przez <a href="../pgbouncer/">pgbouncer</a>, a Celery,
+denorm-queue, celerybeat, authserver, Netdata i backup — <strong>bezpośrednio</strong> z serwerem
+bazy. Dla serwera bazy wszystkie przychodzą z adresu IP hosta BPP (Docker robi NAT).</p>
+<h2 id="1-wymagania-wobec-serwera">1. Wymagania wobec serwera<a class="headerlink" href="#1-wymagania-wobec-serwera" title="Permanent link">&para;</a></h2>
+<ul>
+<li><strong>PostgreSQL 16 lub nowszy</strong> (zalecany 18). Baza świeżej instalacji powstaje
+  z gotowego zrzutu robionego na PostgreSQL 16; kolacja ICU per baza wymaga
+  co najmniej 15.</li>
+<li><strong>Rozszerzenia z pakietu <code>contrib</code></strong>: <code>btree_gist</code>, <code>hstore</code>, <code>pg_trgm</code>, <code>unaccent</code>.
+  W pakietach Debiana/Ubuntu (<code>postgresql-&lt;wersja&gt;</code>) i w obrazach Dockera są
+  w zestawie; w usługach zarządzanych zwykle są na liście dozwolonych.</li>
+<li><strong>Superuser nie jest potrzebny w aplikacji.</strong> Wszystkie cztery rozszerzenia są
+  „zaufane" (<em>trusted</em>), więc właściciel bazy założy je sam. Starsze wersje BPP
+  wymagały <code>plpython3u</code> (a więc superusera i pakietu <code>postgresql-plpython3</code>) —
+  obecne już nie.</li>
+<li><strong>Sieć</strong>: host BPP musi dosięgnąć serwera bazy na porcie PostgreSQL (domyślnie
+  5432). Kreator sprawdza połączenie z hosta (<code>docker run --network host</code>), więc
+  zadziała to, co działa z samego hosta.</li>
+</ul>
+<h2 id="2-przygotowanie-serwera-bazy">2. Przygotowanie serwera bazy<a class="headerlink" href="#2-przygotowanie-serwera-bazy" title="Permanent link">&para;</a></h2>
+<p>Wszystko poniżej wykonujesz <strong>na serwerze bazy, jako superuser</strong> (np.
+<code>sudo -u postgres psql</code>).</p>
+<h3 id="rola-i-baza">Rola i baza<a class="headerlink" href="#rola-i-baza" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="c1">-- Hasło: długie i losowe, np. z `openssl rand -base64 24`.</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="k">CREATE</span><span class="w"> </span><span class="k">ROLE</span><span class="w"> </span><span class="n">bpp</span><span class="w"> </span><span class="n">LOGIN</span><span class="w"> </span><span class="n">PASSWORD</span><span class="w"> </span><span class="s1">'TU-WPISZ-HASLO'</span><span class="p">;</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="k">CREATE</span><span class="w"> </span><span class="k">DATABASE</span><span class="w"> </span><span class="n">bpp</span>
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="w">    </span><span class="k">OWNER</span><span class="w"> </span><span class="n">bpp</span>
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="w">    </span><span class="k">ENCODING</span><span class="w"> </span><span class="s1">'UTF8'</span>
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="w">    </span><span class="k">TEMPLATE</span><span class="w"> </span><span class="n">template0</span>
+<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="w">    </span><span class="n">LOCALE_PROVIDER</span><span class="w"> </span><span class="n">icu</span>
+<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a><span class="w">    </span><span class="n">ICU_LOCALE</span><span class="w"> </span><span class="s1">'pl-PL'</span><span class="p">;</span>
+</code></pre></div>
+<p>Dlaczego tak:</p>
+<ul>
+<li><strong><code>OWNER bpp</code></strong> — właściciel bazy może zakładać w niej tabele i zaufane
+  rozszerzenia. Nie dawaj roli <code>bpp</code> atrybutu <code>SUPERUSER</code> ani <code>CREATEROLE</code>.</li>
+<li><strong><code>ICU_LOCALE 'pl-PL'</code></strong> — polska kolejność sortowania (<code>Ł</code> po <code>L</code>, <code>Ś</code> po <code>S</code>,
+  <code>Ż</code> na końcu) przy listach autorów, jednostek i źródeł. Tak samo powstaje baza
+  w Dockerze. Kolacji <strong>nie da się zmienić</strong> na istniejącej bazie bez dump/restore —
+  ustaw ją od razu.</li>
+<li><strong><code>TEMPLATE template0</code></strong> — wymagane przy kolacji innej niż w szablonie.</li>
+</ul>
+<p>Sprawdzenie (po <code>\c bpp</code>):</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="k">SELECT</span><span class="w"> </span><span class="n">datlocprovider</span><span class="w"> </span><span class="k">FROM</span><span class="w"> </span><span class="n">pg_database</span><span class="w"> </span><span class="k">WHERE</span><span class="w"> </span><span class="n">datname</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">current_database</span><span class="p">();</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="c1">-- i  (= ICU)</span>
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="k">SELECT</span><span class="w"> </span><span class="n">string_agg</span><span class="p">(</span><span class="n">x</span><span class="p">,</span><span class="w"> </span><span class="s1">' '</span><span class="w"> </span><span class="k">ORDER</span><span class="w"> </span><span class="k">BY</span><span class="w"> </span><span class="n">x</span><span class="p">)</span>
+<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="k">FROM</span><span class="w"> </span><span class="k">unnest</span><span class="p">(</span><span class="nb">ARRAY</span><span class="p">[</span><span class="s1">'Łukasz'</span><span class="p">,</span><span class="s1">'Lucyna'</span><span class="p">,</span><span class="s1">'Żaneta'</span><span class="p">,</span><span class="s1">'Zenon'</span><span class="p">,</span><span class="s1">'Ćwik'</span><span class="p">,</span><span class="s1">'Cyran'</span><span class="p">,</span><span class="s1">'Śliwa'</span><span class="p">,</span><span class="s1">'Szot'</span><span class="p">])</span><span class="w"> </span><span class="n">x</span><span class="p">;</span>
+<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="c1">-- Cyran Ćwik Lucyna Łukasz Szot Śliwa Zenon Żaneta</span>
+</code></pre></div>
+<p>Jeśli <code>Ł</code>, <code>Ś</code>, <code>Ż</code> lądują na końcu listy, baza ma złą kolację — usuń ją i załóż
+jeszcze raz, póki jest pusta.</p>
+<div class="admonition note">
+<p class="admonition-title">Rozszerzenia możesz założyć z góry</p>
+<p>Nie jest to wymagane — przy pierwszym starcie appserver założy je sam jako
+właściciel bazy. Jeśli jednak polityka serwera zabrania zakładania rozszerzeń
+zwykłym rolom (część usług zarządzanych), załóż je jako superuser:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="err">\</span><span class="k">c</span><span class="w"> </span><span class="n">bpp</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="k">CREATE</span><span class="w"> </span><span class="n">EXTENSION</span><span class="w"> </span><span class="k">IF</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">EXISTS</span><span class="w"> </span><span class="n">btree_gist</span><span class="p">;</span>
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="k">CREATE</span><span class="w"> </span><span class="n">EXTENSION</span><span class="w"> </span><span class="k">IF</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">EXISTS</span><span class="w"> </span><span class="n">hstore</span><span class="p">;</span>
+<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="k">CREATE</span><span class="w"> </span><span class="n">EXTENSION</span><span class="w"> </span><span class="k">IF</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">EXISTS</span><span class="w"> </span><span class="n">pg_trgm</span><span class="p">;</span>
+<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="k">CREATE</span><span class="w"> </span><span class="n">EXTENSION</span><span class="w"> </span><span class="k">IF</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">EXISTS</span><span class="w"> </span><span class="n">unaccent</span><span class="p">;</span>
+</code></pre></div>
+</div>
+<h3 id="dostep-sieciowy">Dostęp sieciowy (<code>pg_hba.conf</code>, <code>listen_addresses</code>)<a class="headerlink" href="#dostep-sieciowy" title="Permanent link">&para;</a></h3>
+<p>W <code>postgresql.conf</code> serwer musi słuchać na interfejsie widocznym dla hosta BPP:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="na">listen_addresses</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">'*'</span><span class="w">          </span><span class="c1"># albo konkretny adres</span>
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="na">password_encryption</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">scram-sha-256</span>
+</code></pre></div>
+<p>W <code>pg_hba.conf</code> wpuść <strong>adres hosta BPP</strong> (nie sieć Dockera — kontenery wychodzą
+przez NAT z adresem hosta) do bazy <code>bpp</code>, dla roli aplikacji i roli monitoringu:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a># TYPE  DATABASE  USER         ADDRESS            METHOD
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>host    bpp       bpp          192.0.2.10/32      scram-sha-256
+<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>host    bpp       bpp_monitor  192.0.2.10/32      scram-sha-256
+</code></pre></div>
+<p>Po zmianie <code>pg_hba.conf</code> wystarczy przeładowanie (<code>SELECT pg_reload_conf();</code>),
+po zmianie <code>listen_addresses</code> — restart PostgreSQL. Otwórz też port na firewallu
+serwera bazy, wyłącznie dla adresu hosta BPP.</p>
+<div class="admonition warning">
+<p class="admonition-title">Szyfrowanie połączenia (SSL)</p>
+<p>BPP nie wymusza SSL do bazy, a <strong>monitoring (Netdata, Grafana) łączy się
+bez SSL</strong> (<code>sslmode=disable</code> na sztywno), więc wpisy <code>hostssl</code> (wymuszające
+SSL) zablokują co najmniej metryki.
+Używaj <code>host</code> i trzymaj ruch w sieci prywatnej/VPN między hostem BPP a bazą.</p>
+</div>
+<h2 id="3-podaczenie-bpp">3. Podłączenie BPP<a class="headerlink" href="#3-podaczenie-bpp" title="Permanent link">&para;</a></h2>
+<p>Przy pierwszym <code>make</code> kreator pyta o tryb bazy:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>Tryb bazy danych:
+<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>  (1) wewnetrzna - PostgreSQL w kontenerze Docker (domyslne)
+<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a>  (2) zewnetrzna - podlaczenie do istniejacego, zewnetrznego serwera PostgreSQL
+</code></pre></div>
+<p>Wybierz <strong>2</strong> i podaj host, port, nazwę bazy, użytkownika i hasło z kroku 2.
+Kreator połączy się z bazą, <strong>wykryje wersję PostgreSQL</strong> i dobierze do niej obraz
+wartownika. Jeśli połączenie się nie uda (firewall, <code>pg_hba.conf</code>, hasło), zapyta
+o wersję ręcznie — wtedy wróć do kroku 2, zanim przejdziesz dalej.</p>
+<p>Kreator zapisuje:</p>
+<ul>
+<li>w <strong>repo-lokalnym</strong> <code>.env</code>: <code>BPP_DATABASE_COMPOSE=docker-compose.database.external.yml</code>
+  (to przełącza tryb),</li>
+<li>w <code>$BPP_CONFIGS_DIR/.env</code>: <code>DJANGO_BPP_DB_HOST</code>, <code>_PORT</code>, <code>_NAME</code>, <code>_USER</code>,
+  <code>_PASSWORD</code>, <code>DJANGO_BPP_POSTGRESQL_VERSION_MAJOR</code>.</li>
+</ul>
+<div class="admonition warning">
+<p class="admonition-title">Baza i rola muszą istnieć przed <code>make up</code></p>
+<p>BPP <strong>nie zakłada</strong> bazy na zewnętrznym serwerze — nie ma tam superusera.
+Bez bazy z kroku 2 stack zatrzyma się na <code>dbserver</code> (<code>unhealthy</code>), a
+<code>appserver</code> zostanie w stanie <code>Created</code>. Przyczynę pokaże
+<code>docker inspect --format '{{json .State.Health}}' &lt;kontener dbserver&gt;</code>.</p>
+</div>
+<p>Potem zwykłe <code>make up</code>. Przy pierwszym starcie appserver widzi pustą bazę i w kilka
+sekund wczytuje do niej gotowy schemat (zamiast odtwarzać kilkaset migracji),
+a następnie dociąga najnowsze migracje. Kreator <code>/setup/</code> w przeglądarce zakłada
+pierwsze konto administratora.</p>
+<div class="admonition note">
+<p class="admonition-title">Przełączenie istniejącej instalacji na bazę zewnętrzną</p>
+<p>Uruchom ponownie <code>make init-configs</code> i wybierz tryb 2 — kreator nadpisze
+parametry połączenia w <code>.env</code>. Dane przenieś przez dump/restore
+(<a href="../../eksploatacja/baza-danych/">Baza danych</a>); najpierw <code>make db-backup</code>.</p>
+</div>
+<h2 id="4-strojenie">4. Strojenie serwera bazy<a class="headerlink" href="#4-strojenie" title="Permanent link">&para;</a></h2>
+<p>Baza w Dockerze stroi się sama; zewnętrznej BPP nie widzi, więc gotowiec liczysz
+z jej parametrów:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>make<span class="w"> </span>db-autotune-external<span class="w"> </span><span class="nv">RAM</span><span class="o">=</span>16G<span class="w"> </span><span class="nv">CPU</span><span class="o">=</span><span class="m">8</span><span class="w">    </span><span class="c1"># RAM i rdzenie SERWERA BAZY</span>
+</code></pre></div>
+<p>Dostajesz fragment <code>postgresql.conf</code>, to samo jako <code>ALTER SYSTEM</code>, listę
+parametrów wymagających restartu i porównanie z obecnymi ustawieniami.
+Szczegóły: <a href="../postgresql/#autotune-external">Autotune dla bazy zewnętrznej</a>.</p>
+<p><strong>Ile połączeń potrzebuje BPP.</strong> Na <code>max_connections</code> składają się:</p>
+<ul>
+<li>pula pgbouncera dla appservera (<code>PGBOUNCER_POOL_SIZE</code>, domyślnie 80),</li>
+<li>połączenia bezpośrednie: Celery (ok. ¾ rdzeni hosta BPP), denorm-queue,
+  celerybeat, authserver, Netdata, backup, sesje administracyjne,</li>
+<li>3 sloty zarezerwowane dla superusera (<code>superuser_reserved_connections</code>).</li>
+</ul>
+<p>pgbouncer przy starcie odczytuje <code>max_connections</code> z serwera i <strong>sam przycina pulę</strong>
+do <code>max_connections − max(40, 20 + ¾ × rdzenie hosta BPP)</code> (z ostrzeżeniem w logu).
+Praktycznie: <strong>co najmniej 150</strong>, a bezpiecznie tyle, ile wyliczy autotune
+(100 na każdy 1 GB RAM bazy, maks. 250). Wyższe <code>max_connections</code> bez RAM-u nie
+pomaga — przy skanie botów baza padnie z braku pamięci, zanim zabraknie połączeń.
+Po każdej zmianie <code>max_connections</code> zrestartuj pgbouncer:
+<code>docker compose restart pgbouncer</code>.</p>
+<p><strong>Wpisz RAM serwera bazy do <code>.env</code></strong> — z niego <code>make up</code> liczy
+<a href="../pgbouncer/#budzet-polaczen">budżet połączeń</a>, czyli pulę pgbouncera i limit
+równoczesnych żądań w nginksie, tak żeby nadmiar ruchu dostawał 429, zamiast
+dochodzić do bazy:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="nv">BPP_DB_RAM</span><span class="o">=</span>16G
+<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="nv">BPP_DB_CPUS</span><span class="o">=</span><span class="m">8</span><span class="w">     </span><span class="c1"># opcjonalnie; domyślne CPU= dla make db-autotune-external</span>
+</code></pre></div>
+<p>Z tymi zmiennymi <code>make db-autotune-external</code> nie potrzebuje już parametrów.
+Sprawdzenie: <code>make db-budget</code>.</p>
+<p>Jak sprawdzić, kto trzyma połączenia: <code>make db-connection-stats</code> i
+<code>make pgbouncer-stats</code> (w trybie zewnętrznym zamiast nazw kontenerów zobaczysz
+zwykle adres hosta BPP).</p>
+<h2 id="5-monitoring">5. Monitoring<a class="headerlink" href="#5-monitoring" title="Permanent link">&para;</a></h2>
+<p>Netdata i Grafana czytają statystyki bazy jako rola tylko do odczytu <code>bpp_monitor</code>
+(hasło generuje się samo w <code>.env</code> jako <code>DJANGO_BPP_PG_MONITOR_PASSWORD</code>). Na bazie
+zewnętrznej BPP nie może jej założyć sam, więc wypisze gotowy SQL:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>make<span class="w"> </span>create-monitoring-user
+</code></pre></div>
+<p>Wykonaj wypisany SQL na serwerze bazy jako superuser i dopisz <code>bpp_monitor</code>
+w <code>pg_hba.conf</code> (<a href="#dostep-sieciowy">krok 2</a>). Bez tej roli
+Grafana i Netdata zgłaszają <code>password authentication failed for user "bpp_monitor"</code>.</p>
+<p>Wolne zapytania (<code>pg_stat_statements</code>, <code>log_min_duration_statement</code>):</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>make<span class="w"> </span>pg-monitoring-setup
+</code></pre></div>
+<p>W trybie zewnętrznym target niczego nie zmienia, tylko wypisuje SQL — w tym zmianę
+<code>shared_preload_libraries</code>, która wymaga restartu PostgreSQL. Szczegóły:
+<a href="../../monitoring/slow-queries/">Wolne zapytania</a>.</p>
+<div class="admonition info">
+<p class="admonition-title">Czego BPP nie widzi</p>
+<p>Logi samego serwera bazy (restarty, <code>out of memory</code>, błędy uwierzytelnienia)
+zostają na tamtej maszynie — dashboardy Grafany ich nie pokażą. Błędy, które
+dotrą do aplikacji (np. <code>too many clients</code>), trafią do logów <code>appserver</code>
+i — jeśli skonfigurowany — do Rollbara.</p>
+</div>
+<h2 id="6-backup">6. Backup<a class="headerlink" href="#6-backup" title="Permanent link">&para;</a></h2>
+<p><code>make db-backup</code> i nocny cykl backupu działają bez zmian: <code>pg_dump</code> wykonuje się
+w kontenerze-wartowniku (ta sama wersja major co serwer), a dump trafia do
+katalogu backupów <strong>na hoście BPP</strong> i dalej przez rclone
+(<a href="../../eksploatacja/backup-i-rclone/">Backup i rclone</a>). Backup po stronie serwera
+bazy (WAL, snapshoty, replika) to osobna sprawa jego administratora — nocny dump
+BPP go nie zastępuje.</p>
+<p>Przy <a href="../../eksploatacja/backup-i-rclone/#backup-konfiguracji-env">odtwarzaniu konfiguracji</a>
+na nowym hoście dopisz ręcznie do repo-lokalnego <code>.env</code>:
+<code>BPP_DATABASE_COMPOSE=docker-compose.database.external.yml</code>.</p>
+<h2 id="7-aktualizacje-postgresql">7. Aktualizacje PostgreSQL<a class="headerlink" href="#7-aktualizacje-postgresql" title="Permanent link">&para;</a></h2>
+<p>Upgrade serwera bazy robisz po swojej stronie (<code>pg_upgradecluster</code>, usługa
+zarządzana, blue/green). <code>make upgrade-postgres</code> w trybie zewnętrznym tylko
+prowadzi przez kroki i aktualizuje wersję wartownika w <code>.env</code>
+(<a href="../postgresql/#tryb-external">PostgreSQL — tryb external</a>). Próba aktualizacji
+BPP (<code>make test-upgrade</code>) robi lokalną kopię bazy na hoście BPP —
+<a href="../../eksploatacja/aktualizacje/#baza-zewnetrzna">Aktualizacje</a>.</p>
+<h2 id="lista-kontrolna">Lista kontrolna<a class="headerlink" href="#lista-kontrolna" title="Permanent link">&para;</a></h2>
+<ul>
+<li>[ ] PostgreSQL ≥ 16, <code>contrib</code> zainstalowany</li>
+<li>[ ] rola <code>bpp</code> (bez superusera) i baza <code>bpp</code> z <code>OWNER bpp</code>, ICU <code>pl-PL</code>, <code>template0</code></li>
+<li>[ ] <code>listen_addresses</code>, <code>pg_hba.conf</code> (<code>bpp</code> + <code>bpp_monitor</code> z adresu hosta BPP), firewall</li>
+<li>[ ] <code>make</code> → tryb <strong>2</strong>, kreator wykrył wersję</li>
+<li>[ ] <code>make db-autotune-external RAM=… CPU=…</code> → wklejone, PostgreSQL zrestartowany</li>
+<li>[ ] <code>BPP_DB_RAM</code> (i <code>BPP_DB_CPUS</code>) w <code>.env</code>, <code>make db-budget</code> pokazuje pulę i limit nginx</li>
+<li>[ ] <code>make up</code>, <code>/setup/</code> w przeglądarce</li>
+<li>[ ] <code>make create-monitoring-user</code> → SQL wykonany; Grafana pokazuje metryki bazy</li>
+<li>[ ] <code>make db-backup</code> przechodzi</li>
+</ul>
+<h2 id="rozwiazywanie-problemow">Rozwiązywanie problemów<a class="headerlink" href="#rozwiazywanie-problemow" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Objaw</th>
+<th>Przyczyna</th>
+<th>Co zrobić</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Kreator: „nie udalo sie wykryc wersji"</td>
+<td>brak połączenia z hosta BPP</td>
+<td><code>pg_hba.conf</code>, <code>listen_addresses</code>, firewall; test: <code>psql -h &lt;host&gt; -U bpp bpp</code> z hosta BPP</td>
+</tr>
+<tr>
+<td><code>dbserver</code> <code>unhealthy</code>, <code>appserver</code> w <code>Created</code>; w <code>docker inspect</code> dbservera: <code>database "…" does not exist</code> / <code>password authentication failed</code></td>
+<td>wartownik loguje się do bazy z <code>DJANGO_BPP_DB_*</code> i to logowanie się nie udaje</td>
+<td>załóż bazę i rolę (krok 2) albo popraw <code>DJANGO_BPP_DB_NAME</code>/<code>_USER</code>/<code>_PASSWORD</code> w <code>$BPP_CONFIGS_DIR/.env</code>; stack ruszy sam po kilku sondach, potem <code>make up</code></td>
+</tr>
+<tr>
+<td><code>no pg_hba.conf entry for host "…"</code></td>
+<td>w <code>pg_hba.conf</code> jest inny adres niż ten, z którego przychodzi BPP</td>
+<td>wpisz adres z komunikatu (to adres hosta BPP po NAT)</td>
+</tr>
+<tr>
+<td><code>permission denied to create extension</code></td>
+<td>rola <code>bpp</code> nie jest właścicielem bazy albo serwer blokuje rozszerzenia</td>
+<td><code>ALTER DATABASE bpp OWNER TO bpp;</code> albo załóż rozszerzenia jako superuser (krok 2)</td>
+</tr>
+<tr>
+<td><code>extension "… " is not available</code></td>
+<td>brak pakietu <code>contrib</code></td>
+<td>zainstaluj <code>postgresql-contrib</code> dla swojej wersji</td>
+</tr>
+<tr>
+<td><code>password authentication failed for user "bpp_monitor"</code></td>
+<td>rola monitoringu nie istnieje albo ma inne hasło</td>
+<td><code>make create-monitoring-user</code>, wykonaj SQL</td>
+</tr>
+<tr>
+<td><code>sorry, too many clients already</code></td>
+<td><code>max_connections</code> za małe na pulę + połączenia bezpośrednie</td>
+<td><a href="#4-strojenie">krok 4</a>, <code>make db-connection-stats</code></td>
+</tr>
+<tr>
+<td>Polskie nazwiska sortują się źle (<code>Ł</code> po <code>Z</code>)</td>
+<td>baza nie ma kolacji ICU <code>pl-PL</code></td>
+<td>dump → nowa baza wg kroku 2 → restore</td>
+</tr>
+</tbody>
+</table>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Powrót do góry
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+    <div class="md-copyright__highlight">
+      MIT · IPL Web
+    </div>
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.instant", "navigation.tracking", "navigation.tabs", "navigation.sections", "navigation.top", "navigation.indexes", "toc.follow", "search.suggest", "search.highlight", "content.code.copy", "content.action.edit"], "search": "../../assets/javascripts/workers/search.a7633da7.min.js", "tags": null, "translations": {"clipboard.copied": "Skopiowano do schowka", "clipboard.copy": "Kopiuj do schowka", "search.result.more.one": "1 wi\u0119cej na tej stronie", "search.result.more.other": "# wi\u0119cej na tej stronie", "search.result.none": "Brak wynik\u00f3w wyszukiwania", "search.result.one": "Wyniki wyszukiwania: 1", "search.result.other": "Wyniki wyszukiwania: #", "search.result.placeholder": "Zacznij pisa\u0107, aby szuka\u0107", "search.result.term.missing": "Brak", "select.version": "Wybierz wersj\u0119"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.a5f9d56c.min.js"></script>
+      
+    
+  </body>
+</html>
