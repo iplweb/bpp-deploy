@@ -791,6 +791,69 @@ for para in "PASS|FP 942290 prod: PostHog z Netdaty na /|$PH_NAZWA=$PH_WARTOSC|"
 done
 
 # --------------------------------------------------------------------------
+# Regula 10013: formularz multiseek (`json`)
+# --------------------------------------------------------------------------
+# Zgloszenie 2026-11-09: od wejscia CRS 4.30 wyszukiwanie zaawansowane z polem
+# "Zakres lat" albo "Data utworzenia" konczy sie 444. Front serializuje wartosc
+# zlozona jako tablice JSON w stringu (`"value":"[2017,2022]"`), co jest
+# doslownie wzorcem 942550 ("JSON-Based SQL Injection"). Uzasadnienie
+# w komentarzu przy 10013.
+#
+# TRZY GRUPY, jak przy 10009/10011/10012:
+#   1. FALSZYWE ALARMY — realne formularze z produkcji (struktura 1:1).
+#   2. CENA — rodziny zdjete z `json` (SQLi, RCE). Oczekiwany PASS.
+#   3. KONTROLE — XSS w `json` dalej blokowany (wartosci wracaja do strony),
+#      to samo w INNYM argumencie tego samego endpointu dalej blokowane,
+#      ten sam formularz na INNEJ sciezce (takze innej pod /multiseek/) dalej
+#      blokowany. Ostatnia kontrola bierze wartosc z produkcji — dowodzi przy
+#      okazji, ze obraz testowy w ogole ma 942550 w wersji, ktora ja lapie
+#      (bez tego grupa 1 przechodzilaby niczego nie dowodzac).
+echo
+printf "%-6s %-46s %s\n" "WYNIK" "FORMULARZ MULTISEEK (10013)" "SZCZEGOLY"
+printf "%s\n" "----------------------------------------------------------------------------------"
+MS_ZAKRES='{"form_data":[null,{"field":"Nazwisko i imię","operator":"równe","value":"1368"},{"field":"Typ rekordu","operator":"równy","value":"publikacje","prev_op":"and"},["and",{"field":"Zakres lat","operator":"w zakresie","value":"[2017,2022]"}]],"ordering":{"order_0":"2","order_0_dir":"1","order_1":"0","order_2":"0"},"report_type":"1"}'
+MS_DATA='{"form_data":[null,{"field":"Data utworzenia","operator":"w zakresie","value":"[\"2026-10-31\",\"2026-11-11\"]"}],"ordering":{"order_0":"2","order_0_dir":"1","order_1":"0","order_2":"0"},"report_type":"0"}'
+MS_SQLI='{"form_data":[null,{"field":"Tytuł oryginalny","operator":"zawiera","value":"x'"'"' UNION ALL SELECT NULL,NULL-- a"}],"ordering":{},"report_type":"0"}'
+# shellcheck disable=SC2016  # `$(id)` ma NIE byc rozwiniete — to payload
+MS_RCE='{"form_data":[null,{"field":"Tytuł oryginalny","operator":"zawiera","value":"x; cat /etc/passwd; echo $(id)"}],"ordering":{},"report_type":"0"}'
+MS_XSS='{"form_data":[null,{"field":"Tytuł oryginalny","operator":"zawiera","value":"<script>alert(1)</script>"}],"ordering":{},"report_type":"0"}'
+for para in "PASS|FP 942550 prod: Zakres lat|multiseek/live-results/|json=$MS_ZAKRES" \
+            "PASS|FP 942550 prod: Data utworzenia|multiseek/results/|json=$MS_DATA" \
+            "PASS|FP 942550 prod: eksport|multiseek/export/xlsx/|json=$MS_ZAKRES" \
+            "PASS|FP 942550 prod: zapis formularza|multiseek/save_form/|json=$MS_DATA" \
+            "PASS|FP 942550 prod: do DjangoQL|multiseek/do-djangoql/|json=$MS_ZAKRES" \
+            "PASS|CENA: realne SQLi w wartosci formularza|multiseek/results/|json=$MS_SQLI" \
+            "PASS|CENA: realne RCE w wartosci formularza|multiseek/live-results/|json=$MS_RCE" \
+            "BLOK|kontrola: XSS w json|multiseek/live-results/|json=$MS_XSS" \
+            "BLOK|kontrola: SQLi w name na save_form|multiseek/save_form/|name=' UNION ALL SELECT NULL,NULL-- a" \
+            "BLOK|kontrola: json z prod na innej sciezce|bpp/szukaj/|json=$MS_ZAKRES" \
+            "BLOK|kontrola: json z prod na /multiseek/reset/|multiseek/reset/|json=$MS_ZAKRES"; do
+    IFS='|' read -r oczek opis sciezka cialo <<< "$para"
+    LACZNIE=$((LACZNIE + 1))
+    kod=$(curl -sk --http1.1 -o /dev/null -w '%{http_code}' --max-time 8 \
+        --resolve "$HOST_NAME:$PORT:127.0.0.1" \
+        -X POST --data-urlencode "$cialo" \
+        "https://$HOST_NAME:$PORT/$sciezka" 2>/dev/null)
+    rc=$?
+    if [ "$rc" -eq 52 ] || [ "$rc" -eq 56 ] || [ "$rc" -eq 92 ]; then
+        faktyczny="BLOK"; szczegol="polaczenie zerwane (curl $rc)"
+    elif [ "$rc" -ne 0 ]; then
+        faktyczny="BLAD"; szczegol="curl $rc"
+    elif [ "$kod" = "403" ]; then
+        faktyczny="BLOK"; szczegol="HTTP 403 od ModSecurity"
+    else
+        faktyczny="PASS"; szczegol="HTTP $kod"
+    fi
+    if [ "$faktyczny" = "$oczek" ]; then
+        printf "  \033[32mOK\033[0m   %-46s %s\n" "$opis" "$szczegol"
+    else
+        printf "  \033[31mFAIL\033[0m %-46s oczekiwano %s, jest %s (%s)\n" \
+            "$opis" "$oczek" "$faktyczny" "$szczegol"
+        BLEDY=$((BLEDY + 1))
+    fi
+done
+
+# --------------------------------------------------------------------------
 # Przypadek osobny: legalne zadanie po HTTP/3
 # --------------------------------------------------------------------------
 # Nie siedzi w tablicy PRZYPADKI, bo tamte strzelaja `curl --http1.1` Z HOSTA,
