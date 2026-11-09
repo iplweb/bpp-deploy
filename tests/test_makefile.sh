@@ -3089,7 +3089,7 @@ test_db_autotune_external() {
     local out rc skrypt="$REPO_DIR/scripts/db-autotune-external.sh"
     _ma() { if grep -qF -- "$2" <<<"$out"; then pass "$1"; else fail "$1 (brak '$2')"; fi; }
 
-    out="$(BPP_AUTOTUNE_LIVE=0 bash "$skrypt" 16G 8 </dev/null 2>&1)"; rc=$?
+    rc=0; out="$(BPP_AUTOTUNE_LIVE=0 bash "$skrypt" 16G 8 </dev/null 2>&1)" || rc=$?
     if [ "$rc" -eq 0 ]; then pass "16G/8: exit 0"; else fail "16G/8: exit $rc"; fi
     # Te same wzory co baza w Dockerze (dbserver/autotune.sh)
     _ma "shared_buffers = 25% RAM"               "shared_buffers = 4GB"
@@ -3105,7 +3105,7 @@ test_db_autotune_external() {
     fi
 
     # 2 rdzenie maja dac 2, nawet gdy host testowy ma ich wiecej
-    out="$(BPP_AUTOTUNE_LIVE=0 bash "$skrypt" 512M 2 </dev/null 2>&1)"
+    out="$(BPP_AUTOTUNE_LIVE=0 bash "$skrypt" 512M 2 </dev/null 2>&1)" || true
     _ma "512M: max_connections = 50"             "max_connections = 50"
     _ma "512M: max_worker_processes = 2"         "max_worker_processes = 2"
     _ma "512M: ostrzezenie o malej bazie"        "to malo dla BPP"
@@ -3113,10 +3113,10 @@ test_db_autotune_external() {
     local zle
     for zle in "3x 8" "16G 0" "16G abc" "100M 4"; do
         # shellcheck disable=SC2086  # celowo: dwa argumenty
-        BPP_AUTOTUNE_LIVE=0 bash "$skrypt" $zle </dev/null >/dev/null 2>&1; rc=$?
+        rc=0; BPP_AUTOTUNE_LIVE=0 bash "$skrypt" $zle </dev/null >/dev/null 2>&1 || rc=$?
         if [ "$rc" -eq 2 ]; then pass "odrzuca '$zle' (exit 2)"; else fail "odrzuca '$zle' (exit $rc)"; fi
     done
-    BPP_AUTOTUNE_LIVE=0 bash "$skrypt" </dev/null >/dev/null 2>&1; rc=$?
+    rc=0; BPP_AUTOTUNE_LIVE=0 bash "$skrypt" </dev/null >/dev/null 2>&1 || rc=$?
     if [ "$rc" -eq 2 ]; then pass "bez parametrow i bez TTY: usage, nie wisi"; else fail "bez parametrow: exit $rc"; fi
 
     # Kontener: bez POSTGRESQL_NPROC autotune dalej wykrywa rdzenie sam
