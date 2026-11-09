@@ -60,6 +60,13 @@ host_ram_kb() {
 }
 
 detect_nproc() {
+  # POSTGRESQL_NPROC: CPU count of ANOTHER machine (scripts/db-autotune-external.sh
+  # tunes an external DB server from the app host). Not in autotune.py; unset or
+  # non-numeric = detection below, so the container path is unchanged.
+  case "${POSTGRESQL_NPROC:-}" in
+    '' | *[!0-9]* | 0) ;;
+    *) printf '%s' "$POSTGRESQL_NPROC"; return 0 ;;
+  esac
   # Match Python's multiprocessing.cpu_count() == os.cpu_count() == online CPUs.
   np=$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo "")
   case "$np" in '' | *[!0-9]*) np=$(nproc 2>/dev/null || echo "") ;; esac

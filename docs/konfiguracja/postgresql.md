@@ -144,7 +144,41 @@ Stary wolumen + tarball zostają. Kroki znajdziesz w `$BPP_CONFIGS_DIR/.upgrade-
 
 ## Tryb external
 
+Pełny opis przygotowania serwera i podłączenia BPP: [Baza zewnętrzna](baza-zewnetrzna.md).
+
 `BPP_DATABASE_COMPOSE=docker-compose.database.external.yml`: upgrade samej bazy wykonujesz
 po swojej stronie (managed service, RDS blue/green, `pg_upgradecluster` itp.), a skrypt
 wykrywa to i pokazuje 3-krokową instrukcję — opcjonalnie bumpuje `_VERSION` + `_MAJOR` i
 odświeża sentinel (nocny `pg_dump` wykonuje się w nim przez `docker exec`).
+
+### Autotune dla bazy zewnętrznej {#autotune-external}
+
+Baza w Dockerze stroi się sama przy każdym starcie (`dbserver/autotune.sh` czyta RAM
+i rdzenie kontenera). Zewnętrznego serwera nie widzimy, więc jego parametry podajesz
+sam — dostajesz gotowiec do wklejenia, policzony **tymi samymi wzorami**:
+
+```bash
+make db-autotune-external RAM=16G CPU=8    # RAM i rdzenie SERWERA BAZY, nie tego hosta
+```
+
+Wynik ma trzy części:
+
+1. **fragment `postgresql.conf`** — na koniec pliku albo jako osobny plik w `conf.d/`;
+2. **to samo jako `ALTER SYSTEM SET …`** + `SELECT pg_reload_conf();` — gdy nie masz
+   dostępu do plików serwera; z listą parametrów, które wchodzą dopiero po
+   **restarcie** PostgreSQL (`max_connections`, `shared_buffers`, `wal_buffers`,
+   `max_worker_processes`);
+3. **porównanie z tym, co baza ma teraz** (tylko w trybie external, przy działającym
+   sentinelu `dbserver`) — który parametr się zmieni i czy wymaga restartu.
+
+Komenda **niczego nie zmienia** — ani w bazie, ani w `.env`.
+
+Po co to jest: `max_connections` ustawione za wysoko jak na RAM bazy (każde połączenie
+może zająć kilka razy `work_mem`) kończy się padnięciem bazy pod skanem botów, zanim
+zadziała jakikolwiek limit połączeń. Autotune liczy oba parametry razem z tego samego
+RAM-u (100 połączeń na 1 GB, maks. 250). Zakładamy serwer **dedykowany** bazie — jeśli
+dzieli maszynę z czymś innym, podaj `RAM=` tyle, ile ma dostać PostgreSQL.
+
+Po zmianie `max_connections` zrestartuj pgbouncer (`docker compose restart pgbouncer`),
+żeby przeliczył pulę — przycina ją do `max_connections` minus rezerwa na klientów
+bezpośrednich ([pgbouncer](pgbouncer.md)).

@@ -152,6 +152,14 @@ dbshell-psql:
 		psql -h $(DJANGO_BPP_DB_HOST) -p $(DJANGO_BPP_DB_PORT) \
 		     -U $(DJANGO_BPP_DB_USER) $(DJANGO_BPP_DB_NAME)
 
+# Autotune dla ZEWNETRZNEJ bazy: gotowiec postgresql.conf + ALTER SYSTEM
+# z parametrow serwera bazy, plus porownanie z biezacymi ustawieniami.
+# Niczego nie zmienia. Wzory: dbserver/autotune.sh (to samo co baza w Dockerze).
+#   make db-autotune-external RAM=16G CPU=8
+.PHONY: db-autotune-external
+db-autotune-external:
+	@bash scripts/db-autotune-external.sh "$(RAM)" "$(CPU)"
+
 ps-dbserver:
 	@docker compose exec -e PGPASSWORD=$(DJANGO_BPP_DB_PASSWORD) dbserver \
 		psql -P pager=off -h $(DJANGO_BPP_DB_HOST) -p $(DJANGO_BPP_DB_PORT) \
