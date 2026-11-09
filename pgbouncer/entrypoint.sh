@@ -77,7 +77,7 @@ KLIENCI=$(liczba_lub_domyslna PGBOUNCER_MAX_CLIENT_CONN 1000)
 # Odcinanie zgubionych sesji. W trybie session klient trzyma backend przez cale
 # swoje polaczenie. Appserver (CONN_MAX_AGE=0) ma oddawac polaczenie po kazdym
 # zadaniu, ale workery ASGI potrafia je gubic — wisza `idle` godzinami az do
-# recyklingu workera. 2026-11-09 na bpp.umlub.pl: 70/80 puli zajete przez takie
+# recyklingu workera. 2026-11-09 na produkcji: 70/80 puli zajete przez takie
 # sesje, kazda fala ruchu = query_wait_timeout = "server closed the connection
 # unexpectedly" w Rollbarze.
 #
