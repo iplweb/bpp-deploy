@@ -1686,6 +1686,13 @@ test_configure_resources() {
     assert_file_contains "grafana cap 192m"  "GRAFANA_MEM_LIMIT=192m" "$cfg/.env"
     assert_file_contains "dozzle cap 64m"    "DOZZLE_MEM_LIMIT=64m"   "$cfg/.env"
     assert_file_contains "pgbouncer cap 64m" "PGBOUNCER_MEM_LIMIT=64m" "$cfg/.env"
+    # pgbouncer: 2 CPU, ale nie wiecej niz ma host (Docker odrzuca cpus > nproc).
+    local pgb_rdzenie pgb_oczek
+    pgb_rdzenie=$(nproc 2>/dev/null || getconf _NPROCESSORS_ONLN 2>/dev/null || echo "${NUMBER_OF_PROCESSORS:-1}")
+    pgb_oczek=2
+    [ "$pgb_rdzenie" -lt 2 ] && pgb_oczek=$pgb_rdzenie
+    assert_file_contains "pgbouncer CPU min(2, rdzenie)=$pgb_oczek" \
+        "PGBOUNCER_CPU_LIMIT=$pgb_oczek" "$cfg/.env"
     assert_file_not_contains "brak UNKNOWN_*"  "UNKNOWN_MEM_LIMIT="      "$cfg/.env"
     assert_file_contains "appserver obecny"  "APPSERVER_MEM_LIMIT="   "$cfg/.env"
     assert_file_contains "dbserver obecny"   "DBSERVER_MEM_LIMIT="    "$cfg/.env"

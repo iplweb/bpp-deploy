@@ -41,7 +41,7 @@ w obu trybach. Logowanie tym samym kontem co dotąd
 | `PGBOUNCER_MAX_CLIENT_CONN` | `1000` | maks. połączeń appservera do pgbouncera |
 | `PGBOUNCER_IDLE_SESSION_TIMEOUT` | `600` | po ilu sekundach bezczynności PostgreSQL zamyka sesję z puli, a pgbouncer zwalnia jej miejsce (`idle_session_timeout` na backendach puli; `0` = nigdy); chroni pulę przed sesjami, które appserver zgubił |
 | `PGBOUNCER_VERSION` | `v1.25.2-p0` | tag obrazu `edoburu/pgbouncer` |
-| `PGBOUNCER_MEM_LIMIT` / `_CPU_LIMIT` | `64m` / `0.5` | [limity zasobów](limity-zasobow.md) |
+| `PGBOUNCER_MEM_LIMIT` / `_CPU_LIMIT` | `64m` / `2` | [limity zasobów](limity-zasobow.md) |
 
 Pusta wartość = domyślna; błędna liczba = `OSTRZEZENIE` w logu i domyślna.
 
