@@ -152,6 +152,15 @@ Po zmianie max_connections zrestartuj tez pgbouncer, zeby przeliczyl pule:
   docker compose restart pgbouncer
 EOF
 
+# Makefile eksportuje zmienne z $BPP_CONFIGS_DIR/.env, wiec widac je tutaj.
+if [ "$EXTERNAL" -eq 1 ] && [ -z "${BPP_DB_RAM:-}" ]; then
+    echo
+    echo "Zapisz parametry serwera bazy w \$BPP_CONFIGS_DIR/.env — z nich make up"
+    echo "liczy budzet polaczen (pula pgbouncera, limit nginx; make db-budget):"
+    echo "  BPP_DB_RAM=$RAM_IN"
+    echo "  BPP_DB_CPUS=$CPU"
+fi
+
 # pgbouncer odejmuje od max_connections rezerwe na klientow bezposrednich
 # (min. 40, pgbouncer/entrypoint.sh) i nie schodzi z pula ponizej 10.
 MAXC_NOWE="$(sed -n 's/^max_connections = //p' <<<"$CONF")"

@@ -85,6 +85,7 @@ make celery-stats     # Statystyki zadań Celery
 make celery-status    # Status workerów
 make request-stats    # Szczytowy req/s i odmowy 429/444 per IP z logów nginx
 make rate-limit-stats # Który limit nginx daje 429: strefa, IP, vhost, ścieżki, godziny
+make db-budget           # Budżet połączeń: RAM bazy → pula pgbouncera → limit nginx (429)
 make db-connection-stats  # Kto trzyma połączenia z PostgreSQL (per kontener, limit)
 make pgbouncer-stats  # Pula pgbouncera: kolejka, wolne/zajęte, wiszące sesje
 ```

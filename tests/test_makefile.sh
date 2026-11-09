@@ -3132,7 +3132,76 @@ test_db_autotune_external() {
         "max_worker_processes = $(getconf _NPROCESSORS_ONLN 2>/dev/null || nproc)"
     # shellcheck disable=SC2016  # wzorzec doslowny
     assert_file_contains "make db-autotune-external przekazuje RAM i CPU" \
-        'db-autotune-external.sh "$(RAM)" "$(CPU)"' "$REPO_DIR/mk/database.mk"
+        'db-autotune-external.sh "$(or $(RAM),$(BPP_DB_RAM))" "$(or $(CPU),$(BPP_DB_CPUS))"' "$REPO_DIR/mk/database.mk"
+}
+
+test_db_budget() {
+    yellow "=== Test: budzet polaczen (scripts/db-budget.sh -> pgbouncer, nginx) ==="
+    local tmp out rc
+    tmp="$(mktemp -d)"
+    mkdir -p "$tmp/cfg" "$tmp/ngx"
+    : > "$tmp/repo.env"
+    _bud() { BPP_CONFIGS_DIR="$tmp/cfg" BPP_REPO_ENV="$tmp/repo.env" BPP_BUDGET_NPROC=8 \
+        bash "$REPO_DIR/scripts/db-budget.sh" "$@" 2>&1 || true; }
+    _wart() { grep -E "^$1=" "$tmp/cfg/.env" | tail -1 | cut -d= -f2-; }
+    _jest() { if [ "$2" = "$3" ]; then pass "$1"; else fail "$1 (jest '$2', oczekiwano '$3')"; fi; }
+
+    # Domyslny dbserver (2g): budzet nie obniza niczego
+    printf 'X=1\n' > "$tmp/cfg/.env"
+    _bud --zapisz >/dev/null
+    _jest "2g: pula = domyslne 80"  "$(_wart BPP_BUDGET_POOL)"       "80"
+    _jest "2g: nginx = domyslne 60" "$(_wart BPP_BUDGET_NGINX_CONN)" "60"
+
+    # Mala baza: autotune 47 polaczen - rezerwa 40 -> pula 10, nginx <= pula
+    printf 'DBSERVER_MEM_LIMIT=512m\n' > "$tmp/cfg/.env"
+    _bud --zapisz >/dev/null
+    _jest "512m: pula przycieta do 10"       "$(_wart BPP_BUDGET_POOL)"       "10"
+    _jest "512m: nginx nie wiecej niz pula"  "$(_wart BPP_BUDGET_NGINX_CONN)" "10"
+    out="$(_bud --zapisz)"
+    _jest "drugi --zapisz bez zmian: cisza"  "$out" ""
+
+    # Tryb external bez BPP_DB_RAM: budzet znika (stare wartosci usuniete)
+    echo "BPP_DATABASE_COMPOSE=docker-compose.database.external.yml" > "$tmp/repo.env"
+    _bud --zapisz >/dev/null
+    _jest "external bez BPP_DB_RAM: brak budzetu" "$(grep -c '^BPP_BUDGET_' "$tmp/cfg/.env" || true)" "0"
+    # ...a z BPP_DB_RAM=1G: autotune 100 -> pula 60
+    echo "BPP_DB_RAM=1G" >> "$tmp/cfg/.env"
+    _bud --zapisz >/dev/null
+    _jest "external 1G: pula 60" "$(_wart BPP_BUDGET_POOL)" "60"
+    # Jawny nginx ponad pule -> ostrzezenie w make db-budget
+    printf 'BPP_DB_RAM=512M\nBPP_NGINX_GLOBAL_CONN=60\n' > "$tmp/cfg/.env"
+    out="$(_bud)"
+    if grep -q "OSTRZEZENIE: nginx wpuszcza 60" <<<"$out"; then
+        pass "jawny BPP_NGINX_GLOBAL_CONN ponad pule: ostrzezenie"
+    else
+        fail "jawny BPP_NGINX_GLOBAL_CONN ponad pule: brak ostrzezenia"
+    fi
+
+    # Fail-open: brak .env nie wywraca make up
+    rc=0; BPP_CONFIGS_DIR="$tmp/brak" bash "$REPO_DIR/scripts/db-budget.sh" --zapisz >/dev/null 2>&1 || rc=$?
+    _jest "--zapisz bez .env: exit 0 (fail-open)" "$rc" "0"
+
+    # nginx: budzet obniza tylko bez jawnej wartosci; 0 = wylaczone zostaje
+    _ngx() { env -i PATH="$PATH" BPP_LIMITS_OUT_DIR="$tmp/ngx" "$@" \
+        sh "$REPO_DIR/defaults/webserver/25-render-bpp-limits.sh" >/dev/null 2>&1 || true
+        grep -E '^limit_conn bpp_global_conn' "$tmp/ngx/bpp-global-limits.inc" | awk '{print $3}' | tr -d ';'; }
+    _jest "nginx: bez budzetu 60"               "$(_ngx)"                                                   "60"
+    _jest "nginx: budzet 10 -> 10"              "$(_ngx BPP_BUDGET_NGINX_CONN=10)"                          "10"
+    _jest "nginx: jawne 60 wygrywa z budzetem"  "$(_ngx BPP_BUDGET_NGINX_CONN=10 BPP_NGINX_GLOBAL_CONN=60)" "60"
+    _jest "nginx: budzet nie podnosi ponad 60"  "$(_ngx BPP_BUDGET_NGINX_CONN=100)"                         "60"
+    _jest "nginx: jawne 0 = wylaczone"          "$(_ngx BPP_BUDGET_NGINX_CONN=10 BPP_NGINX_GLOBAL_CONN=0)"  ""
+
+    # pgbouncer: jawne PGBOUNCER_POOL_SIZE > budzet > 80
+    local blok
+    blok="$(sed -n '/^liczba_lub_domyslna() {/,/^}/p; /^DOMYSLNA_PULA=/,/^PULA=/p' "$REPO_DIR/pgbouncer/entrypoint.sh")"
+    _pula() { env -i PATH="$PATH" "$@" sh -c 'log() { :; }; eval "$1"; echo "$PULA"' sh "$blok"; }
+    _jest "pgbouncer: bez budzetu 80"     "$(_pula)"                                          "80"
+    _jest "pgbouncer: budzet 10"          "$(_pula BPP_BUDGET_POOL=10)"                       "10"
+    _jest "pgbouncer: jawna pula wygrywa" "$(_pula BPP_BUDGET_POOL=10 PGBOUNCER_POOL_SIZE=50)" "50"
+
+    assert_file_contains "make up przelicza budzet (ensure-config-files)" \
+        'scripts/db-budget.sh --zapisz' "$REPO_DIR/mk/configs.mk"
+    rm -rf "$tmp"
 }
 
 test_install_docker_windows() {
@@ -3262,6 +3331,7 @@ test_restore_config
 test_restore_config_first_run
 test_backup_runner_mounts_configs
 test_db_autotune_external
+test_db_budget
 
 echo ""
 echo "========================================"

@@ -66,6 +66,12 @@ rate-limit-stats:
 
 # Kto trzyma polaczenia z PostgreSQL: max_connections, zajete/wolne, rozbicie
 # na kontenery (client_addr -> usluga compose) i stany. Read-only.
+# Budzet polaczen: RAM bazy -> max_connections -> pula pgbouncera -> limit
+# nginx (429). Read-only; make up przelicza i zapisuje go sam.
+.PHONY: db-budget
+db-budget:
+	@bash scripts/db-budget.sh
+
 .PHONY: db-connection-stats
 db-connection-stats:
 	@bash scripts/show-db-connection-stats.sh
