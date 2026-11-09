@@ -752,3 +752,108 @@ SecRule REQUEST_FILENAME "@rx ^/multiseek/(?:results|live-results|save_form|do-d
     ctl:ruleRemoveTargetByTag=attack-rce;ARGS:json,\
     ctl:ruleRemoveTargetByTag=attack-injection-php;ARGS:json,\
     ctl:ruleRemoveTargetByTag=attack-sqli;ARGS:json"
+
+# ---------------------------------------------------------------------------
+# 10014: `next` przy logowaniu to adres NASZEJ strony, nie polecenie powloki
+# ---------------------------------------------------------------------------
+# ZNALEZIONE 2026-11-09 przy okazji 10013 (10 blokad w tydzien): uzytkownik
+# klika "Drukuj" w wynikach multiseek bez zalogowania, Django odsyla go na
+# logowanie z adresem powrotu, a ten konczy sie 444:
+#
+#   GET /accounts/login/?next=/multiseek/results/%3Fall%3D1%26print%3D1
+#   932370 Remote Command Execution: Windows Command Injection
+#     Matched Data: &print found within ARGS:next: /multiseek/results/?all=1&print=1
+#
+# `&print` to dla 932370 "&" + polecenie Windows `print`. Kazdy nasz adres
+# z query stringiem, w ktorym po `&` stoi parametr o nazwie polecenia (print,
+# type, dir, ...), zrobi to samo.
+#
+# ZAKRES: tylko rodzina RCE (932), tylko argument `next`, tylko dwa formularze
+# logowania. `next` nie trafia do powloki — Django przepuszcza go przez
+# url_has_allowed_host_and_scheme i robi z niego naglowek Location. Reszta
+# formularza logowania (username, password, query string poza `next`) i
+# pozostale rodziny na `next` (SQLi, XSS, LFI) zostaja — to jedyny anonimowo
+# osiagalny formularz, w ktory leci realny ruch atakujacy (patrz 10009).
+#
+# `REQUEST_FILENAME` i `@rx` z kotwicami z obu stron — query string nie moze
+# domknac wzorca, a `/accounts/login/cos/` juz nie pasuje.
+SecRule REQUEST_FILENAME "@rx ^/(?:accounts|admin)/login/$" \
+    "id:10014,\
+    phase:1,\
+    pass,\
+    nolog,\
+    t:none,\
+    ctl:ruleRemoveTargetByTag=attack-rce;ARGS:next"
+
+# ---------------------------------------------------------------------------
+# 10015: /api/v1/whoami/ — nazwa endpointu to nazwa polecenia Uniksa
+# ---------------------------------------------------------------------------
+# ZNALEZIONE 2026-11-09 przy okazji 10013:
+#
+#   GET /api/v1/whoami/
+#   932260 Remote Command Execution: Direct Unix Command Execution
+#     Matched Data: /api/v1/whoami found within REQUEST_FILENAME
+#
+# To legalny endpoint API BPP ("kim jestem" dla klienta z tokenem — uzywa
+# go m.in. skill bpp-api i integracje OAuth). Regula patrzy na SAMA SCIEZKE,
+# wiec blokuje kazde wywolanie, bez wzgledu na tresc.
+#
+# ZAKRES: jedna regula (932260), jedna zmienna (REQUEST_FILENAME), jedna
+# dokladna sciezka. Query string i naglowki tego endpointu dalej sa skanowane
+# w pelni — kontrola w test-waf.sh.
+SecRule REQUEST_FILENAME "@streq /api/v1/whoami/" \
+    "id:10015,\
+    phase:1,\
+    pass,\
+    nolog,\
+    t:none,\
+    ctl:ruleRemoveTargetById=932260;REQUEST_FILENAME"
+
+# ---------------------------------------------------------------------------
+# 10016, 10017: serwer MCP (/mcp, /mcp/auth) — JSON-RPC z zapytaniami DjangoQL
+# ---------------------------------------------------------------------------
+# ZNALEZIONE 2026-11-09 przy okazji 10013: konektor MCP z claude.ai
+# (adresy Anthropic) dostawal 444 na /mcp/auth:
+#
+#   942100 SQL Injection Attack Detected via libinjection
+#     found within ARGS:json.params.arguments.q:
+#     nazwisko in ("Przykladowska", "Kowalski", ...)
+#   930120 OS File Access Attempt
+#     Matched Data: .claude found within
+#     ARGS_NAMES:json.params._meta.claudecode/toolUseId
+#
+# DWA NIEZALEZNE WYZWALACZE:
+#
+# 1. ARGUMENTY NARZEDZI. Narzedzia `zapytanie_*` przyjmuja DjangoQL — ten sam
+#    jezyk, ktory na /bpp/zapytanie/ i /api/v1/zapytanie/ juz jest
+#    w DetectionOnly (10003), bo zapalic sie moze praktycznie kazda rodzina.
+#    Pozostale narzedzia biora wolny tekst (tytul, nazwisko). /mcp/auth wymaga
+#    tokenu Bearer — BramkaBearera (bpp/src/mcp_server/auth.py) odrzuca
+#    zadanie bez waznego tokenu ZANIM narzedzie sie wykona — wiec, jak przy
+#    10009, granica biegnie po uwierzytelnieniu: DetectionOnly (10017).
+#
+# 2. NAZWY KLUCZY `_meta`. Klient (Claude Code) dokleja do kazdego wywolania
+#    `params._meta["claudecode/toolUseId"]`. Body processor JSON splaszcza to do
+#    nazwy argumentu `json.params._meta.claudecode/toolUseId`, a 930120 szuka
+#    w ARGS_NAMES nazw plikow z lfi-os-files.data, gdzie jest `.claude`.
+#    To dotyczy tez PUBLICZNEGO /mcp, wiec dla obu sciezek zdejmujemy 930120
+#    z ARGS_NAMES (10016) — nazwy kluczy JSON-RPC nie sa nigdzie uzywane jako
+#    sciezki. Wartosci argumentow na publicznym /mcp zostaja chronione w pelni.
+#
+# `REQUEST_FILENAME` z kotwicami: /mcp, /mcp/ i /mcp/auth (z ukosnikiem lub
+# bez). /mcp/status i strona-instrukcja nie maja tu nic do roboty.
+SecRule REQUEST_FILENAME "@rx ^/mcp(?:/auth)?/?$" \
+    "id:10016,\
+    phase:1,\
+    pass,\
+    nolog,\
+    t:none,\
+    ctl:ruleRemoveTargetById=930120;ARGS_NAMES"
+
+SecRule REQUEST_FILENAME "@rx ^/mcp/auth/?$" \
+    "id:10017,\
+    phase:1,\
+    pass,\
+    nolog,\
+    t:none,\
+    ctl:ruleEngine=DetectionOnly"

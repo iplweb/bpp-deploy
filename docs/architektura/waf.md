@@ -247,6 +247,21 @@ Obecnie jest ich dwanaście:
   albo „Data utworzenia" → `942550` → zerwane połączenie. Szczegóły:
   [Formularz multiseek](#formularz-multiseek).
 
+- **`id:10014` — `next` przy logowaniu bez rodziny RCE.**
+  Na `/accounts/login/` i `/admin/login/` argument `next` nie jest skanowany
+  rodziną 932: `?next=/multiseek/results/?all=1&print=1` zapalało `932370`
+  (`&print` = polecenie Windows). Reszta formularza logowania i pozostałe
+  rodziny na `next` zostają. Szczegóły: [Logowanie, whoami, MCP](#logowanie-whoami-mcp).
+
+- **`id:10015` — `/api/v1/whoami/` bez `932260` na samej ścieżce.**
+  Nazwa endpointu to nazwa polecenia Uniksa, więc każde wywołanie było
+  blokowane. Query string i nagłówki dalej skanowane.
+
+- **`id:10016`, `id:10017` — serwer MCP.** Na `/mcp` i `/mcp/auth` `930120`
+  nie skanuje nazw argumentów (`_meta.claudecode/toolUseId` zawiera `.claude`).
+  `/mcp/auth` (wymaga tokenu Bearer, narzędzia `zapytanie_*` biorą DjangoQL)
+  schodzi do `DetectionOnly` — jak DjangoQL w 10003.
+
 Reguły 10002 i 10003 schodzą dla swoich ścieżek do `ctl:ruleEngine=DetectionOnly`:
 trafienia nadal trafiają do audit logu (i posłużą do napisania precyzyjnych
 wykluczeń), ale nikomu nie urywają połączenia. To **tępe narzędzie na start** —
@@ -1068,6 +1083,32 @@ z argumentu `json`, tylko na endpointach, które ten formularz przyjmują.
 Ostatnie dwie kontrole biorą wartość **z produkcji** — dowodzą przy okazji,
 że obraz testowy ma `942550` w wersji, która ją łapie. Gdy upstream poprawi
 wzorzec i zaczną przechodzić, przebudować je na realne SQLi (jak w 10011).
+
+## Logowanie, whoami, MCP — reguły 10014–10017 {#logowanie-whoami-mcp}
+
+Znalezione 2026-11-09 w audit logu produkcji przy okazji [10013](#formularz-multiseek):
+
+| Reguła | Żądanie | Trafienie CRS |
+|---|---|---|
+| 10014 | `GET /accounts/login/?next=/multiseek/results/?all=1&print=1` | `932370` — `&print` w `ARGS:next` |
+| 10015 | `GET /api/v1/whoami/` | `932260` — `/api/v1/whoami` w `REQUEST_FILENAME` |
+| 10016 | `POST /mcp/auth` z konektora claude.ai | `930120` — `.claude` w `ARGS_NAMES:json.params._meta.claudecode/toolUseId` |
+| 10017 | `POST /mcp/auth`, narzędzie `zapytanie_autorzy` | `942100` — DjangoQL `nazwisko in ("…", "…")` w `ARGS:json.params.arguments.q` |
+
+- **10014:** `next` przechodzi przez `url_has_allowed_host_and_scheme`
+  i ląduje w nagłówku `Location`, nie w powłoce — zdejmujemy tylko 932 i tylko
+  z `next`. SQLi/XSS/LFI na `next` i cały CRS na `username`/`password` zostają.
+- **10015:** jedna reguła, jedna zmienna, dokładna ścieżka.
+- **10016:** nazwy kluczy JSON-RPC nie są nigdzie używane jako ścieżki plików;
+  dotyczy też publicznego `/mcp`, gdzie wartości argumentów zostają chronione.
+- **10017:** `/mcp/auth` odrzuca żądanie bez ważnego tokenu, zanim narzędzie
+  się wykona (granica po uwierzytelnieniu, jak 10009), a DjangoQL zapala
+  praktycznie każdą rodzinę (jak 10003).
+
+Kontrole w `make test-waf`: FP z produkcji przechodzą; `CENA:` RCE w `next`
+i SQLi na `/mcp/auth` przechodzą; SQLi w `next`, RCE w `username`, RCE
+w query stringu whoami, `/api/v1/whoami/x/`, SQLi na publicznym `/mcp` oraz
+te same payloady na `/bpp/szukaj/` dalej blokują.
 
 ## Logi WAF-a w Grafanie
 
