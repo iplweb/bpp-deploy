@@ -145,6 +145,11 @@ if start_pgb; then
     grep -q "^pool_mode = session$" <<<"$G" && ok "pool_mode = session" || zle "brak pool_mode = session"
     grep -q "^default_pool_size = 80$" <<<"$G" && ok "pula domyslna 80" || zle "pula: $(grep pool_size <<<"$G")"
     grep -q "^max_client_conn = 1000$" <<<"$G" && ok "max_client_conn 1000" || zle "brak max_client_conn = 1000"
+    # Dwa razy: pierwszy klient dostaje swiezy backend (connect_query), drugi
+    # ten sam po DISCARD ALL (server_reset_query musi ustawic ponownie).
+    [ "$(q 'SHOW idle_session_timeout')" = "10min" ] && [ "$(q 'SHOW idle_session_timeout')" = "10min" ] \
+        && ok "idle_session_timeout 10min na backendzie puli (swiezym i po DISCARD ALL)" \
+        || zle "idle_session_timeout: '$(q 'SHOW idle_session_timeout')'"
     [ "$(docker exec "$PGB" stat -c %a /etc/pgbouncer/userlist.txt)" = "600" ] && ok "userlist.txt 0600" \
         || zle "userlist.txt ma tryb $(docker exec "$PGB" stat -c %a /etc/pgbouncer/userlist.txt)"
 else
@@ -194,6 +199,31 @@ else
     zle "pgbouncer nie wstal (pula 2)"
 fi
 
+echo "== 7c. bezczynna sesja odcieta -> backend wraca do puli (idle_session_timeout) =="
+# Kontrola: przy wylaczonym odcinaniu (0) zgubiona sesja trzyma jedyny backend
+# i kolejny klient czeka. To dowodzi, ze test rozroznia oba przypadki.
+# (Tu odpadl client_idle_timeout pgbouncera: w trybie session nie dziala.)
+if start_pgb -e PGBOUNCER_POOL_SIZE=1 -e PGBOUNCER_IDLE_SESSION_TIMEOUT=0; then
+    trzymaj 30 "SELECT 1"
+    sleep 5
+    z_limitem 4 q 'SELECT 1' >/dev/null 2>&1 \
+        && zle "kontrola: drugi klient dostal backend mimo odcinania wylaczonego — test nic nie mierzy" \
+        || ok "kontrola: bez odcinania bezczynna sesja blokuje pule 1"
+else
+    zle "pgbouncer nie wstal (pula 1, odcinanie wylaczone)"
+fi
+if start_pgb -e PGBOUNCER_POOL_SIZE=1 -e PGBOUNCER_IDLE_SESSION_TIMEOUT=2; then
+    trzymaj 30 "SELECT 1"
+    sleep 5
+    if [ "$(z_limitem 4 q 'SELECT 1')" = "1" ]; then
+        ok "po 2 s bezczynnosci klient odciety, kolejny dostal backend"
+    else
+        zle "bezczynny klient nadal trzyma jedyny backend puli: $(log_pgb | tail -5 | tr '\n' '|') INI: $(ini | grep -E 'idle|pool_size')"
+    fi
+else
+    zle "pgbouncer nie wstal (pula 1, idle_session_timeout 2 s)"
+fi
+
 echo "== 4b. reset sesji miedzy klientami (pula 1 = deterministycznie) =="
 if start_pgb -e PGBOUNCER_POOL_SIZE=1; then
     PA="$(q "SELECT pg_advisory_lock(42); SET bpp.test = 'zostalo'; SELECT pg_backend_pid()" | tail -1)"
@@ -217,10 +247,13 @@ else
 fi
 
 echo "== 8. smiec w zmiennych nie kladzie pgbouncera =="
-if start_pgb -e PGBOUNCER_POOL_SIZE=abc -e PGBOUNCER_MAX_CLIENT_CONN="10 0"; then
+if start_pgb -e PGBOUNCER_POOL_SIZE=abc -e PGBOUNCER_MAX_CLIENT_CONN="10 0" \
+        -e PGBOUNCER_IDLE_SESSION_TIMEOUT=5m; then
     G="$(ini)"; LOG="$(log_pgb)"
     grep -q "^default_pool_size = 80$" <<<"$G" && grep -q "^max_client_conn = 1000$" <<<"$G" \
-        && ok "bledne wartosci zastapione domyslnymi" || zle "nie wrocono do domyslnych: $(grep -E 'pool_size|client_conn' <<<"$G")"
+        && grep -q "idle_session_timeout TO 600000$" <<<"$G" \
+        && ok "bledne wartosci zastapione domyslnymi" \
+        || zle "nie wrocono do domyslnych: $(grep -E 'pool_size|client_conn|idle_session' <<<"$G")"
     grep -q "OSTRZEZENIE: PGBOUNCER_POOL_SIZE='abc'" <<<"$LOG" && ok "ostrzezenie w logu" \
         || zle "brak ostrzezenia o PGBOUNCER_POOL_SIZE"
 else
