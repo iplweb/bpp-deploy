@@ -16,7 +16,7 @@ podłączyć BPP i za co od tej pory odpowiadasz sam.
 
 | | Baza w Dockerze | Baza zewnętrzna |
 |---|---|---|
-| Kontener `dbserver` | prawdziwy PostgreSQL | **wartownik** (`postgres:<major>-alpine`): sprawdza, czy baza żyje, i daje `psql`/`pg_dump` w pasującej wersji |
+| Kontener `dbserver` | prawdziwy PostgreSQL | **wartownik** (`postgres:<major>-alpine`): loguje się do bazy (healthcheck), i daje `psql`/`pg_dump` w pasującej wersji |
 | Strojenie (`shared_buffers`, `max_connections`…) | automatyczne przy każdym starcie | **Twoje** — gotowiec: [`make db-autotune-external`](#4-strojenie) |
 | Kodowanie i kolacja (ICU `pl-PL`) | ustawiane przy pierwszym starcie | **Twoje** — przy `CREATE DATABASE` |
 | Upgrade PostgreSQL | `make upgrade-postgres` | po Twojej stronie ([PostgreSQL](postgresql.md#tryb-external)) |
@@ -151,6 +151,12 @@ Kreator zapisuje:
 - w `$BPP_CONFIGS_DIR/.env`: `DJANGO_BPP_DB_HOST`, `_PORT`, `_NAME`, `_USER`,
   `_PASSWORD`, `DJANGO_BPP_POSTGRESQL_VERSION_MAJOR`.
 
+!!! warning "Baza i rola muszą istnieć przed `make up`"
+    BPP **nie zakłada** bazy na zewnętrznym serwerze — nie ma tam superusera.
+    Bez bazy z kroku 2 stack zatrzyma się na `dbserver` (`unhealthy`), a
+    `appserver` zostanie w stanie `Created`. Przyczynę pokaże
+    `docker inspect --format '{{json .State.Health}}' <kontener dbserver>`.
+
 Potem zwykłe `make up`. Przy pierwszym starcie appserver widzi pustą bazę i w kilka
 sekund wczytuje do niej gotowy schemat (zamiast odtwarzać kilkaset migracji),
 a następnie dociąga najnowsze migracje. Kreator `/setup/` w przeglądarce zakłada
@@ -275,6 +281,7 @@ BPP (`make test-upgrade`) robi lokalną kopię bazy na hoście BPP —
 | Objaw | Przyczyna | Co zrobić |
 |---|---|---|
 | Kreator: „nie udalo sie wykryc wersji" | brak połączenia z hosta BPP | `pg_hba.conf`, `listen_addresses`, firewall; test: `psql -h <host> -U bpp bpp` z hosta BPP |
+| `dbserver` `unhealthy`, `appserver` w `Created`; w `docker inspect` dbservera: `database "…" does not exist` / `password authentication failed` | wartownik loguje się do bazy z `DJANGO_BPP_DB_*` i to logowanie się nie udaje | załóż bazę i rolę (krok 2) albo popraw `DJANGO_BPP_DB_NAME`/`_USER`/`_PASSWORD` w `$BPP_CONFIGS_DIR/.env`; stack ruszy sam po kilku sondach, potem `make up` |
 | `no pg_hba.conf entry for host "…"` | w `pg_hba.conf` jest inny adres niż ten, z którego przychodzi BPP | wpisz adres z komunikatu (to adres hosta BPP po NAT) |
 | `permission denied to create extension` | rola `bpp` nie jest właścicielem bazy albo serwer blokuje rozszerzenia | `ALTER DATABASE bpp OWNER TO bpp;` albo załóż rozszerzenia jako superuser (krok 2) |
 | `extension "… " is not available` | brak pakietu `contrib` | zainstaluj `postgresql-contrib` dla swojej wersji |
