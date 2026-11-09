@@ -500,6 +500,7 @@ Calendar versioning `YYYY.MM.DD[.N]`. `make release` (`scripts/release.sh`): com
 - Use `make` targets instead of raw `docker compose` (they handle dependencies)
 - Verify environment-specific config (database markers, backup settings) before destructive operations
 - `make help` is the source of truth for available targets
+- **This repo is PUBLIC. Never put real deployment identifiers in anything that lands on GitHub** — commit messages, code comments, docs, PR/issue titles and bodies, review comments: no customer hostnames or domains, institution names tied to an incident, SSH host aliases, internal IPs, container IDs, tokens. Describe the situation generically ("na instalacji produkcyjnej"). Don't even quote a real hostname as an example of what not to write. Before `git commit` / `gh pr create` / `gh issue create`, check the diff and the message for hostnames. A pushed commit stays reachable by SHA even after a force-push, so the only real fix is not publishing it.
 
 ## Documentation maintenance (for agents)
 

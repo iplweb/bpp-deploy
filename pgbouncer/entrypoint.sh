@@ -74,6 +74,37 @@ DB_PORT="${DJANGO_BPP_DB_PORT:-5432}"
 
 PULA=$(liczba_lub_domyslna PGBOUNCER_POOL_SIZE 80)
 KLIENCI=$(liczba_lub_domyslna PGBOUNCER_MAX_CLIENT_CONN 1000)
+# Odcinanie zgubionych sesji. W trybie session klient trzyma backend przez cale
+# swoje polaczenie. Appserver (CONN_MAX_AGE=0) ma oddawac polaczenie po kazdym
+# zadaniu, ale workery ASGI potrafia je gubic — wisza `idle` godzinami az do
+# recyklingu workera. 2026-11-09 na produkcji: 70/80 puli zajete przez takie
+# sesje, kazda fala ruchu = query_wait_timeout = "server closed the connection
+# unexpectedly" w Rollbarze.
+#
+# NIE client_idle_timeout pgbouncera: janitor pomija klientow z przypietym
+# backendem (`if (client->link) continue;`), a w trybie session to kazdy
+# klient po pierwszym zapytaniu — opcja nic by nie dala (test 7c to lapie).
+# Zamiast tego PostgreSQL-owe idle_session_timeout na backendach PULI:
+# connect_query przy otwarciu backendu + server_reset_query po oddaniu go przez
+# klienta (reset kasuje SET, wiec ustawiamy ponownie). UWAGA: pgbouncer wysyla
+# server_reset_query jako JEDNO zapytanie, wiec kilka instrukcji leci w
+# niejawnej transakcji — a `DISCARD ALL` w transakcji jest zabronione (caly
+# reset pada i stan sesji przecieka do nastepnego klienta; test 4b). Dlatego
+# rozpisany odpowiednik DISCARD ALL z dokumentacji PostgreSQL, ktorego
+# skladowe w transakcji sa dozwolone, plus nasz SET. Bezczynna > N s
+# sesja konczy sie po stronie bazy, pgbouncer rozlacza przypietego klienta
+# i slot wraca do puli. Dotyczy TYLKO puli — Celery/denorm (LISTEN) lacza sie
+# z baza bezposrednio. 0 = wylaczone.
+BEZCZYNNY=$(liczba_lub_domyslna PGBOUNCER_IDLE_SESSION_TIMEOUT 600)
+if [ "$BEZCZYNNY" -gt 0 ]; then
+    USTAW_BEZCZYNNY="SET idle_session_timeout TO $((BEZCZYNNY * 1000))"
+    POLACZ_ZAPYTANIE=" connect_query='$USTAW_BEZCZYNNY'"
+    # = DISCARD ALL (https://www.postgresql.org/docs/current/sql-discard.html)
+    RESET_ZAPYTANIE="CLOSE ALL; SET SESSION AUTHORIZATION DEFAULT; RESET ALL; DEALLOCATE ALL; UNLISTEN *; SELECT pg_advisory_unlock_all(); DISCARD PLANS; DISCARD TEMP; DISCARD SEQUENCES; $USTAW_BEZCZYNNY"
+else
+    POLACZ_ZAPYTANIE=""
+    RESET_ZAPYTANIE="DISCARD ALL"
+fi
 [ "$PULA" -ge 1 ] || { log "OSTRZEZENIE: PGBOUNCER_POOL_SIZE=0 — uzywam 80" >&2; PULA=80; }
 [ "$KLIENCI" -ge 1 ] || { log "OSTRZEZENIE: PGBOUNCER_MAX_CLIENT_CONN=0 — uzywam 1000" >&2; KLIENCI=1000; }
 
@@ -113,7 +144,7 @@ cat > "$KONF" <<INI
 ; Wygenerowane przez $ME przy starcie kontenera — NIE EDYTOWAC.
 ; Zrodlo: pgbouncer/entrypoint.sh w repo bpp-deploy.
 [databases]
-$DJANGO_BPP_DB_NAME = host=$DJANGO_BPP_DB_HOST port=$DB_PORT
+$DJANGO_BPP_DB_NAME = host=$DJANGO_BPP_DB_HOST port=$DB_PORT$POLACZ_ZAPYTANIE
 ${DJANGO_BPP_DB_NAME}_health = host=$DJANGO_BPP_DB_HOST port=$DB_PORT dbname=$DJANGO_BPP_DB_NAME pool_size=1
 
 [pgbouncer]
@@ -126,10 +157,11 @@ default_pool_size = $PULA
 max_db_connections = $PULA
 max_client_conn = $KLIENCI
 query_wait_timeout = 15
+server_reset_query = $RESET_ZAPYTANIE
 log_connections = 0
 log_disconnections = 0
 stats_users = $DJANGO_BPP_DB_USER
 INI
 
-log "pula $PULA polaczen do $DJANGO_BPP_DB_HOST:$DB_PORT/$DJANGO_BPP_DB_NAME, do $KLIENCI klientow, tryb session"
+log "pula $PULA polaczen do $DJANGO_BPP_DB_HOST:$DB_PORT/$DJANGO_BPP_DB_NAME, do $KLIENCI klientow, tryb session, idle_session_timeout ${BEZCZYNNY}s (0 = wylaczone)"
 exec pgbouncer "$KONF"
