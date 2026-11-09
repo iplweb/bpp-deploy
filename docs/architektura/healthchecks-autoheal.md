@@ -25,6 +25,13 @@
   inaczej fallback na starą `healthcheck_broker.py` (cold-import + broker connect)
   dla wstecznej zgodności z pinowanym starym obrazem. Wcześniej sama broker-sonda
   pod niskim capem CPU trwała 4–10 s i wydłużała start celerybeat do ~218 s.
+- `dbserver` w trybie [bazy zewnętrznej](../konfiguracja/baza-zewnetrzna.md)
+  (wartownik) — `psql … -c 'select 1'` do prawdziwej bazy z danymi z `.env`,
+  **nie** `pg_isready`. `pg_isready` mówi „accepting connections" także wtedy,
+  gdy bazy nie ma albo hasło jest złe — wartownik był zielony, a stack stawał
+  dopiero na `pgbouncer` (`unhealthy`, appserver w `Created`). Teraz staje na
+  `dbserver`, a komunikat Postgresa widać w
+  `docker inspect --format '{{json .State.Health}}' <kontener dbserver>`.
 - `pgbouncer` — `sh /bpp-entrypoint.sh zdrowie`: `SELECT 1` przez pgbouncer do
   bazy, przez **osobny** wpis `<baza>_health` z własną pulą 1 połączenia — sonda
   nie stoi w kolejce za nasyconą główną pulą, więc nie robi się `unhealthy` pod

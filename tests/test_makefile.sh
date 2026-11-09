@@ -629,6 +629,47 @@ _render_compose() {
     (cd "$REPO_DIR" && BPP_CONFIGS_DIR="$1" docker compose -p bpp-compose-test config 2>"$1/stderr.txt")
 }
 
+test_external_sentinel_logs_in() {
+    yellow "=== Test 11f: wartownik bazy zewnetrznej loguje sie, nie tylko pinguje ==="
+    # pg_isready mowi "accepting connections" (rc=0) takze wtedy, gdy bazy
+    # z -d nie ma albo haslo jest zle — wartownik byl zielony, a stack stawal
+    # dopiero na pgbouncerze (unhealthy, appserver w `Created`) z przyczyna
+    # schowana w jego logach. Sonda musi sie naprawde zalogowac.
+
+    if ! command -v docker >/dev/null 2>&1 || ! docker info >/dev/null 2>&1; then
+        skip_or_fail "docker niedostepny — pomijam render compose config"
+        return
+    fi
+
+    local cfg out db hc
+    cfg=$(mktemp -d)
+    printf 'DJANGO_BPP_HOST_BACKUP_DIR=%s\nDJANGO_BPP_DB_HOST=baza.example\nDJANGO_BPP_DB_PORT=5432\n' \
+        "$cfg" > "$cfg/.env"
+
+    if ! out="$(cd "$REPO_DIR" && BPP_CONFIGS_DIR="$cfg" \
+            BPP_DATABASE_COMPOSE=docker-compose.database.external.yml \
+            docker compose -p bpp-compose-test config 2>"$cfg/stderr.txt")"; then
+        fail "compose config (external) nie wyrenderowal sie ($(tail -1 "$cfg/stderr.txt"))"
+        rm_rf_root "$cfg"; return
+    fi
+
+    db="$(svc_block dbserver <(printf '%s\n' "$out") || true)"
+    assert_svc_contains "external: dbserver to wartownik (sleep infinity)" "- infinity" "$db"
+    hc="$(printf '%s\n' "$db" | awk '/^    healthcheck:$/ {inb=1; next} inb && /^    [a-z]/ {exit} inb')"
+    assert_svc_contains "external: sonda loguje sie przez psql" "psql -h" "$hc"
+    assert_svc_contains "external: sonda wykonuje zapytanie" "select 1" "$hc"
+    # shellcheck disable=SC2016  # `$$` ma zostac literalne — tak compose config zwraca escape
+    assert_svc_contains "external: sonda celuje w DJANGO_BPP_DB_NAME" '-d "$$DJANGO_BPP_DB_NAME"' "$hc"
+    if printf '%s\n' "$hc" | grep -q 'pg_isready'; then
+        fail "external: sonda wartownika wrocila do pg_isready (zielona przy braku bazy)"
+    else
+        pass "external: sonda wartownika bez pg_isready"
+    fi
+    assert_svc_contains "external: haslo dla psql w srodowisku" "PGPASSWORD:" "$db"
+
+    rm_rf_root "$cfg"
+}
+
 test_pgbouncer_compose() {
     yellow "=== Test 11e: pgbouncer — kto laczy sie przez pule ==="
 
@@ -3300,6 +3341,7 @@ test_compose_shell_vars_escaped
 test_waf_audit_only_rules
 test_nginx_global_limits_wired
 test_pgbouncer_compose
+test_external_sentinel_logs_in
 test_waf_crossfilter
 test_log_monitoring_waf_filter
 test_env_sample

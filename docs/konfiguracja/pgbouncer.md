@@ -153,3 +153,10 @@ Długie zapytanie też ma dawny czas ostatniego zapytania — porównaj z kolumn
 pgbouncer jest infrastrukturą jak `dbserver`: gdy jest `unhealthy`, appserver
 nie startuje, a `make up` kończy się błędem. Celery, denorm i panele działają
 dalej.
+
+Przyczyna jest w logu pgbouncera (`docker compose logs pgbouncer`). Gdy brzmi
+`server login failed: … database "…" does not exist`, pgbouncer jest zdrowy —
+po drugiej stronie nie ma bazy z `DJANGO_BPP_DB_NAME`. Przy
+[bazie zewnętrznej](baza-zewnetrzna.md) ten przypadek łapie już wcześniej
+healthcheck `dbserver`a (wartownik się loguje), więc pgbouncer nawet nie
+rusza.

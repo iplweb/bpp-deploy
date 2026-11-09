@@ -10,7 +10,7 @@
 #
 #   1. Istnieje po to, żeby 'depends_on: dbserver' w authserver/appserver
 #      nadal działało.
-#   2. Jego healthcheck sonduje prawdziwą, zewnętrzną bazę przez pg_isready,
+#   2. Jego healthcheck loguje się do prawdziwej, zewnętrznej bazy (psql),
 #      więc serwisy zależne startują dopiero gdy zewnętrzna baza jest
 #      faktycznie dostępna.
 #   3. Udostępnia psql/pg_dump/pg_restore w tej samej wersji co serwer,
@@ -46,10 +46,16 @@ services:
       # lokalnym) - pg_dump pisze bezposrednio tutaj, bez drogi przez /tmp.
       - ${DJANGO_BPP_HOST_BACKUP_DIR}:/backup
     command: ["sleep", "infinity"]
+    # psql + `select 1`, NIE pg_isready: pg_isready sprawdza tylko, czy serwer
+    # przyjmuje polaczenia — brak bazy, zle haslo czy brak wpisu w pg_hba.conf
+    # daja zielonego wartownika. Wtedy stack staje dopiero na pgbouncerze
+    # (unhealthy, appserver w `Created`), a przyczyna siedzi w jego logach.
+    # Z prawdziwym logowaniem stack staje na dbserverze, a komunikat Postgresa
+    # ("baza danych ... nie istnieje") widac w `docker inspect` (Health.Log).
     healthcheck:
       test:
         - CMD-SHELL
-        - pg_isready -h "$$DJANGO_BPP_DB_HOST" -p "$$DJANGO_BPP_DB_PORT" -U "$$DJANGO_BPP_DB_USER" -d "$$DJANGO_BPP_DB_NAME"
+        - PGCONNECT_TIMEOUT=4 psql -h "$$DJANGO_BPP_DB_HOST" -p "$$DJANGO_BPP_DB_PORT" -U "$$DJANGO_BPP_DB_USER" -d "$$DJANGO_BPP_DB_NAME" -XtAq -c 'select 1' -o /dev/null
       interval: 10s
       timeout: 5s
       retries: 5
