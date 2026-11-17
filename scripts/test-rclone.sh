@@ -186,6 +186,31 @@ esac
 exit 0
 MOCK
 
+# wget: heartbeat Healthchecks.io (notify_healthchecks) idzie busyboxowym wget
+# z orkiestratora. Atrapa zapisuje adres i tresc POST do MOCK_RECORD (bez sieci).
+# MOCK_FAIL_ON=wget -> kazda proba pada (brak sieci / timeout).
+cat > "$BIN/wget" <<'MOCK'
+#!/usr/bin/env bash
+url=""; body=""
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --post-data) body="$2"; shift 2 ;;
+        -T|-O) shift 2 ;;
+        -*) shift ;;
+        *) url="$1"; shift ;;
+    esac
+done
+{ printf 'wget %s body=' "$url"; printf '%s' "$body" | tr '\n' '~'; printf '\n'; } >> "$MOCK_RECORD"
+[ "${MOCK_FAIL_ON:-}" = "wget" ] && exit 4
+exit 0
+MOCK
+
+# sleep: retry pingu (3 proby co 2 s) nie moze wydluzac testow.
+cat > "$BIN/sleep" <<'MOCK'
+#!/usr/bin/env bash
+exit 0
+MOCK
+
 # Nadpisujemy WYLACZNIE format "+%Y-%m" — reszta idzie do prawdziwego date,
 # zeby timestampy i pomiar czasu w backup-cycle dzialaly normalnie.
 cat > "$BIN/date" <<'MOCK'
@@ -310,6 +335,7 @@ run_cycle() {
         DJANGO_BPP_HOSTNAME=test.example \
         DJANGO_BPP_RCLONE_REMOTE="backup_enc:" \
         ROLLBAR_ACCESS_TOKEN="$rollbar_token" \
+        DJANGO_BPP_HEALTHCHECKS_PING_KEY="${HC_KEY_ENV:-}" \
         ${KEEP_MONTHS_KV:+"$KEEP_MONTHS_KV"} \
         bash "$CYCLE" > "$CYCLE_LOG" 2>&1
     CYCLE_RC=$?
@@ -992,7 +1018,8 @@ fi
 
 FAIL_HARNESS="$TEST_ROOT/fail-harness.sh"
 NOTIFY_MARKER="$TEST_ROOT/notify-called"
-rm -f "$NOTIFY_MARKER"
+HC_MARKER="$TEST_ROOT/hc-called"
+rm -f "$NOTIFY_MARKER" "$HC_MARKER"
 {
     printf '%s\n' 'set -eu'
     printf '%s\n' 'set -o pipefail'
@@ -1005,6 +1032,7 @@ rm -f "$NOTIFY_MARKER"
     # temu test pilnuje `|| true` na OBU liniach fail() - bez tego wyjecie
     # `|| true` z linii notify_rollbar byloby niewykrywalne.
     printf 'notify_rollbar() { : > "%s"; return 1; }\n' "$NOTIFY_MARKER"
+    printf 'notify_healthchecks() { : > "%s"; return 1; }\n' "$HC_MARKER"
     printf '%s\n' "$FAIL_FN"
     printf '%s\n' 'fail "rclone-copy" 3'
 } > "$FAIL_HARNESS"
@@ -1018,6 +1046,64 @@ if [ -f "$NOTIFY_MARKER" ]; then
 else
     fail "notify_rollbar w ogole sie nie wykonal - zepsuty log urwal fail()"
 fi
+if [ -f "$HC_MARKER" ]; then
+    pass "MUTACYJNY: ping /fail do Healthchecks wychodzi mimo zepsutego logu i padajacego Rollbara"
+else
+    fail "notify_healthchecks w ogole sie nie wykonal - fail() urwany przed pingiem"
+fi
+
+# ==========================================================================
+# 10. Heartbeat Healthchecks.io (notify_healthchecks)
+# ==========================================================================
+echo
+echo "10. heartbeat Healthchecks.io"
+
+# Bez klucza: zero wywolan wget (funkcja wylaczona, jak Rollbar bez tokenu).
+MOCK_YM=2026-08 HC_KEY_ENV="" run_cycle
+assert_eq "0" "$CYCLE_RC" "bez klucza Healthchecks cykl konczy sie sukcesem"
+assert_not_contains "$(cat "$RECORD")" "wget " "bez klucza Healthchecks: zadnego pingu"
+
+# Z kluczem, udany cykl: /start na poczatku, potem ping sukcesu z podsumowaniem.
+MOCK_YM=2026-08 HC_KEY_ENV="kluczTEST" run_cycle
+rec="$(cat "$RECORD")"
+assert_eq "0" "$CYCLE_RC" "udany cykl z kluczem Healthchecks: sukces"
+assert_contains "$rec" "wget https://hc-ping.com/kluczTEST/test-example-backup/start?create=1" \
+    "ping /start na adres z kluczem i slugiem <hostname>-backup (kropki -> '-')"
+assert_contains "$rec" "wget https://hc-ping.com/kluczTEST/test-example-backup?create=1 body=Backup OK on test.example" \
+    "ping sukcesu z podsumowaniem cyklu w tresci"
+assert_not_contains "$rec" "/fail" "udany cykl nie wysyla /fail"
+# Kolejnosc: /start przed pg_dump, sukces po rclone copy. Inaczej Healthchecks
+# mierzylby zly czas albo raportowal sukces przed wysylka.
+order="$(awk '
+    /^wget .*\/start\?create=1/      { print "start"; next }
+    /^docker exec cid-dbserver/       { print "pg_dump"; next }
+    /^copy /                          { print "rclone-copy"; next }
+    /^wget .*-backup\?create=1/       { print "sukces"; next }
+' "$RECORD")"
+assert_eq "start
+pg_dump
+rclone-copy
+sukces" "$order" "kolejnosc: /start -> pg_dump -> rclone copy -> sukces"
+assert_not_contains "$(cat "$CYCLE_LOG")" "kluczTEST" "ping key NIE trafia do logu"
+
+# Nieudany krok krytyczny: /fail z nazwa kroku, kod wyjscia kroku zachowany.
+MOCK_YM=2026-08 HC_KEY_ENV="kluczTEST" MOCK_FAIL_ON=copy run_cycle
+rec="$(cat "$RECORD")"
+assert_eq "3" "$CYCLE_RC" "rclone-copy pada: kod 3 mimo heartbeatu"
+assert_contains "$rec" "test-example-backup/fail?create=1 body=step=rclone-copy exit=3" \
+    "ping /fail z nazwa kroku i kodem wyjscia"
+assert_not_contains "$rec" "test-example-backup?create=1" "nieudany cykl nie wysyla pingu sukcesu"
+
+# Brak sieci: kazdy ping pada, a backup MUSI dalej byc sukcesem (exit 0).
+MOCK_YM=2026-08 HC_KEY_ENV="kluczTEST" MOCK_FAIL_ON=wget run_cycle
+assert_eq "0" "$CYCLE_RC" "MUTACYJNY: padniety ping (brak sieci) nie zmienia wyniku udanego backupu"
+assert_eq "6" "$(grep -c '^wget ' "$RECORD")" "nieudany ping: 3 proby dla /start i 3 dla sukcesu"
+assert_contains "$(cat "$CYCLE_LOG")" "healthchecks: ping /ok nieudany po 3 probach" \
+    "nieudany ping zostawia ostrzezenie w logu"
+
+# Brak sieci przy nieudanym kroku: kod wyjscia kroku zostaje (trap nie klobrowany).
+MOCK_YM=2026-08 HC_KEY_ENV="kluczTEST" MOCK_FAIL_ON=wget MOCK_FAIL_ON_STEP=pg_dump run_cycle
+assert_eq "1" "$CYCLE_RC" "MUTACYJNY: padniety ping /fail nie klobruje kodu wyjscia pg_dump (1)"
 
 echo
 echo "=================================="

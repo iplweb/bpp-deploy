@@ -396,6 +396,13 @@ Tripwire'y, każdy nośny:
   expired?`** — wygląda na wygasły token OAuth, a jest pusty magazyn CA
   (historyczna awaria z ery `apt-get`, `a6d96b0`). NIE „naprawiać" przez
   `rclone config reconnect`/rotację tokenu ani `--no-check-certificate`.
+- **Heartbeat Healthchecks.io (`notify_healthchecks`) idzie busyboxowym `wget`
+  z SAMEGO orkiestratora — nie przenoś go do appservera „jak Rollbar".** Ma dojść
+  dokładnie wtedy, gdy aplikacja leży. Opcjonalny (`DJANGO_BPP_HEALTHCHECKS_PING_KEY`,
+  pusty = no-op), funkcja zawsze zwraca 0, każde wywołanie ma `|| true` — nieudany
+  ping nie zmienia wyniku backupu (asercje w §9–10 `scripts/test-rclone.sh`). Adresu
+  pingu nie loguj (zawiera klucz). Slug `<hostname>-backup` + `?create=1` = kontrola
+  zakłada się sama; zmiana sluga osieroci istniejące kontrole u operatorów.
 - **Nie dodawaj `user:` do orkiestratora** — `docker:cli` działa jako uid 0
   i tylko dlatego czyta socket `root:root`.
 - **Wdrożeniowo orkiestrator + notyfikacja przez appservera to JEDNA jednostka**
