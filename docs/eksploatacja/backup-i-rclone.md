@@ -27,6 +27,8 @@ do kontenerów, które i tak istnieją i mają właściwe narzędzia:
 3. rotacja lokalna (`DJANGO_BPP_BACKUP_KEEP_LAST`),
 4. `rclone copy` + retencja zdalna — w serwisie `rclone` (patrz niżej),
 5. notyfikacja do Rollbara — `docker exec appserver python` (bez `curl`/`jq`).
+6. heartbeat do [Healthchecks.io](#monitoring-backupu-healthchecksio) — busyboxowy
+   `wget` z samego orkiestratora (opcjonalnie, `DJANGO_BPP_HEALTHCHECKS_PING_KEY`).
 
 Kontenery są adresowane po labelach compose (`com.docker.compose.service`), nigdy po
 nazwie — nazwy generuje compose.
@@ -56,6 +58,57 @@ nazwie — nazwy generuje compose.
     ciągiem.
 
 `make backup-cycle` uruchamia ten sam cykl ręcznie.
+
+## Monitoring backupu — Healthchecks.io
+
+Rollbar dostaje komunikat tylko z cyklu, który **się wykonał** — i tylko wtedy, gdy
+działa appserver. Nie wykryje sytuacji, w której backup **w ogóle nie ruszył**:
+padnięta Ofelia, niedziałający `backup-runner`, wyłączony serwer, cykl zawieszony
+w połowie. Do tego służy opcjonalny heartbeat do [Healthchecks.io](https://healthchecks.io)
+(„dead man's switch"): serwis alarmuje, gdy w zadanym czasie **nie przyszedł** ping
+o udanym backupie.
+
+Cykl wysyła trzy rodzaje pingów:
+
+| Kiedy | Adres | Treść |
+|---|---|---|
+| start cyklu | `…/<slug>/start` | — (Healthchecks mierzy czas trwania) |
+| sukces | `…/<slug>` | podsumowanie: rozmiary, katalog zdalny, czas, retencja |
+| błąd kroku | `…/<slug>/fail` | nazwa kroku, kod wyjścia, końcówka logu |
+
+Ping idzie z orkiestratora (`wget` z obrazu `docker:28-cli`), **nie** przez appservera —
+ma dojść także wtedy, gdy aplikacja leży. Nieudany ping (brak sieci, timeout; 3 próby)
+zostawia ostrzeżenie w logu i **nigdy nie zmienia wyniku ani kodu wyjścia backupu**.
+
+### Włączenie
+
+1. Załóż projekt w Healthchecks.io i skopiuj **Ping key** (Settings → *Ping key*).
+2. Wpisz go do `$BPP_CONFIGS_DIR/.env` (albo `make configure` → *Powiadomienia*):
+
+    ```bash
+    DJANGO_BPP_HEALTHCHECKS_PING_KEY=<ping-key>
+    ```
+
+3. Gotowe — wystarczy `git pull` (skrypt jedzie na bind-mouncie, `env_file`
+   orkiestratora czyta `.env` przy każdym cyklu). Kontrola zakłada się **sama** przy
+   pierwszym pingu (`?create=1`) pod slugiem `<DJANGO_BPP_HOSTNAME>-backup`, małymi
+   literami, z kropkami zamienionymi na `-` (np. `bpp-example-org-backup`). Wiele
+   instalacji może dzielić jeden projekt i jeden klucz — każda dostaje własną kontrolę.
+4. W panelu Healthchecks ustaw nowej kontroli harmonogram: **Cron** `30 2 * * *`,
+   strefa `Europe/Warsaw`, *grace* np. 2–3 h (zależnie od rozmiaru bazy i łącza).
+   Domyślny „1 dzień" też działa, ale alarm przyjdzie później.
+5. Powiadomienia (*Integrations*): e-mail, a na telefon np. **ntfy** — można użyć tego
+   samego serwera i topicu co alerty Netdaty (`NTFY_TOPIC`).
+
+Ręczny test: `make backup-cycle` — w panelu powinny pojawić się `start` i sukces.
+
+Własna instancja Healthchecks: `DJANGO_BPP_HEALTHCHECKS_URL=https://hc.example.org/ping`
+(domyślnie `https://hc-ping.com`).
+
+!!! note "Co trafia do Healthchecks"
+    Nazwa hosta (w slugu) i treść pingów: rozmiary archiwów, nazwa katalogu zdalnego,
+    nazwy kroków i końcówka logu cyklu przy błędzie. **Żadnych danych z bazy.**
+    Ping key nie jest logowany. Pusty klucz = funkcja wyłączona (zero ruchu sieciowego).
 
 ## Serwis `rclone`
 

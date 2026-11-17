@@ -1,7 +1,8 @@
 #!/bin/sh
 #
 # Codzienny cykl backupu: pg_dump -> tar media -> tar konfiguracji -> lokalna
-# rotacja -> rclone copy -> retencja zdalna -> Rollbar notify. Wywolywane przez Ofelie (label na kontenerze
+# rotacja -> rclone copy -> retencja zdalna -> Rollbar notify + heartbeat
+# Healthchecks.io. Wywolywane przez Ofelie (label na kontenerze
 # backup-runner) lub recznie: `make backup-cycle`.
 #
 # Wymagane zmienne srodowiskowe (z env_file w docker-compose.backup.yml):
@@ -10,6 +11,10 @@
 #
 # Opcjonalne:
 #   ROLLBAR_ACCESS_TOKEN         - gdy pusty, notify jest no-opem
+#   DJANGO_BPP_HEALTHCHECKS_PING_KEY - ping key projektu Healthchecks.io;
+#                                   gdy pusty, heartbeat jest no-opem
+#   DJANGO_BPP_HEALTHCHECKS_URL   - baza adresow pingu (wlasna instancja
+#                                   Healthchecks), default https://hc-ping.com
 #   DJANGO_BPP_RCLONE_REMOTE      - target rclone, default "backup_enc:"
 #   DJANGO_BPP_BACKUP_KEEP_LAST   - ile kopii lokalnie, default 7
 #   DJANGO_BPP_RCLONE_KEEP_MONTHS - retencja ZDALNA: ile katalogow
@@ -126,6 +131,13 @@ KEEP_MONTHS="${DJANGO_BPP_RCLONE_KEEP_MONTHS-12}"
 PARALLEL_JOBS="${PARALLEL_JOBS:-4}"
 RETENCJA_MSG="off"
 CONFIG_MSG="brak"
+HC_PING_KEY="${DJANGO_BPP_HEALTHCHECKS_PING_KEY:-}"
+HC_URL="${DJANGO_BPP_HEALTHCHECKS_URL:-https://hc-ping.com}"
+HC_URL="${HC_URL%/}"
+# Slug kontroli: <hostname>-backup, malymi literami, wszystko spoza [a-z0-9_-]
+# zamienione na `-` (Healthchecks przyjmuje w slugu tylko te znaki). Kropki
+# z nazwy hosta tez - `bpp.example.org` -> `bpp-example-org-backup`.
+HC_SLUG="$(printf '%s-backup' "${DJANGO_BPP_HOSTNAME:-unknown}" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9_-' '-')"
 
 : > "$LOG"
 exec > >(tee -a "$LOG") 2>&1
@@ -187,6 +199,40 @@ with urllib.request.urlopen(req, timeout=10) as r:
     return 0
 }
 
+# Heartbeat do Healthchecks.io (dead man's switch). Rollbar mowi tylko o cyklach,
+# ktore sie WYKONALY; Healthchecks alarmuje takze wtedy, gdy cykl w ogole nie
+# ruszyl (Ofelia, backup-runner, wylaczony serwer) albo zawisl po /start.
+#
+# Wysylka busyboxowym `wget` z SAMEGO orkiestratora (docker:cli ma wget
+# i ssl_client), a NIE przez appservera jak Rollbar: heartbeat ma dojsc
+# dokladnie wtedy, gdy aplikacja lezy. `?create=1` zaklada kontrole przy
+# pierwszym pingu - nowa instalacja nie wymaga klikania w panelu.
+#
+# KRYTYCZNE (jak notify_rollbar): funkcja konczy sie sukcesem ZAWSZE - jest
+# wolana z fail()/on_exit, a nieudany ping (brak sieci, timeout) nie ma prawa
+# zmienic wyniku ani kodu wyjscia backupu. Adresu nie logujemy - zawiera ping key.
+#   $1 - "" (sukces), "/start" albo "/fail"
+#   $2 - tresc (podsumowanie albo koncowka logu; Healthchecks pokazuje ja w historii)
+notify_healthchecks() {
+    _hc_suffix="$1"; _hc_body="${2:-}"
+    if [ -z "$HC_PING_KEY" ]; then
+        log "healthchecks: skip (DJANGO_BPP_HEALTHCHECKS_PING_KEY not set)"
+        return 0
+    fi
+    _hc_try=1
+    while [ "$_hc_try" -le 3 ]; do
+        if wget -q -T 10 -O /dev/null --post-data "$_hc_body" \
+                "$HC_URL/$HC_PING_KEY/$HC_SLUG$_hc_suffix?create=1" 2>/dev/null; then
+            log "healthchecks: ping ${_hc_suffix:-/ok} ($HC_SLUG)"
+            return 0
+        fi
+        _hc_try=$((_hc_try + 1))
+        if [ "$_hc_try" -le 3 ]; then sleep 2; fi
+    done
+    log "UWAGA: healthchecks: ping ${_hc_suffix:-/ok} nieudany po 3 probach - wynik backupu bez zmian"
+    return 0
+}
+
 # KRYTYCZNE: kazda komenda w tej sciezce ma `|| true` (ten sam kontrakt co
 # w on_exit nizej, spec §4). Bez tego `set -e` urywa funkcje na pierwszym
 # bledzie: realny wyzwalacz to pelny dysk - `tar` pada z braku miejsca, rusza
@@ -202,6 +248,9 @@ fail() {
     local tail_log
     tail_log="$(tail -c 2000 "$LOG" 2>/dev/null || true)"
     notify_rollbar error "Backup FAIL on ${DJANGO_BPP_HOSTNAME:-unknown}: step=$step exit=$code
+Log tail:
+$tail_log" || true
+    notify_healthchecks /fail "step=$step exit=$code
 Log tail:
 $tail_log" || true
     exit "$code"
@@ -229,6 +278,7 @@ on_exit() {
     BPP_INTENDED_EXIT=1
     log "FAIL: unexpected-error (exit=$rc)" || true
     notify_rollbar error "Backup FAIL on ${DJANGO_BPP_HOSTNAME:-unknown}: step=unexpected-error exit=$rc" || true
+    notify_healthchecks /fail "step=unexpected-error exit=$rc" || true
     exit "$rc"
 }
 trap on_exit EXIT
@@ -237,6 +287,10 @@ trap on_exit EXIT
 # i bez notyfikacji. Zignorowanie sygnalu zamienia to w zwykly blad zapisu,
 # ktory `set -e` skieruje do on_exit.
 trap '' PIPE
+
+# Start cyklu: Healthchecks mierzy czas trwania i alarmuje, gdy po /start nie
+# przyjdzie sukces ani /fail (cykl zawieszony albo zabity w polowie).
+notify_healthchecks /start "" || true
 
 # --- 1. pg_dump bazy - WEWNATRZ dbservera (docker exec), nie lokalnie ---
 #
@@ -416,6 +470,7 @@ DURATION=$(( END_TS - START_TS ))
 MSG="Backup OK on ${DJANGO_BPP_HOSTNAME:-unknown}: db=$(fmt_size "$DB_SIZE") media=$(fmt_size "$MEDIA_SIZE") config=$CONFIG_MSG remote=$REMOTE_DIR duration=${DURATION}s keep_last=$KEEP_LAST retencja_zdalna=$RETENCJA_MSG"
 log "$MSG"
 notify_rollbar info "$MSG"
+notify_healthchecks "" "$MSG" || true
 
 BPP_INTENDED_EXIT=1
 exit 0

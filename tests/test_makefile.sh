@@ -2223,7 +2223,7 @@ test_configure_registry() {
 
     # --- make up na starej instalacji: brakuje tylko Freshdeska, Enter x3 -> decyzja zapisana
     cfg="$(mktemp -d)"
-    printf 'DJANGO_BPP_ADMIN_EMAIL=a@b.pl\nDJANGO_BPP_SLACK_WEBHOOK=\nROLLBAR_ACCESS_TOKEN=\nDJANGO_BPP_GOOGLE_ANALYTICS_PROPERTY_ID=\nDJANGO_BPP_GOOGLE_VERIFICATION_CODE=\nDJANGO_BPP_HOST_BACKUP_DIR=/srv/b' > "$cfg/.env"
+    printf 'DJANGO_BPP_ADMIN_EMAIL=a@b.pl\nDJANGO_BPP_SLACK_WEBHOOK=\nROLLBAR_ACCESS_TOKEN=\nDJANGO_BPP_HEALTHCHECKS_PING_KEY=\nDJANGO_BPP_GOOGLE_ANALYTICS_PROPERTY_ID=\nDJANGO_BPP_GOOGLE_VERIFICATION_CODE=\nDJANGO_BPP_HOST_BACKUP_DIR=/srv/b' > "$cfg/.env"
     chmod 600 "$cfg/.env"
     # GNU najpierw: GNU `stat -f` NIE zawodzi (to statystyki systemu plikow),
     # wiec fallback na BSD musi isc w druga strone. Porownujemy tryb przed/po
