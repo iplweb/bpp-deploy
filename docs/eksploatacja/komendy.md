@@ -197,7 +197,7 @@ Szczegóły: [Backup i rclone](backup-i-rclone.md).
 
 ```bash
 make invalidate              # Wyczyść cache (cacheops + page cache), BEZ wylogowywania
-make check-quic              # Sprawdź, czy UDP/443 (HTTP/3 QUIC) dochodzi z zewnątrz
+make check-quic              # Sprawdź, czy UDP/443 (HTTP/3 QUIC) dochodzi z zewnątrz (h3 chwilowo wyłączone — patrz Utwardzenie brzegu)
 make docker-clean            # Sprzątanie Dockera
 make prune-orphan-volumes    # Usuń osierocone wolumeny
 make open-docker-volume      # Otwórz wolumen do podglądu

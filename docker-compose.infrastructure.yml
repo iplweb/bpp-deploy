@@ -131,6 +131,13 @@ services:
       # spowalniania. NIE "naprawiac" tego przez limit_req_log_level error:
       # odmowy 429 wpadlyby na dashboard bledow. notice -> Alloy mapuje na info.
       LOGLEVEL: "${LOGLEVEL:-notice}"
+      # HTTP/2 TYMCZASOWO WYLACZONE (NGINX2Root, CVE-2026-123007 — RCE w HTTP/2,
+      # poprawione w nginx 1.30.7/1.31.9). Obraz CRS wstawia `http2 ${HTTP2}`
+      # do kontekstu http w nginx.conf (domyslnie on); nasze bloki server maja
+      # dodatkowo jawne `http2 off`. Celowo NIE `${HTTP2:-off}` — operator nie
+      # powinien moc tego przypadkiem wlaczyc z .env, poki obraz jest dziurawy.
+      # Patrz docs/architektura/utwardzenie-brzegu.md#http2-http3-wylaczone.
+      HTTP2: "off"
       # Limity ciala zadania MUSZA byc spojne z client_max_body_size 120M
       # z vhost.conf.template. Domyslne w ModSecurity to 13107200 (12,5 MiB)
       # i 131072 (128 KiB) — przy nich importy POLON/PBN oraz duze formularze
@@ -200,7 +207,7 @@ services:
     ports:
       - 80:80
       - 443:443
-      - 443:443/udp    # HTTP/3 (QUIC)
+      - 443:443/udp    # HTTP/3 (QUIC) — chwilowo nic tu nie slucha (NGINX2Root), port zostaje na powrot h3
     healthcheck:
       test: ["CMD-SHELL", "curl -f -s -o /dev/null http://127.0.0.1:80/healthz || exit 1"]
       start_period: 10s

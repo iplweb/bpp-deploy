@@ -1210,8 +1210,18 @@ test_nginx_config_valid() {
     assert_file_contains "gzip_comp_level (locations)"  "gzip_comp_level" "$locations"
     assert_file_contains "gzip_vary on (locations)"     "gzip_vary on"   "$locations"
     assert_file_contains "proxy_buffers 16 (locations)" "proxy_buffers 16" "$locations"
-    assert_file_contains "HTTP/2 on (vhost)"            "http2 on"       "$vhost_tpl"
-    assert_file_contains "HTTP/3 QUIC (vhost)"          "listen 443 quic" "$vhost_tpl"
+    # HTTP/2 i HTTP/3 TYMCZASOWO wylaczone (NGINX2Root, CVE-2026-123007) do czasu
+    # obrazu z nginx >= 1.30.7. Przy przywracaniu odwroc te asercje.
+    local default_tpl="$REPO_DIR/defaults/webserver/default.conf.template"
+    local infra="$REPO_DIR/docker-compose.infrastructure.yml"
+    assert_file_contains     "HTTP/2 off (vhost)"           "http2 off;"   "$vhost_tpl"
+    assert_file_contains     "HTTP/2 off (default)"         "http2 off;"   "$default_tpl"
+    assert_file_not_contains "brak http2 on (vhost)"        "^ *http2 on"  "$vhost_tpl"
+    assert_file_not_contains "brak http2 on (default)"      "^ *http2 on"  "$default_tpl"
+    assert_file_not_contains "brak QUIC (vhost)"            "^ *listen .*quic" "$vhost_tpl"
+    assert_file_not_contains "brak QUIC (default)"          "^ *listen .*quic" "$default_tpl"
+    assert_file_contains     "Alt-Svc clear (vhost)"        "Alt-Svc 'clear'" "$vhost_tpl"
+    assert_file_contains     "HTTP2=off w compose"          'HTTP2: "off"' "$infra"
 
     # --- Asercje na ACME location (Let's Encrypt webroot) w port-80 bloku ---
     assert_file_contains "ACME location w vhost (port 80)" \
