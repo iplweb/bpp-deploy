@@ -138,8 +138,11 @@ server {
 # (or even leaking which cert is configured) for wrong domains.
 server {
     listen 443 ssl default_server;
-    listen 443 quic default_server;
-    http2 on;
+    # HTTP/2 and HTTP/3 TEMPORARILY OFF — "NGINX2Root" (CVE-2026-123007 et al.,
+    # fixed in nginx 1.30.7 / 1.31.9). Re-enable together with vhost.conf.template
+    # and HTTP2 in docker-compose.infrastructure.yml once the image ships a fixed
+    # nginx. See docs/architektura/utwardzenie-brzegu.md#http2-http3-wylaczone.
+    http2 off;
     server_name _;
     ssl_reject_handshake on;
     access_log off;
