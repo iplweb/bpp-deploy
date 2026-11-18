@@ -68,10 +68,22 @@ services:
     # tamtejsze `#`-komentarze. Bylo dokladnie tak: pierwsza wersja tego
     # opisu siedziala w srodku bloku i sama generowala dwa nowe warningi.
     # Test: `test_compose_shell_vars_escaped` w tests/test_makefile.sh.
+    #
+    # Lancuch certyfikatow (ssl-fix-chain.sh): reczne certy wgrane BEZ
+    # posredniego (typowe dla Certum) dostaja go z AIA — tu, a nie na hoscie,
+    # bo ssl/ ma 0750 root:nginx i operator go nie przeczyta. PRZED chown/chmod,
+    # zeby kopia oryginalu tez dostala docelowe uprawnienia. `--auto` = zawsze
+    # exit 0; blad samego bash-a tylko logujemy — nginx ma wstac z certem bez
+    # zmian, a nie wcale (set -e by go zablokowal). Plik montowany z repo, wiec
+    # dociera `git pull`. Recznie: make ssl-napraw-lancuch.
     command:
       - |
         set -e
         chown -R nginx:nginx /var/log/nginx-shared
+        if [ -d /etc/ssl/private ] && [ -f /opt/bpp/ssl-fix-chain.sh ]; then
+          bash /opt/bpp/ssl-fix-chain.sh --auto /etc/ssl/private \
+            || echo "[ssl-lancuch] skrypt zakonczyl sie bledem (kod $$?) - certy bez zmian"
+        fi
         if [ -d /etc/ssl/private ]; then
           chown -R 0:nginx /etc/ssl/private
           find /etc/ssl/private -type d -exec chmod 0750 {} +
@@ -87,9 +99,11 @@ services:
         done
     volumes:
       - nginx_access_log:/var/log/nginx-shared
-      # RW (w webserverze jest :ro) — tutaj wlasnie poprawiamy uprawnienia.
+      # RW (w webserverze jest :ro) — tutaj wlasnie poprawiamy uprawnienia
+      # i dokladamy brakujace certy posrednie.
       - ${BPP_CONFIGS_DIR}/ssl:/etc/ssl/private
       - ${BPP_CONFIGS_DIR}/letsencrypt:/etc/letsencrypt
+      - ./scripts/ssl-fix-chain.sh:/opt/bpp/ssl-fix-chain.sh:ro
 
   webserver:
     # WAF na brzegu: obraz OWASP CRS = ten sam oficjalny nginx + modul

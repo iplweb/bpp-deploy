@@ -118,6 +118,44 @@ make refresh
 Katalog `letsencrypt/` zostaje na dysku — można w każdej chwili wrócić bez ponownego
 wystawiania.
 
+## Niekompletny łańcuch certyfikatu (brak certyfikatu pośredniego) {#lancuch}
+
+Certyfikaty komercyjne (np. Certum) bywają wgrywane jako **sam certyfikat serwera**,
+bez certyfikatu pośredniego CA. Przeglądarki na komputerach zwykle to maskują
+(pamiętają pośrednie albo dociągają je same), ale inne klienty — `curl`, Python,
+Android, harvestery i integracje — dostają:
+
+```
+unable to get local issuer certificate
+```
+
+bpp-updater oznacza taki serwer jako „niekompletny cert SSL”.
+
+**Naprawa jest automatyczna.** Przy każdym `make up` usługa `webserver-init` (root,
+przed startem nginksa) sprawdza `ssl/cert.pem` i `ssl/<host>/cert.pem`. Gdy łańcuch
+się nie weryfikuje, pobiera brakujący certyfikat pośredni spod adresu z rozszerzenia
+AIA („CA Issuers”) certyfikatu, dokleja go i powtarza (do 4 poziomów). Plik jest
+nadpisywany **tylko wtedy**, gdy pełny łańcuch przejdzie weryfikację systemowym
+magazynem CA — dlatego pobieranie po `http://` (tak publikują AIA wszystkie CA) jest
+bezpieczne: podrobiony certyfikat pośredni nie przejdzie weryfikacji i nie trafi do
+pliku. Certyfikat główny (root) nie jest doklejany. Oryginał zostaje obok jako
+`cert.pem.bez-lancucha-<data>`. Certyfikaty samopodpisane (snakeoil) i już kompletne
+są pomijane. Błąd naprawy nigdy nie blokuje startu — nginx wstaje z certem bez zmian.
+
+Bez deployu:
+
+```bash
+make ssl-sprawdz-lancuch   # tylko raport, nic nie zmienia
+make ssl-napraw-lancuch    # naprawa + przeładowanie nginksa
+```
+
+Obie komendy działają w kontenerze `webserver-init`, bo katalog `ssl/` ma uprawnienia
+`0750 root:nginx` i zwykły użytkownik na hoście nie może go odczytać. Wymagają
+dostępu serwera do internetu (port 80 do repozytorium CA).
+
+Przy wgrywaniu nowego certyfikatu najlepiej od razu użyć pliku z pełnym łańcuchem
+(„fullchain”, certyfikat serwera + pośredni) — wtedy naprawa nie ma nic do roboty.
+
 ## Samopodpisane certyfikaty (testy)
 
 ```bash
@@ -130,6 +168,7 @@ Przeglądarka pokaże ostrzeżenie o niezaufanym certyfikacie — to oczekiwane,
 
 ## Pliki
 
+- `scripts/ssl-fix-chain.sh` — uzupełnianie łańcucha ręcznych certów (AIA), uruchamiane w `webserver-init`; testy: `make test-ssl-chain`
 - `scripts/letsencrypt.sh` — host-side orchestrator (issue/renew, auto-flip mode po prompcie)
 - `scripts/letsencrypt-reload.sh` — exec-owany przez Ofelię w webserverze, sprawdza sentinel
 - `defaults/webserver/30-render-bpp-vhosts.sh` — resolver ścieżek certów świadomy `SSL_MODE`

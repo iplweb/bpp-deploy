@@ -13,7 +13,8 @@
 # certyfikat, fallback do legacy jednego pliku.
 
 .PHONY: generate-snakeoil-certs generate-snakeoil-certs-force \
-        ssl-letsencrypt-issue ssl-letsencrypt-renew test-letsencrypt
+        ssl-letsencrypt-issue ssl-letsencrypt-renew test-letsencrypt \
+        ssl-napraw-lancuch ssl-sprawdz-lancuch test-ssl-chain
 
 # Lista hostow do obsluzenia: preferuj DJANGO_BPP_HOSTNAMES (CSV), fallback do
 # DJANGO_BPP_HOSTNAME (single). Spacje i puste elementy sa odfiltrowane przez
@@ -53,3 +54,24 @@ ssl-letsencrypt-renew:
 # na SSL_MODE, ACTIVATE/PROD/email-fallback, manipulacja .env przy aktywacji.
 test-letsencrypt:
 	@bash scripts/test-letsencrypt.sh
+
+# Niekompletny lancuch recznego certu (brak certyfikatu posredniego — objaw:
+# curl/Python/harvestery `unable to get local issuer certificate`, bpp-updater
+# „niekompletny cert SSL"). Dociaga posrednie z AIA i dokleja je do
+# ssl/<host>/cert.pem, ale TYLKO gdy pelny lancuch przejdzie weryfikacje.
+# To samo dzieje sie automatycznie w webserver-init przy kazdym `make up`;
+# ten target jest do naprawy bez deployu (+ przeladowanie nginksa).
+#
+# Przez kontener webserver-init, nie na hoscie: ssl/ ma 0750 root:nginx.
+ssl-napraw-lancuch:
+	docker compose run --rm --no-deps --entrypoint bash webserver-init \
+		/opt/bpp/ssl-fix-chain.sh /etc/ssl/private
+	$(MAKE) update-ssl-certs
+
+ssl-sprawdz-lancuch:
+	docker compose run --rm --no-deps --entrypoint bash webserver-init \
+		/opt/bpp/ssl-fix-chain.sh --sprawdz /etc/ssl/private
+
+# Testy scripts/ssl-fix-chain.sh na lokalnej atrapie PKI (bez sieci i dockera).
+test-ssl-chain:
+	@bash scripts/test-ssl-chain.sh

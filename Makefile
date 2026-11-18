@@ -36,6 +36,7 @@ endif
 test:
 	@bash scripts/test-config-path.sh
 	@bash scripts/test-grafana-datasources.sh
+	@bash scripts/test-ssl-chain.sh
 	@bash scripts/test-rclone.sh
 	@./scripts/test-alloy.sh
 	@bash tests/test_makefile.sh
@@ -214,6 +215,9 @@ help:
 	@echo "    ssl-letsencrypt-issue   - Issue Let's Encrypt cert (staging; PROD=1 for real cert)"
 	@echo "    ssl-letsencrypt-renew   - Renew Let's Encrypt certs (idempotent, daily Ofelia auto)"
 	@echo "    test-letsencrypt        - Unit-tests dla scripts/letsencrypt.sh (mocked docker, no network)"
+	@echo "    ssl-napraw-lancuch      - Doklej brakujacy cert posredni (AIA) do recznych certow + reload nginx"
+	@echo "    ssl-sprawdz-lancuch     - Tylko raport: ktore reczne certy maja niekompletny lancuch"
+	@echo "    test-ssl-chain          - Testy ssl-fix-chain.sh (atrapa PKI, no network)"
 	@echo "    validate-env-quotes  - Sprawdz czy .env nie zawiera wartosci w cudzyslowach"
 	@echo "    fix-env-quotes       - Auto-strip cudzyslowy z .env (z backupem .bak.<ts>)"
 	@echo "    zaspawaj-wersje      - Przypnij DOCKER_VERSION do wersji dzialajacego appservera (lub TAG=...)"
