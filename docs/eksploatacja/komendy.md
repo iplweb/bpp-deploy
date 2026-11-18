@@ -174,6 +174,8 @@ make docs-config-table       # (dla deweloperów) przegeneruj tabelę w docs/kon
 make generate-snakeoil-certs  # Wygeneruj samopodpisane certyfikaty SSL
 make ssl-letsencrypt-issue    # Wystaw cert Let's Encrypt (PROD=1 dla prawdziwego)
 make ssl-letsencrypt-renew    # Manualny renew certów LE
+make ssl-sprawdz-lancuch      # Raport: które ręczne certy nie mają certyfikatu pośredniego
+make ssl-napraw-lancuch       # Doklej brakujący cert pośredni (AIA) + przeładuj nginx
 ```
 
 Szczegóły: [SSL](../konfiguracja/ssl.md), [Limity zasobów](../konfiguracja/limity-zasobow.md), [kreator limitów ruchu](../architektura/rate-limiting.md#kreator), [zmienne operatora](../konfiguracja/zmienne.md).

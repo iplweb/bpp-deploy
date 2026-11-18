@@ -45,6 +45,10 @@ jobs:
       - name: Render datasources.yaml bez gettexta
         run: ./scripts/test-grafana-datasources.sh
 
+      # Uzupelnianie lancucha recznych certow (atrapa PKI, AIA przez file://).
+      - name: Lancuch certyfikatow SSL (atrapa PKI)
+        run: ./scripts/test-ssl-chain.sh
+
       - name: Uklad zdalnego backupu + retencja (mocki)
         run: ./scripts/test-rclone.sh
 

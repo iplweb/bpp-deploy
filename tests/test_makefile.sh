@@ -525,6 +525,42 @@ test_compose_shell_vars_escaped() {
         pass "compose config nie ostrzega o zmiennej 'd'"
     fi
 
+    # --- lancuch certow (ssl-fix-chain.sh) w webserver-init -----------------
+    # Na RENDERZE, nie na zrodle: liczy sie to, co Compose naprawde odpali.
+    local init
+    init=$(awk '/^  webserver-init:$/ {on=1; print; next}
+                on && /^  [a-z][a-z0-9_-]*:$/ {exit}
+                on {print}' "$out")
+    # Separator w `source:` zalezy od hosta: na Windows Compose renderuje
+    # `C:\...\scripts\ssl-fix-chain.sh` — wzorzec przyjmuje oba.
+    if echo "$init" | grep -q 'target: /opt/bpp/ssl-fix-chain.sh' \
+        && echo "$init" | grep -Eq 'source: .*scripts[/\\]ssl-fix-chain\.sh'; then
+        pass "webserver-init montuje scripts/ssl-fix-chain.sh"
+    else
+        fail "webserver-init nie montuje scripts/ssl-fix-chain.sh"
+    fi
+    if echo "$init" | grep -q 'ssl-fix-chain.sh --auto /etc/ssl/private'; then
+        pass "webserver-init uruchamia ssl-fix-chain w trybie --auto (nie blokuje startu)"
+    else
+        fail "webserver-init: brak 'ssl-fix-chain.sh --auto /etc/ssl/private'"
+    fi
+    # PRZED chown/chmod — inaczej kopia oryginalu zostaje z uprawnieniami
+    # procesu, a nie 0640 root:nginx.
+    local n_fix n_chown
+    n_fix=$(echo "$init" | grep -n 'ssl-fix-chain.sh --auto' | head -1 | cut -d: -f1)
+    n_chown=$(echo "$init" | grep -n 'chown -R 0:nginx /etc/ssl/private' | head -1 | cut -d: -f1)
+    if [ -n "$n_fix" ] && [ -n "$n_chown" ] && [ "$n_fix" -lt "$n_chown" ]; then
+        pass "ssl-fix-chain odpala sie przed ustawieniem uprawnien ssl/"
+    else
+        fail "ssl-fix-chain musi byc PRZED 'chown -R 0:nginx /etc/ssl/private'"
+    fi
+    # shellcheck disable=SC2016  # `$$?` to wzorzec grep-a, ma zostac literalne
+    if echo "$init" | grep -q 'kod \$\$?'; then
+        pass "webserver-init: kod wyjscia \$? przetrwal interpolacje"
+    else
+        fail "webserver-init: \$? zjedzone przez Compose (brak 'kod \$\$?')"
+    fi
+
     rm_rf_root "$cfg_dir"
 }
 
