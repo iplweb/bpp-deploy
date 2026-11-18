@@ -33,6 +33,24 @@ przeglądarki — rejestr zapisuje wtedy URL per cookie.
 - Push przez `health_alarm_notify.conf` (sourced jako bash, kanał ntfy z
   `${NTFY_SERVER}/${NTFY_TOPIC}`).
 
+### Wyłączone wbudowane alerty
+
+Kilka wbudowanych reguł na instalacjach BPP generowało dziesiątki powiadomień dziennie,
+na które nie dało się nic zrobić. Są wyłączone w sekcji `[health]` (`enabled alarms`)
+w `netdata.conf` — plik jest renderowany i force-syncowany z `netdata.conf.tpl`, więc
+zmiana dociera na instalację przez `git pull && make up`:
+
+| Reguła | Dlaczego wyłączona |
+|---|---|
+| `web_log_web_slow` | porównuje średnią z 1 min z dwukrotnością średniej z 10 min — raporty, eksporty i crawlery przełączają ją co chwilę |
+| `web_log_1m_redirects`, `web_log_1m_successful` | udziały 3xx / „udanych" odpowiedzi zależą głównie od botów (przekierowania na logowanie, 4xx, blokady WAF); awarię aplikacji pokazuje `web_log_1m_internal_errors` (5xx), który zostaje |
+| `postgres_table_cache_io_ratio` | cache hit pojedynczej tabeli — niski po każdym restarcie bazy (zimny cache) |
+
+W miejsce `web_log_web_slow` jest `bpp_web_log_slow` (`health.d/bpp_web_log.conf`):
+średni czas odpowiedzi z **5 minut** powyżej **3 s** (ostrzeżenie) / **10 s** (krytyczny),
+liczony tylko przy ruchu powyżej 30 zapytań na minutę. Plik jest kopiowany tylko, gdy go
+brakuje (`copy_if_missing`), więc progi można dostroić lokalnie.
+
 ### Alerty na komórkę
 
 Netdata wysyła push na publiczny ntfy.sh. Topic (sekret) jest generowany losowo przy
