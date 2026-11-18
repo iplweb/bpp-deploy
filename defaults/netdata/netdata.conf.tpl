@@ -59,3 +59,14 @@
 
 [health]
     enabled = yes
+    # Stock alerts that only made noise on BPP hosts (dozens of ntfy pushes a day,
+    # nothing to act on):
+    #  - web_log_web_slow: fires when the 1m average is 2x the 10m average; BPP
+    #    reports/exports and crawlers flap it constantly. Replaced by
+    #    health.d/bpp_web_log.conf (absolute threshold over 5 minutes).
+    #  - web_log_1m_redirects / web_log_1m_successful: ratios driven by bots
+    #    (login redirects, 4xx, WAF blocks). Real breakage shows up in
+    #    web_log_1m_internal_errors (5xx), which stays on.
+    #  - postgres_table_cache_io_ratio: per-table cache hits, low after every
+    #    restart (cold cache).
+    enabled alarms = !web_log_web_slow !web_log_1m_redirects !web_log_1m_successful !postgres_table_cache_io_ratio *
