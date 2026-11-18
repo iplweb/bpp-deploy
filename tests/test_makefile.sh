@@ -531,8 +531,10 @@ test_compose_shell_vars_escaped() {
     init=$(awk '/^  webserver-init:$/ {on=1; print; next}
                 on && /^  [a-z][a-z0-9_-]*:$/ {exit}
                 on {print}' "$out")
+    # Separator w `source:` zalezy od hosta: na Windows Compose renderuje
+    # `C:\...\scripts\ssl-fix-chain.sh` — wzorzec przyjmuje oba.
     if echo "$init" | grep -q 'target: /opt/bpp/ssl-fix-chain.sh' \
-        && echo "$init" | grep -q 'source: .*/scripts/ssl-fix-chain.sh'; then
+        && echo "$init" | grep -Eq 'source: .*scripts[/\\]ssl-fix-chain\.sh'; then
         pass "webserver-init montuje scripts/ssl-fix-chain.sh"
     else
         fail "webserver-init nie montuje scripts/ssl-fix-chain.sh"
