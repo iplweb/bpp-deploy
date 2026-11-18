@@ -6,8 +6,9 @@ NTFY_TOPIC ?= $(shell grep '^NTFY_TOPIC=' $(BPP_CONFIGS_DIR)/.env 2>/dev/null | 
 # $(or ...) bo `grep | cut || echo` nie dziala: cut konczy sie exit 0 nawet na
 # pustym wejsciu, wiec `|| echo` nigdy nie odpalalo i NTFY_SERVER bywal pusty
 # (stary .env bez DJANGO_BPP_NTFY_SERVER -> `make ntfy-test` curlowal do `/topic`).
-# Host name for the test message (same source as netdata's hostname in compose).
-NTFY_HOST := $(or $(strip $(shell grep '^DJANGO_BPP_HOSTNAME=' $(BPP_CONFIGS_DIR)/.env 2>/dev/null | cut -d= -f2-)),$(shell hostname -f 2>/dev/null || hostname))
+# Host name for the test message (same source as netdata's hostname in compose;
+# the last definition wins, as in docker compose).
+NTFY_HOST := $(or $(strip $(shell grep '^DJANGO_BPP_HOSTNAME=' $(BPP_CONFIGS_DIR)/.env 2>/dev/null | tail -n 1 | cut -d= -f2-)),$(shell hostname -f 2>/dev/null || hostname))
 NTFY_SERVER ?= $(or $(strip $(shell grep '^DJANGO_BPP_NTFY_SERVER=' $(BPP_CONFIGS_DIR)/.env 2>/dev/null | cut -d= -f2-)),https://ntfy.sh)
 
 # Wyslij testowe powiadomienie na ntfy - potwierdzenie ze appka na
