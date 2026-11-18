@@ -6,6 +6,8 @@ NTFY_TOPIC ?= $(shell grep '^NTFY_TOPIC=' $(BPP_CONFIGS_DIR)/.env 2>/dev/null | 
 # $(or ...) bo `grep | cut || echo` nie dziala: cut konczy sie exit 0 nawet na
 # pustym wejsciu, wiec `|| echo` nigdy nie odpalalo i NTFY_SERVER bywal pusty
 # (stary .env bez DJANGO_BPP_NTFY_SERVER -> `make ntfy-test` curlowal do `/topic`).
+# Host name for the test message (same source as netdata's hostname in compose).
+NTFY_HOST := $(or $(strip $(shell grep '^DJANGO_BPP_HOSTNAME=' $(BPP_CONFIGS_DIR)/.env 2>/dev/null | cut -d= -f2-)),$(shell hostname -f 2>/dev/null || hostname))
 NTFY_SERVER ?= $(or $(strip $(shell grep '^DJANGO_BPP_NTFY_SERVER=' $(BPP_CONFIGS_DIR)/.env 2>/dev/null | cut -d= -f2-)),https://ntfy.sh)
 
 # Wyslij testowe powiadomienie na ntfy - potwierdzenie ze appka na
@@ -18,10 +20,10 @@ test-ntfy:
 	fi
 	@echo "Wysylam test na $(NTFY_SERVER)/<topic-ukryty>"
 	@curl -fsSL \
-		-H "Title: BPP test notification" \
+		-H "Title: BPP test notification: $(NTFY_HOST)" \
 		-H "Tags: white_check_mark,bpp" \
 		-H "Priority: 3" \
-		-d "To jest test z make test-ntfy. Jesli to widzisz, alerty dzialaja." \
+		-d "To jest test z make test-ntfy na $(NTFY_HOST). Jesli to widzisz, alerty z tego hosta dzialaja." \
 		"$(NTFY_SERVER)/$(NTFY_TOPIC)" >/dev/null
 	@echo "Wyslane. Sprawdz appke ntfy na telefonie."
 
