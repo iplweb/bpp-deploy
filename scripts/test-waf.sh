@@ -939,6 +939,7 @@ done
 # HTTP/1.1 tego nie widziala, bo tam `Host:` istnieje. Naprawia to regula 10005
 # w modsecurity-override.conf.template; ten przypadek pilnuje, zeby nie
 # wrocilo.
+# shellcheck disable=SC2317,SC2329  # nie wolane, poki h3 jest wylaczone (NGINX2Root) — zostaje na powrot h3
 sprawdz_http3() {
     local kod rc proba h3_w_logu
 
