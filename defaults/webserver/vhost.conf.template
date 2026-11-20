@@ -57,29 +57,10 @@ server {
     client_max_body_size 120M;
 
     listen 443 ssl;
-    # HTTP/2 and HTTP/3 TEMPORARILY OFF — "NGINX2Root" (CVE-2026-123007: RCE in
-    # HTTP/2 flow control; plus use-after-free in HTTP/2 and HTTP/3), fixed in
-    # nginx 1.30.7 / 1.31.9. owasp/modsecurity-crs:nginx still shipped 1.30.6
-    # when this was written. Disabling the protocols is the vendor's mitigation.
-    #
-    # `http2 off` must stay EXPLICIT: the CRS image sets `http2 ${HTTP2}` (on by
-    # default) in the http context of nginx.conf; we also set HTTP2=off in
-    # compose, but this line keeps it off even if that env var is overridden.
-    #
-    # `Alt-Svc: clear` makes browsers drop the `h3=":443"; ma=86400` they cached
-    # from us, instead of probing a dead QUIC port for up to a day.
-    #
-    # To re-enable (after `docker run --rm --entrypoint nginx
-    # owasp/modsecurity-crs:nginx -v` shows >= 1.30.7): restore
-    #   listen 443 quic;
-    #   listen [::]:443 quic;
-    #   http2 on;
-    #   add_header Alt-Svc 'h3=":443"; ma=86400' always;
-    # here and the matching lines in default.conf.template, drop HTTP2=off from
-    # docker-compose.infrastructure.yml, and flip the assertions in
-    # tests/test_makefile.sh and scripts/test-waf.sh.
-    http2 off;
-    add_header Alt-Svc 'clear' always;
+    listen 443 quic;
+    listen [::]:443 quic;
+    http2 on;
+    add_header Alt-Svc 'h3=":443"; ma=86400' always;
     server_name ${VHOST_NAME};
 
     ssl_certificate ${VHOST_CERT_PATH};

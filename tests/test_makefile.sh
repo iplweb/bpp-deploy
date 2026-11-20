@@ -654,6 +654,75 @@ test_nginx_global_limits_wired() {
 }
 
 # ============================================================
+# TEST 11d2: NGINX2Root guard (99-bpp-nginx2root-guard.sh)
+# ============================================================
+# `make up` nie pobiera obrazow, a tag owasp/modsecurity-crs:nginx plywa —
+# lokalny obraz moze miec nginx 1.30.6 (podatny) przy szablonach z h2/h3 ON.
+# Guard ma wtedy wylaczyc h2/h3 w WYRENDEROWANEJ konfiguracji, a na zalatanym
+# nginksie nic nie ruszac. Odpalamy prawdziwy skrypt na hoscie ze stubem
+# `nginx -v` w PATH i BPP_NGINX_CONF_ROOT na katalogu tymczasowym.
+
+test_nginx2root_guard() {
+    yellow "=== Test 11d2: NGINX2Root guard ==="
+
+    local skrypt="$REPO_DIR/defaults/webserver/99-bpp-nginx2root-guard.sh"
+    local infra="$REPO_DIR/docker-compose.infrastructure.yml"
+    local d wersja oczekiwane
+
+    assert_file_contains "compose montuje 99-bpp-nginx2root-guard.sh" \
+        "99-bpp-nginx2root-guard.sh:/docker-entrypoint.d/99-bpp-nginx2root-guard.sh:ro" "$infra"
+    local tryb
+    tryb="$(git -C "$REPO_DIR" ls-files -s defaults/webserver/99-bpp-nginx2root-guard.sh | cut -c1-6)"
+    if [ "$tryb" = "100755" ]; then
+        pass "guard jest wykonywalny w git"
+    else
+        fail "guard ma tryb '$tryb' w git (wymagany 100755; bez +x entrypoint go pomija)"
+    fi
+
+    # wersja:oczekiwanie (wylacz = guard ma zdjac h2/h3, zostaw = bez zmian)
+    for przypadek in 1.30.6:wylacz 1.30.7:zostaw 1.31.8:wylacz 1.31.9:zostaw \
+                     1.29.9:wylacz 1.32.0:zostaw 2.0.0:zostaw smieci:wylacz; do
+        wersja="${przypadek%%:*}"
+        oczekiwane="${przypadek##*:}"
+        d=$(mktemp -d)
+        mkdir -p "$d/bin" "$d/conf.d"
+        printf '#!/bin/sh\necho "nginx version: nginx/%s" >&2\n' "$wersja" > "$d/bin/nginx"
+        chmod +x "$d/bin/nginx"
+        printf 'http {\n    http2 on;\n}\n' > "$d/nginx.conf"
+        printf '%s\n' "server {" "    listen 443 ssl;" "    listen 443 quic;" \
+            "    listen [::]:443 quic;" "    http2 on;" \
+            "    add_header Alt-Svc 'h3=\":443\"; ma=86400' always;" "}" > "$d/conf.d/vhost-a.conf"
+        cp "$d/conf.d/vhost-a.conf" "$d/vhost.orig"
+        cp "$d/nginx.conf" "$d/nginx.orig"
+
+        local rc=0
+        PATH="$d/bin:$PATH" BPP_NGINX_CONF_ROOT="$d" sh "$skrypt" >/dev/null 2>&1 || rc=$?
+        if [ "$rc" != "0" ]; then
+            fail "guard ($wersja): exit $rc — nie moze blokowac startu nginksa"
+        fi
+
+        if [ "$oczekiwane" = "zostaw" ]; then
+            if cmp -s "$d/vhost.orig" "$d/conf.d/vhost-a.conf" && cmp -s "$d/nginx.orig" "$d/nginx.conf"; then
+                pass "guard ($wersja): zalatany — konfiguracja nietknieta"
+            else
+                fail "guard ($wersja): zalatany nginx, a konfiguracja zmieniona"
+            fi
+        else
+            if grep -q 'http2 off;' "$d/nginx.conf" \
+                && grep -q 'http2 off;' "$d/conf.d/vhost-a.conf" \
+                && ! grep -q 'quic' "$d/conf.d/vhost-a.conf" \
+                && grep -q "Alt-Svc 'clear' always" "$d/conf.d/vhost-a.conf" \
+                && grep -q 'listen 443 ssl;' "$d/conf.d/vhost-a.conf"; then
+                pass "guard ($wersja): podatny — h2/h3 wylaczone, TLS zostaje"
+            else
+                fail "guard ($wersja): podatny nginx, a h2/h3 nie zostaly wylaczone"
+            fi
+        fi
+        rm -rf "$d"
+    done
+}
+
+# ============================================================
 # TEST 11e: pgbouncer — tylko appserver przez pule, reszta bezposrednio
 # ============================================================
 # Na WYRENDEROWANYM `docker compose config` (grep po zrodle nie widzi
@@ -1121,6 +1190,7 @@ _run_nginx_t() {
         -v "$ngx_dir/bpp-templates/vhost.conf.template:/etc/nginx/bpp-templates/vhost.conf.template:ro" \
         -v "$ngx_dir/entrypoint/30-render-bpp-vhosts.sh:/docker-entrypoint.d/30-render-bpp-vhosts.sh:ro" \
         -v "$ngx_dir/entrypoint/25-render-bpp-limits.sh:/docker-entrypoint.d/25-render-bpp-limits.sh:ro" \
+        -v "$ngx_dir/entrypoint/99-bpp-nginx2root-guard.sh:/docker-entrypoint.d/99-bpp-nginx2root-guard.sh:ro" \
         -v "$ngx_dir/ssl:/etc/ssl/private:ro" \
         -v "$ngx_dir/nginx-shared:/var/log/nginx-shared" \
         -v "$ngx_dir/html/maintenance.html:/usr/share/nginx/html/maintenance.html:ro" \
@@ -1175,9 +1245,11 @@ test_nginx_config_valid() {
     cp "$REPO_DIR/defaults/webserver/vhost.conf.template"   "$ngx_dir/bpp-templates/"
     cp "$REPO_DIR/defaults/webserver/30-render-bpp-vhosts.sh" "$ngx_dir/entrypoint/"
     cp "$REPO_DIR/defaults/webserver/25-render-bpp-limits.sh"  "$ngx_dir/entrypoint/"
+    cp "$REPO_DIR/defaults/webserver/99-bpp-nginx2root-guard.sh" "$ngx_dir/entrypoint/"
     cp "$REPO_DIR/defaults/webserver/maintenance.html"      "$ngx_dir/html/"
     chmod +x "$ngx_dir/entrypoint/30-render-bpp-vhosts.sh"
     chmod +x "$ngx_dir/entrypoint/25-render-bpp-limits.sh"
+    chmod +x "$ngx_dir/entrypoint/99-bpp-nginx2root-guard.sh"
 
     # Dummy self-signed cert - nginx -t parsuje plik, wiec musi byc prawidlowy x509.
     # Generujemy w kontenerze, zeby nie wymagac openssl na hoscie (Windows CI).
@@ -1246,18 +1318,8 @@ test_nginx_config_valid() {
     assert_file_contains "gzip_comp_level (locations)"  "gzip_comp_level" "$locations"
     assert_file_contains "gzip_vary on (locations)"     "gzip_vary on"   "$locations"
     assert_file_contains "proxy_buffers 16 (locations)" "proxy_buffers 16" "$locations"
-    # HTTP/2 i HTTP/3 TYMCZASOWO wylaczone (NGINX2Root, CVE-2026-123007) do czasu
-    # obrazu z nginx >= 1.30.7. Przy przywracaniu odwroc te asercje.
-    local default_tpl="$REPO_DIR/defaults/webserver/default.conf.template"
-    local infra="$REPO_DIR/docker-compose.infrastructure.yml"
-    assert_file_contains     "HTTP/2 off (vhost)"           "http2 off;"   "$vhost_tpl"
-    assert_file_contains     "HTTP/2 off (default)"         "http2 off;"   "$default_tpl"
-    assert_file_not_contains "brak http2 on (vhost)"        "^ *http2 on"  "$vhost_tpl"
-    assert_file_not_contains "brak http2 on (default)"      "^ *http2 on"  "$default_tpl"
-    assert_file_not_contains "brak QUIC (vhost)"            "^ *listen .*quic" "$vhost_tpl"
-    assert_file_not_contains "brak QUIC (default)"          "^ *listen .*quic" "$default_tpl"
-    assert_file_contains     "Alt-Svc clear (vhost)"        "Alt-Svc 'clear'" "$vhost_tpl"
-    assert_file_contains     "HTTP2=off w compose"          'HTTP2: "off"' "$infra"
+    assert_file_contains "HTTP/2 on (vhost)"            "http2 on"       "$vhost_tpl"
+    assert_file_contains "HTTP/3 QUIC (vhost)"          "listen 443 quic" "$vhost_tpl"
 
     # --- Asercje na ACME location (Let's Encrypt webroot) w port-80 bloku ---
     assert_file_contains "ACME location w vhost (port 80)" \
@@ -1461,9 +1523,11 @@ test_nginx_runtime() {
     cp "$REPO_DIR/defaults/webserver/vhost.conf.template"     "$ngx_dir/bpp-templates/"
     cp "$REPO_DIR/defaults/webserver/30-render-bpp-vhosts.sh" "$ngx_dir/entrypoint/"
     cp "$REPO_DIR/defaults/webserver/25-render-bpp-limits.sh"  "$ngx_dir/entrypoint/"
+    cp "$REPO_DIR/defaults/webserver/99-bpp-nginx2root-guard.sh" "$ngx_dir/entrypoint/"
     cp "$REPO_DIR/defaults/webserver/maintenance.html"        "$ngx_dir/html/"
     chmod +x "$ngx_dir/entrypoint/30-render-bpp-vhosts.sh"
     chmod +x "$ngx_dir/entrypoint/25-render-bpp-limits.sh"
+    chmod +x "$ngx_dir/entrypoint/99-bpp-nginx2root-guard.sh"
 
     # Generuj certy: legacy ssl/{cert,key}.pem + per-host ssl/<h>/{cert,key}.pem
     docker run --rm -v "$ngx_dir/ssl:/ssl" --entrypoint sh nginx:1.30.2 -c '
@@ -1529,6 +1593,7 @@ PYEOF
             -v "$ngx_dir/bpp-templates/vhost.conf.template:/etc/nginx/bpp-templates/vhost.conf.template:ro" \
             -v "$ngx_dir/entrypoint/30-render-bpp-vhosts.sh:/docker-entrypoint.d/30-render-bpp-vhosts.sh:ro" \
             -v "$ngx_dir/entrypoint/25-render-bpp-limits.sh:/docker-entrypoint.d/25-render-bpp-limits.sh:ro" \
+        -v "$ngx_dir/entrypoint/99-bpp-nginx2root-guard.sh:/docker-entrypoint.d/99-bpp-nginx2root-guard.sh:ro" \
             -v "$ngx_dir/ssl:/etc/ssl/private:ro" \
             -v "$ngx_dir/nginx-shared:/var/log/nginx-shared" \
             -v "$ngx_dir/webroot:/var/www/certbot:ro" \
@@ -3386,6 +3451,7 @@ test_compose_bind_mounts
 test_compose_shell_vars_escaped
 test_waf_audit_only_rules
 test_nginx_global_limits_wired
+test_nginx2root_guard
 test_pgbouncer_compose
 test_external_sentinel_logs_in
 test_waf_crossfilter
