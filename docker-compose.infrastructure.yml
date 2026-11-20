@@ -145,13 +145,6 @@ services:
       # spowalniania. NIE "naprawiac" tego przez limit_req_log_level error:
       # odmowy 429 wpadlyby na dashboard bledow. notice -> Alloy mapuje na info.
       LOGLEVEL: "${LOGLEVEL:-notice}"
-      # HTTP/2 TYMCZASOWO WYLACZONE (NGINX2Root, CVE-2026-123007 — RCE w HTTP/2,
-      # poprawione w nginx 1.30.7/1.31.9). Obraz CRS wstawia `http2 ${HTTP2}`
-      # do kontekstu http w nginx.conf (domyslnie on); nasze bloki server maja
-      # dodatkowo jawne `http2 off`. Celowo NIE `${HTTP2:-off}` — operator nie
-      # powinien moc tego przypadkiem wlaczyc z .env, poki obraz jest dziurawy.
-      # Patrz docs/architektura/utwardzenie-brzegu.md#http2-http3-wylaczone.
-      HTTP2: "off"
       # Limity ciala zadania MUSZA byc spojne z client_max_body_size 120M
       # z vhost.conf.template. Domyslne w ModSecurity to 13107200 (12,5 MiB)
       # i 131072 (128 KiB) — przy nich importy POLON/PBN oraz duze formularze
@@ -221,7 +214,7 @@ services:
     ports:
       - 80:80
       - 443:443
-      - 443:443/udp    # HTTP/3 (QUIC) — chwilowo nic tu nie slucha (NGINX2Root), port zostaje na powrot h3
+      - 443:443/udp    # HTTP/3 (QUIC)
     healthcheck:
       test: ["CMD-SHELL", "curl -f -s -o /dev/null http://127.0.0.1:80/healthz || exit 1"]
       start_period: 10s
@@ -267,6 +260,9 @@ services:
       - ./defaults/webserver/30-render-bpp-vhosts.sh:/docker-entrypoint.d/30-render-bpp-vhosts.sh:ro
       # Globalny limit ruchu do appservera (BPP_NGINX_GLOBAL_* z .env przez env_file).
       - ./defaults/webserver/25-render-bpp-limits.sh:/docker-entrypoint.d/25-render-bpp-limits.sh:ro
+      # NGINX2Root guard: na nginx < 1.30.7 (lokalny obraz sprzed `make pull`)
+      # wylacza h2/h3 w wyrenderowanej konfiguracji. Na zalatanym nic nie robi.
+      - ./defaults/webserver/99-bpp-nginx2root-guard.sh:/docker-entrypoint.d/99-bpp-nginx2root-guard.sh:ro
       # Let's Encrypt reload helper. NIE w /docker-entrypoint.d/ (uruchomilby
       # sie przy starcie kontenera) - tylko jako exec na zadanie z Ofelia.
       - ./scripts/letsencrypt-reload.sh:/usr/local/bin/letsencrypt-reload.sh:ro

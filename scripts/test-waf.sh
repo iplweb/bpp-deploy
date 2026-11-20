@@ -180,7 +180,6 @@ if ! docker run -d --name "$FRONT" --network "$NET" --network-alias "$HOST_NAME"
     -e MODSEC_RULE_ENGINE="$ENGINE" \
     -e BLOCKING_PARANOIA=1 \
     -e ALLOWED_HTTP_VERSIONS="HTTP/1.0 HTTP/1.1 HTTP/2 HTTP/2.0 HTTP/3 HTTP/3.0" \
-    -e HTTP2=off \
     -e MODSEC_AUDIT_ENGINE=RelevantOnly \
     -e MODSEC_AUDIT_LOG_FORMAT=JSON \
     -e MODSEC_AUDIT_LOG_PARTS=AHZ \
@@ -200,6 +199,7 @@ if ! docker run -d --name "$FRONT" --network "$NET" --network-alias "$HOST_NAME"
     -v "$W/vhost.conf.template:/etc/nginx/bpp-templates/vhost.conf.template:ro" \
     -v "$W/30-render-bpp-vhosts.sh:/docker-entrypoint.d/30-render-bpp-vhosts.sh:ro" \
     -v "$W/25-render-bpp-limits.sh:/docker-entrypoint.d/25-render-bpp-limits.sh:ro" \
+    -v "$W/99-bpp-nginx2root-guard.sh:/docker-entrypoint.d/99-bpp-nginx2root-guard.sh:ro" \
     owasp/modsecurity-crs:nginx >/dev/null; then
     echo "BLAD: nie udalo sie wystartowac webservera ($FRONT)."
     exit 1
@@ -939,7 +939,6 @@ done
 # HTTP/1.1 tego nie widziala, bo tam `Host:` istnieje. Naprawia to regula 10005
 # w modsecurity-override.conf.template; ten przypadek pilnuje, zeby nie
 # wrocilo.
-# shellcheck disable=SC2317,SC2329  # nie wolane, poki h3 jest wylaczone (NGINX2Root) — zostaje na powrot h3
 sprawdz_http3() {
     local kod rc proba h3_w_logu
 
@@ -980,49 +979,12 @@ sprawdz_http3() {
     return 1
 }
 
-# --------------------------------------------------------------------------
-# HTTP/2 i HTTP/3 TYMCZASOWO WYLACZONE (NGINX2Root, CVE-2026-123007)
-# --------------------------------------------------------------------------
-# Dopoki obraz ma nginx < 1.30.7, h2 i h3 sa wylaczone w szablonach i w compose
-# (HTTP2=off). Sprawdzamy to NA ZYWYM nginksie, nie grepem po szablonie: obraz
-# CRS wlacza http2 w kontekscie http, wiec "brak `http2 on` w naszym pliku" nie
-# dowodzi, ze h2 nie jest negocjowane. sprawdz_http3 zostaje na powrot h3 —
-# przy przywracaniu zamien ten blok z powrotem na jego wywolanie.
-sprawdz_h2_h3_wylaczone() {
-    local wersja gniazda udp_tab
-
-    LACZNIE=$((LACZNIE + 1))
-    wersja=$(curl -sk --http2 -o /dev/null -w '%{http_version}' --max-time 8 \
-        --resolve "$HOST_NAME:$PORT:127.0.0.1" "https://$HOST_NAME:$PORT/healthz" 2>/dev/null)
-    if [ "$wersja" = "1.1" ]; then
-        printf "  \033[32mOK\033[0m   %-46s ALPN -> HTTP/%s\n" "HTTP/2 wylaczone (curl --http2)" "$wersja"
-    else
-        printf "  \033[31mFAIL\033[0m %-46s wynegocjowano HTTP/%s\n" "HTTP/2 wylaczone (curl --http2)" "${wersja:-?}"
-        BLEDY=$((BLEDY + 1))
-    fi
-
-    # h3 sprawdzamy po GNIEZDZIE, nie klientem QUIC: klient potrafi nie zestawic
-    # handshake'u (curl 28) takze przy WLACZONYM QUIC, wiec "brak odpowiedzi"
-    # niczego nie dowodzi (zweryfikowane mutacja). Gniazdo UDP na 443 (hex 01BB)
-    # w /proc/net/udp{,6} kontenera = nginx slucha QUIC, niezaleznie od tego,
-    # z ktorego szablonu (naszego czy obrazu) przyszlo `listen ... quic`.
-    LACZNIE=$((LACZNIE + 1))
-    # Pusty odczyt (nieudany exec) NIE moze dac OK — stad osobno `udp_tab`;
-    # naglowek /proc/net/udp jest zawsze, wiec pusty = blad odczytu.
-    udp_tab=$(docker exec "$FRONT" sh -c 'cat /proc/net/udp /proc/net/udp6 2>/dev/null')
-    gniazda=$(printf '%s\n' "$udp_tab" | awk '$2 ~ /:01BB$/' | wc -l | tr -d ' ')
-    if [ -z "$udp_tab" ]; then
-        printf "  \033[31mFAIL\033[0m %-46s nie udalo sie odczytac /proc/net/udp\n" "HTTP/3 wylaczone"
-        BLEDY=$((BLEDY + 1))
-    elif [ "$gniazda" = "0" ]; then
-        printf "  \033[32mOK\033[0m   %-46s brak gniazda UDP/443\n" "HTTP/3 wylaczone"
-    else
-        printf "  \033[31mFAIL\033[0m %-46s nginx slucha na UDP/443 (%s gniazd)\n" "HTTP/3 wylaczone" "${gniazda:-?}"
-        BLEDY=$((BLEDY + 1))
-    fi
-}
-
-sprawdz_h2_h3_wylaczone
+sprawdz_http3
+case $? in
+    0) LACZNIE=$((LACZNIE + 1)) ;;
+    1) LACZNIE=$((LACZNIE + 1)); BLEDY=$((BLEDY + 1)) ;;
+    *) : ;;   # pominiety — nie liczymy go w sumie
+esac
 
 # Access log na wolumenie WSPOLDZIELONYM z netdata (kolektor web_log).
 # Sam start nginksa juz dowodzi, ze zapis dziala (inaczej byloby [emerg]), ale

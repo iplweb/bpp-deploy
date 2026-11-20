@@ -123,6 +123,7 @@ start_webserver() {
         -v "$W/vhost.conf.template:/etc/nginx/bpp-templates/vhost.conf.template:ro" \
         -v "$W/30-render-bpp-vhosts.sh:/docker-entrypoint.d/30-render-bpp-vhosts.sh:ro" \
         -v "$W/25-render-bpp-limits.sh:/docker-entrypoint.d/25-render-bpp-limits.sh:ro" \
+        -v "$W/99-bpp-nginx2root-guard.sh:/docker-entrypoint.d/99-bpp-nginx2root-guard.sh:ro" \
         "$IMAGE" >/dev/null || return 1
     for _ in $(seq 1 30); do
         if docker exec "$FRONT" curl -fs -o /dev/null http://127.0.0.1/healthz 2>/dev/null; then

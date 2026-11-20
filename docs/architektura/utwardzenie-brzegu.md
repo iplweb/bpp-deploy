@@ -147,51 +147,36 @@ minutami. Te tutaj dotyczą wyłącznie rozmowy klient ↔ nginx.
 odpowiedź — wolne, ale postępujące pobieranie dużego PDF-a z `/media/` nie jest
 zrywane.
 
-## HTTP/2 i HTTP/3 tymczasowo wyłączone {#http2-http3-wylaczone}
+## HTTP/2, HTTP/3 i NGINX2Root {#http2-http3-wylaczone}
 
-!!! danger "Stan przejściowy — NGINX2Root (listopad 2026)"
-    18 listopada 2026 ujawniono zestaw luk w nginksie („NGINX2Root"), w tym
-    **CVE-2026-123007 — zdalne wykonanie kodu bez uwierzytelnienia przez błąd
-    pamięci w kontroli przepływu HTTP/2**, a obok use-after-free w HTTP/2
-    (CVE-2026-123633) i HTTP/3 (CVE-2026-121810). Podatne są wszystkie wersje do
-    **1.31.8**, poprawione: **1.30.7** (stable) i **1.31.9** (mainline). Źródło:
-    [nginx security advisories](https://nginx.org/en/security_advisories.html).
+18 listopada 2026 ujawniono zestaw luk w nginksie („NGINX2Root"), w tym
+**CVE-2026-123007 — zdalne wykonanie kodu bez uwierzytelnienia przez HTTP/2**,
+oraz use-after-free w HTTP/2 i HTTP/3. Poprawione wersje: **1.30.7** (stable)
+i **1.31.9** (mainline). Dopóki `owasp/modsecurity-crs:nginx` nie miał
+poprawionego nginksa (do 19 listopada 2026), h2 i h3 były wyłączone
+w szablonach. Teraz są znowu włączone.
 
-    W dniu ujawnienia `owasp/modsecurity-crs:nginx` miał w środku **nginx
-    1.30.6** (ostatni build sprzed poprawki), a obraz bazowy
-    `nginxinc/nginx-unprivileged` nie był jeszcze przebudowany. Zalecanym przez
-    producenta obejściem jest wyłączenie HTTP/2 i HTTP/3 — i to robimy:
-
-    | Gdzie | Co |
-    |---|---|
-    | `default.conf.template`, `vhost.conf.template` | `http2 off;` (jawnie), usunięte `listen … quic` |
-    | `vhost.conf.template` | `Alt-Svc: clear` zamiast `h3=":443"; ma=86400` — przeglądarki od razu zapominają h3, zamiast przez dobę pukać w martwy port UDP |
-    | `docker-compose.infrastructure.yml` | `HTTP2: "off"` — obraz CRS wstawia `http2 ${HTTP2}` (domyślnie `on`) do kontekstu `http` w `nginx.conf` |
-
-    Serwis działa dalej po HTTP/1.1 — wolniej przy wielu równoległych
-    zasobach, ale poprawnie. Port `443/udp` zostaje opublikowany (nic na nim nie
-    słucha), żeby powrót h3 był zmianą wyłącznie w szablonach.
-    `make check-quic` w tym czasie **słusznie** zgłasza brak HTTP/3.
-
-    Wdrożenie: `git pull && make up` — pliki są wersjonowane, bez migracji `.env`.
-
-**Jak sprawdzić, czy jest już załatany obraz:**
+**Zabezpieczenie na nieaktualny obraz lokalny.** Tag obrazu jest pływający,
+a `make up` obrazów **nie pobiera** (robią to `make pull` i `make run`). Po samym
+`git pull && make up` na hoście, który ma jeszcze stary obraz z nginx 1.30.6,
+h2 wróciłoby na podatnej binarce. Dlatego na starcie kontenera
+`defaults/webserver/99-bpp-nginx2root-guard.sh` (ostatni w
+`/docker-entrypoint.d/`) czyta `nginx -v` i na podatnej wersji przepisuje
+**wyrenderowaną** konfigurację: `http2 off;`, bez `listen … quic`,
+`Alt-Svc: clear`. Serwis działa wtedy po HTTP/1.1, a w logu `webserver` jest
+ostrzeżenie. Na załatanej wersji skrypt niczego nie zmienia.
 
 ```bash
-docker pull owasp/modsecurity-crs:nginx
+docker compose logs webserver | grep nginx2root
 docker run --rm --entrypoint nginx owasp/modsecurity-crs:nginx -v   # >= 1.30.7 lub >= 1.31.9
 ```
 
-**Przywrócenie h2/h3** (dopiero po powyższym): w obu szablonach wróć do
-`http2 on;` i `listen 443 quic;` (vhost także `listen [::]:443 quic;` oraz
-`add_header Alt-Svc 'h3=":443"; ma=86400' always;` — dokładna lista jest w
-komentarzu w `vhost.conf.template`), usuń `HTTP2: "off"` z compose, odwróć
-asercje w `tests/test_makefile.sh` i w `scripts/test-waf.sh`
-(`sprawdz_h2_h3_wylaczone` → z powrotem `sprawdz_http3`).
+Jeśli w logu jest `vulnerable to NGINX2Root`: `make pull && make up`.
 
-**Weryfikacja na żywym nginksie:** `make test-waf` sprawdza, że `curl --http2`
-negocjuje HTTP/1.1, a w kontenerze nie ma gniazda UDP/443. Nie da się tego
-zweryfikować grepem po szablonie — `http2` włącza także szablon obrazu.
+Nieczytelna wersja jest traktowana jako podatna (bezpieczniej spaść do
+HTTP/1.1). Błąd skryptu nigdy nie zatrzymuje startu nginksa. Test:
+`test_nginx2root_guard` w `tests/test_makefile.sh` (stub `nginx -v`, wersje
+graniczne obu gałęzi).
 
 ## Pułapka przy każdej zmianie: regex bije prefiks
 

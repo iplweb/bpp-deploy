@@ -53,11 +53,6 @@ instalacja nie wymaga żadnych zmian).
 | `MODSEC_AUDIT_LOG_RELEVANT_STATUS` | `^$` (nigdy) | `^(?:5\|4(?!04))` | **audit log wyłącznie z trafień reguł** |
 | `ALLOWED_HTTP_VERSIONS` | + `HTTP/3 HTTP/3.0` | `HTTP/1.0 HTTP/1.1 HTTP/2 HTTP/2.0` | **bez tego h3 jest blokowane w całości** |
 
-!!! note "HTTP/3 i HTTP/2 są chwilowo wyłączone"
-    Do czasu obrazu z nginx ≥ 1.30.7 h2 i h3 są wyłączone (NGINX2Root) — patrz
-    [Utwardzenie brzegu](utwardzenie-brzegu.md#http2-http3-wylaczone).
-    `ALLOWED_HTTP_VERSIONS` zostaje bez zmian, żeby powrót h3 był bezpieczny.
-
 !!! danger "Nie usuwaj HTTP/3 z `ALLOWED_HTTP_VERSIONS`"
     Reguła **920430** („HTTP protocol version is not allowed by policy") ma
     severity CRITICAL = **5 punktów**, czyli dokładnie próg blokowania — jedno
