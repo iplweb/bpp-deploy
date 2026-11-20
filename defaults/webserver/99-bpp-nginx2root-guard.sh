@@ -49,12 +49,17 @@ for f in "$ROOT/nginx.conf" "$ROOT"/conf.d/*.conf; do
     [ -f "$f" ] || continue
     # `http2 on` -> off (nginx.conf gets it from the CRS image's `http2 ${HTTP2}`);
     # drop QUIC listeners and `http3 on`; tell browsers to forget cached h3.
-    if ! sed -i -E \
+    # No `sed -i`: GNU and BSD disagree on its syntax (BSD takes `-E` as the
+    # backup suffix), and the test runs this script on macOS hosts too.
+    if sed -E \
         -e 's/^([[:space:]]*)http2[[:space:]]+on;/\1http2 off;/' \
         -e '/^[[:space:]]*listen[^;]*[[:space:]]quic([[:space:]][^;]*)?;/d' \
         -e 's/^([[:space:]]*)http3[[:space:]]+on;/\1http3 off;/' \
         -e "s/add_header[[:space:]]+Alt-Svc[[:space:]]+'h3=[^']*'/add_header Alt-Svc 'clear'/" \
-        "$f"; then
+        "$f" > "$f.bpp-guard.tmp" && mv "$f.bpp-guard.tmp" "$f"; then
+        :
+    else
+        rm -f "$f.bpp-guard.tmp"
         echo "$ME: ERROR: could not rewrite $f — HTTP/2/3 may still be ON" >&2
     fi
 done
