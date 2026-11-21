@@ -14,7 +14,8 @@ make rclone-check     # Sprawdzenie spójności kopii zdalnej
 
 ## Codzienny backup
 
-Codzienny backup uruchamia Ofelia o **02:30** (label `0 30 2 * * *` na `backup-runner`).
+Codzienny backup uruchamia Ofelia o **01:45** czasu polskiego (label `0 45 1 * * *` na
+`backup-runner`; strefa harmonogramów Ofelii — [`BPP_CRON_TZ`](../architektura/zadania-ofelia.md#strefa-czasowa)).
 `backup-runner` to **orkiestrator** (obraz `docker:28-cli`): sam nie ma ani `pg_dump`,
 ani rclone'a — wykonuje sekwencję cyklu, a ciężkie kroki deleguje przez `docker exec`
 do kontenerów, które i tak istnieją i mają właściwe narzędzia:
@@ -37,7 +38,7 @@ nazwie — nazwy generuje compose.
     Do września 2026 `backup-runner` startował na obrazie `postgres` (współdzielonym
     z `dbserverem`) i doinstalowywał `rclone`, `curl`, `jq` i `ca-certificates` przez
     `apt-get` przy każdym starcie — każdy start wymagał sieci i repozytorium Debiana,
-    a awaria tej instalacji była cicha aż do 02:30 (tak weszła
+    a awaria tej instalacji była cicha aż do nocnego cyklu (tak weszła
     [awaria TLS](#awaria-tls-certificate-signed-by-unknown-authority)). Teraz obrazy
     są dwa i oba gotowe od razu:
 
@@ -89,13 +90,24 @@ zostawia ostrzeżenie w logu i **nigdy nie zmienia wyniku ani kodu wyjścia back
     DJANGO_BPP_HEALTHCHECKS_PING_KEY=<ping-key>
     ```
 
-3. Gotowe — wystarczy `git pull` (skrypt jedzie na bind-mouncie, `env_file`
-   orkiestratora czyta `.env` przy każdym cyklu). Kontrola zakłada się **sama** przy
-   pierwszym pingu (`?create=1`) pod slugiem `<DJANGO_BPP_HOSTNAME>-backup`, małymi
-   literami, z kropkami zamienionymi na `-` (np. `bpp-example-org-backup`). Wiele
-   instalacji może dzielić jeden projekt i jeden klucz — każda dostaje własną kontrolę.
-4. W panelu Healthchecks ustaw nowej kontroli harmonogram: **Cron** `30 2 * * *`,
-   strefa `Europe/Warsaw`, *grace* np. 2–3 h (zależnie od rozmiaru bazy i łącza).
+3. Odtwórz orkiestrator, żeby zobaczył nowy klucz:
+
+    ```bash
+    docker compose up -d --no-deps backup-runner
+    ```
+
+    `env_file` jest wczytywany **przy tworzeniu kontenera**, nie przy każdym cyklu —
+    sam `git pull` (ani sama edycja `.env`) nie wystarczy; `make up` też załatwia
+    sprawę. Restartuje się tylko bezczynny orkiestrator, aplikacja działa dalej.
+
+    Kontrola zakłada się **sama** przy pierwszym pingu (`?create=1`) pod slugiem
+    `<DJANGO_BPP_HOSTNAME>-backup`, małymi literami, z kropkami zamienionymi na `-`
+    (np. `bpp-example-org-backup`). Wiele instalacji może dzielić jeden projekt i jeden
+    klucz — każda dostaje własną kontrolę.
+4. W panelu Healthchecks ustaw nowej kontroli harmonogram: **Cron** `45 1 * * *`,
+   strefa `Europe/Warsaw` (ta sama co
+   [`BPP_CRON_TZ`](../architektura/zadania-ofelia.md#strefa-czasowa)), *grace* np. 2–3 h
+   (zależnie od rozmiaru bazy i łącza).
    Domyślny „1 dzień" też działa, ale alarm przyjdzie później.
 5. Powiadomienia (*Integrations*): e-mail, a na telefon np. **ntfy** — można użyć tego
    samego serwera i topicu co alerty Netdaty (`NTFY_TOPIC`).
@@ -115,7 +127,7 @@ Własna instancja Healthchecks: `DJANGO_BPP_HEALTHCHECKS_URL=https://hc.example.
 `rclone` jest **zadeklarowanym, stale działającym serwisem** compose (obraz
 `rclone/rclone`, bezczynny `sleep infinity`), a nie kontenerem `docker run --rm`
 odpalanym na czas wysyłki. Powód nie jest estetyczny: compose ściąga obrazy tylko
-zadeklarowanych serwisów (obraz z `docker run` byłby pobierany dopiero o 02:30),
+zadeklarowanych serwisów (obraz z `docker run` byłby pobierany dopiero w nocy),
 a `make up` kończy się `docker system prune -af`, który usuwa obrazy bez
 skojarzonego kontenera — obraz „gołego" rclone'a znikałby przy każdym deployu.
 
@@ -181,7 +193,7 @@ licząc z bieżącym.
     `backup-runner` ma katalog `./scripts` podmontowany na żywo
     (`./scripts:/scripts:ro`), a Ofelia woła `/scripts/backup-cycle.sh` w
     **działającym** kontenerze. Nowy kod wchodzi więc do gry przy najbliższym
-    przebiegu o 02:30 — bez przebudowy, bez restartu, bez `make up`. Jeśli
+    przebiegu o 01:45 — bez przebudowy, bez restartu, bez `make up`. Jeśli
     chcesz najpierw zobaczyć, co by zniknęło: `make rclone-check` i ustaw
     `DJANGO_BPP_RCLONE_KEEP_MONTHS=0` **zanim** wykonasz `git pull`.
 
@@ -284,7 +296,7 @@ Bez tego klucza tokeny PBN, hasło Clarivate, sekret ORCID i hasło DSpace w
 odtworzonej bazie są nieczytelne. Dlatego katalog konfiguracyjny jest
 archiwizowany **tak samo jak baza**:
 
-- **ten sam cykl** — nocny `backup-cycle` (02:30) robi `config-backup-<TS>.tar.gz`
+- **ten sam cykl** — nocny `backup-cycle` (01:45) robi `config-backup-<TS>.tar.gz`
   zaraz po zrzucie bazy i mediów, z **tym samym timestampem**;
 - **to samo miejsce** — osobny plik obok zrzutów w `$DJANGO_BPP_HOST_BACKUP_DIR`
   (nie wewnątrz dumpu bazy);
@@ -397,7 +409,7 @@ działa w dedykowanym [serwisie `rclone`](#serwis-rclone) na obrazie
 
 **Dlaczego sonda CA mimo to została.** Healthcheck serwisu `rclone` nadal sprawdza
 niepusty `/etc/ssl/certs/ca-certificates.crt`: `BPP_RCLONE_IMAGE` pozwala podstawić
-dowolny obraz, a brak CA nie objawia się niczym aż do cyklu o 02:30 — sonda robi
+dowolny obraz, a brak CA nie objawia się niczym aż do nocnego cyklu — sonda robi
 z niekompatybilnego obrazu kontener `unhealthy` już przy `make up`. **Nie usuwaj
 jej.**
 

@@ -353,7 +353,7 @@ pilnowało zgodności z `backup-cycle.sh`.
 To świadome odstępstwo od kontraktu backwards-compat, i ostrzejsze, niż wygląda:
 `scripts/` jest bind-mountem, a Ofelia woła `/scripts/backup-cycle.sh` w
 **działającym** kontenerze, więc **sam `git pull` wystarcza** — bez `make up`,
-bez restartu. Kasowanie rusza przy najbliższym cyklu o 02:30, a `purge` zdejmuje
+bez restartu. Kasowanie rusza przy najbliższym cyklu o 01:45, a `purge` zdejmuje
 katalog miesiąca **wraz z podkatalogami `DD/`**, czyli zjada też stary układ
 dzienny. Zmienna celowo **nie** jest
 dopisywana do `.env` ani do `init-configs` — brak zmiennej to już właściwy
@@ -395,7 +395,7 @@ Tripwire'y, każdy nośny:
 - **Sonda CA (`[ -s /etc/ssl/certs/ca-certificates.crt ]`) zostaje w healthchecku
   serwisu `rclone`** mimo że upstreamowy obraz ma bundle wbudowany —
   `BPP_RCLONE_IMAGE` pozwala podstawić dowolny obraz, a brak CA nie objawia się
-  niczym aż do cyklu o 02:30. **Symptom: `x509: certificate signed by unknown
+  niczym aż do nocnego cyklu (01:45). **Symptom: `x509: certificate signed by unknown
   authority` poprzedzone mylącym `couldn't fetch token - maybe it has
   expired?`** — wygląda na wygasły token OAuth, a jest pusty magazyn CA
   (historyczna awaria z ery `apt-get`, `a6d96b0`). NIE „naprawiać" przez

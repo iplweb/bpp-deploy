@@ -2051,6 +2051,33 @@ test_backup_runner_is_orchestrator() {
     assert_svc_contains "healthcheck sonduje pipefail" '(set -o pipefail)' "$runner"
 }
 
+test_ofelia_timezone() {
+    yellow "=== Test: Ofelia liczy harmonogramy w czasie polskim, nic w oknie DST ==="
+
+    # Bez TZ kontener Ofelii chodzi w UTC: nocne restarty 05:00 wypadaly latem
+    # o 7:00 czasu polskiego, a panel Healthchecks trzeba bylo ustawiac w UTC.
+    # TZ ma byc TYLKO w serwisie ofelia (we wspolnym .env trafilby do Django
+    # i Postgresa) i z fallbackiem, zeby stare .env dzialaly bez migracji.
+    local block
+    block="$(svc_block ofelia "$REPO_DIR/docker-compose.application.yml")"
+    # shellcheck disable=SC2016  # literal ${...} z pliku compose
+    assert_svc_contains "ofelia ma TZ z fallbackiem Europe/Warsaw" \
+        'TZ: ${BPP_CRON_TZ:-Europe/Warsaw}' "$block"
+
+    # W strefie z czasem letnim 02:00-03:00 raz w roku nie istnieje (marzec),
+    # a raz wystepuje dwa razy (pazdziernik) -> job w tym oknie raz w roku
+    # wypada albo idzie podwojnie. Format Ofelii: "s m h dom mon dow".
+    local bad
+    bad="$(grep -hE 'ofelia\.job-[a-z]+\.[A-Za-z0-9_-]+\.schedule:' "$REPO_DIR"/docker-compose*.yml \
+        | sed -E 's/.*schedule:[[:space:]]*"?([^"]*)"?.*/\1/' \
+        | awk '$3 ~ /^0?2$/' || true)"
+    if [ -z "$bad" ]; then
+        pass "zaden job Ofelii nie startuje miedzy 02:00 a 03:00"
+    else
+        fail "job Ofelii w oknie DST 02:00-03:00: $bad"
+    fi
+}
+
 test_rclone_config_mount_writable() {
     yellow "=== Test: config rclone montowany read-write ==="
 
@@ -3475,6 +3502,7 @@ test_install_docker_windows
 test_rclone_single_source_of_truth
 test_backup_runner_is_orchestrator
 test_rclone_config_mount_writable
+test_ofelia_timezone
 test_rclone_service_declared
 test_backup_pg_image_retired
 test_diag_db_commands

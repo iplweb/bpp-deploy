@@ -66,7 +66,7 @@ services:
     healthcheck:
       # Sonduje to, co realnie moze pasc: dostep do socketu i powloke z
       # pipefail (niekompatybilny BPP_ORCHESTRATOR_IMAGE ma byc unhealthy
-      # przy `make up`, a nie odkryty o 2:30). Binarek (pg_dump/rclone/curl/jq)
+      # przy `make up`, a nie odkryty w nocy). Binarek (pg_dump/rclone/curl/jq)
       # nie sprawdzamy - ten kontener ich nie ma, wykonuje je przez
       # `docker exec` gdzie indziej.
       test: ["CMD-SHELL", "docker version --format '{{.Server.Version}}' >/dev/null && (set -o pipefail)"]
@@ -76,14 +76,16 @@ services:
       start_period: 15s
     labels:
       ofelia.enabled: "true"
-      # Codzienny cykl backupu o 2:30 - po denorm_rebuild (22:00) i przed
-      # poranna prace biznesowa.
-      ofelia.job-exec.backup_cycle.schedule: "0 30 2 * * *"
+      # Codzienny cykl backupu o 1:45 czasu Ofelii (BPP_CRON_TZ, domyslnie
+      # Europe/Warsaw) - po denorm_rebuild (22:00), przed porana praca.
+      # NIE w oknie 02:00-03:00: w strefie z czasem letnim ta godzina raz w roku
+      # nie istnieje (marzec), a raz wystepuje dwukrotnie (pazdziernik).
+      ofelia.job-exec.backup_cycle.schedule: "0 45 1 * * *"
       ofelia.job-exec.backup_cycle.command: "/scripts/backup-cycle.sh"
 
   # Rclone jako ZADEKLAROWANY serwis, a nie `docker run --rm` ze skryptu.
   # Powod nie jest estetyczny: (1) compose ciagnie obrazy tylko zadeklarowanych
-  # serwisow, wiec obraz uzyty w `docker run` byl by pobierany dopiero o 2:30;
+  # serwisow, wiec obraz uzyty w `docker run` byl by pobierany dopiero w nocy;
   # (2) `make up` konczy sie `docker system prune -af`, ktory usuwa obrazy bez
   # skojarzonego kontenera - a `--rm` zadnego nie zostawia, wiec obraz znikalby
   # przy KAZDYM `make up`; (3) mounty deklaruje compose, wiec w skryptach nie ma
