@@ -332,7 +332,8 @@ run_cycle() {
         DJANGO_BPP_DB_USER=u DJANGO_BPP_DB_NAME=n \
         DJANGO_BPP_DB_PASSWORD=p \
         COMPOSE_PROJECT_NAME=testproj \
-        DJANGO_BPP_HOSTNAME=test.example \
+        DJANGO_BPP_HOSTNAME="${HOSTNAME_ENV-test.example}" \
+        DJANGO_BPP_HOSTNAMES="${HOSTNAMES_ENV:-}" \
         DJANGO_BPP_RCLONE_REMOTE="backup_enc:" \
         ROLLBAR_ACCESS_TOKEN="$rollbar_token" \
         DJANGO_BPP_HEALTHCHECKS_PING_KEY="${HC_KEY_ENV:-}" \
@@ -1100,6 +1101,15 @@ assert_eq "0" "$CYCLE_RC" "MUTACYJNY: padniety ping (brak sieci) nie zmienia wyn
 assert_eq "6" "$(grep -c '^wget ' "$RECORD")" "nieudany ping: 3 proby dla /start i 3 dla sukcesu"
 assert_contains "$(cat "$CYCLE_LOG")" "healthchecks: ping /ok nieudany po 3 probach" \
     "nieudany ping zostawia ostrzezenie w logu"
+
+# Multi-host: brak DJANGO_BPP_HOSTNAME, jest tylko lista HOSTNAMES. Slug z
+# pierwszej domeny - inaczej wszystkie takie instalacje pisalyby do jednej
+# kontroli `unknown-backup` i maskowaly sobie nawzajem brak backupu.
+MOCK_YM=2026-08 HC_KEY_ENV="kluczTEST" HOSTNAME_ENV="" HOSTNAMES_ENV=" a.example.org, b.example.org" run_cycle
+rec="$(cat "$RECORD")"
+assert_contains "$rec" "wget https://hc-ping.com/kluczTEST/a-example-org-backup/start?create=1" \
+    "multi-host: slug z pierwszej domeny DJANGO_BPP_HOSTNAMES"
+assert_not_contains "$rec" "unknown-backup" "multi-host: zadnej kontroli unknown-backup"
 
 # Brak sieci przy nieudanym kroku: kod wyjscia kroku zostaje (trap nie klobrowany).
 MOCK_YM=2026-08 HC_KEY_ENV="kluczTEST" MOCK_FAIL_ON=wget MOCK_FAIL_ON_STEP=pg_dump run_cycle

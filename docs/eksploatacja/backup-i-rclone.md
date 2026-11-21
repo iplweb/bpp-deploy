@@ -102,8 +102,9 @@ zostawia ostrzeżenie w logu i **nigdy nie zmienia wyniku ani kodu wyjścia back
 
     Kontrola zakłada się **sama** przy pierwszym pingu (`?create=1`) pod slugiem
     `<DJANGO_BPP_HOSTNAME>-backup`, małymi literami, z kropkami zamienionymi na `-`
-    (np. `bpp-example-org-backup`). Wiele instalacji może dzielić jeden projekt i jeden
-    klucz — każda dostaje własną kontrolę.
+    (np. `bpp-example-org-backup`). Instalacje multi-host (bez `DJANGO_BPP_HOSTNAME`)
+    biorą pierwszą domenę z `DJANGO_BPP_HOSTNAMES`. Wiele instalacji może dzielić jeden
+    projekt i jeden klucz — każda dostaje własną kontrolę.
 4. W panelu Healthchecks ustaw nowej kontroli harmonogram: **Cron** `45 1 * * *`,
    strefa `Europe/Warsaw` (ta sama co
    [`BPP_CRON_TZ`](../architektura/zadania-ofelia.md#strefa-czasowa)), *grace* np. 2–3 h

@@ -137,7 +137,15 @@ HC_URL="${HC_URL%/}"
 # Slug kontroli: <hostname>-backup, malymi literami, wszystko spoza [a-z0-9_-]
 # zamienione na `-` (Healthchecks przyjmuje w slugu tylko te znaki). Kropki
 # z nazwy hosta tez - `bpp.example.org` -> `bpp-example-org-backup`.
-HC_SLUG="$(printf '%s-backup' "${DJANGO_BPP_HOSTNAME:-unknown}" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9_-' '-')"
+# Nazwa instalacji w Rollbarze i Healthchecks. Instalacje multi-host maja
+# tylko DJANGO_BPP_HOSTNAMES (lista po przecinku) - bierzemy pierwsza domene,
+# inaczej wszystkie takie hosty zlewalyby sie w jedna kontrole `unknown-backup`.
+BPP_HOST_ID="${DJANGO_BPP_HOSTNAME:-}"
+if [ -z "$BPP_HOST_ID" ]; then
+    BPP_HOST_ID="$(printf '%s' "${DJANGO_BPP_HOSTNAMES:-}" | cut -d, -f1 | tr -d ' ')"
+fi
+BPP_HOST_ID="${BPP_HOST_ID:-unknown}"
+HC_SLUG="$(printf '%s-backup' "$BPP_HOST_ID" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9_-' '-')"
 
 : > "$LOG"
 exec > >(tee -a "$LOG") 2>&1
@@ -176,7 +184,7 @@ notify_rollbar() {
         -e "BPP_RB_LEVEL=$_level" \
         -e "BPP_RB_MSG=$_message" \
         -e "BPP_RB_TS=$TIMESTAMP" \
-        -e "BPP_RB_ENV=${DJANGO_BPP_HOSTNAME:-unknown}" \
+        -e "BPP_RB_ENV=${BPP_HOST_ID:-unknown}" \
         "$_app" python -c '
 import json, os, urllib.request
 payload = {
@@ -247,7 +255,7 @@ fail() {
     log "FAIL: $step (exit=$code)" || true
     local tail_log
     tail_log="$(tail -c 2000 "$LOG" 2>/dev/null || true)"
-    notify_rollbar error "Backup FAIL on ${DJANGO_BPP_HOSTNAME:-unknown}: step=$step exit=$code
+    notify_rollbar error "Backup FAIL on ${BPP_HOST_ID:-unknown}: step=$step exit=$code
 Log tail:
 $tail_log" || true
     notify_healthchecks /fail "step=$step exit=$code
@@ -277,7 +285,7 @@ on_exit() {
     if [ "$BPP_INTENDED_EXIT" = 1 ]; then exit "$rc"; fi
     BPP_INTENDED_EXIT=1
     log "FAIL: unexpected-error (exit=$rc)" || true
-    notify_rollbar error "Backup FAIL on ${DJANGO_BPP_HOSTNAME:-unknown}: step=unexpected-error exit=$rc" || true
+    notify_rollbar error "Backup FAIL on ${BPP_HOST_ID:-unknown}: step=unexpected-error exit=$rc" || true
     notify_healthchecks /fail "step=unexpected-error exit=$rc" || true
     exit "$rc"
 }
@@ -467,7 +475,7 @@ prune_remote_months
 # --- 6. Sukces - notify ---
 END_TS=$(date +%s)
 DURATION=$(( END_TS - START_TS ))
-MSG="Backup OK on ${DJANGO_BPP_HOSTNAME:-unknown}: db=$(fmt_size "$DB_SIZE") media=$(fmt_size "$MEDIA_SIZE") config=$CONFIG_MSG remote=$REMOTE_DIR duration=${DURATION}s keep_last=$KEEP_LAST retencja_zdalna=$RETENCJA_MSG"
+MSG="Backup OK on ${BPP_HOST_ID:-unknown}: db=$(fmt_size "$DB_SIZE") media=$(fmt_size "$MEDIA_SIZE") config=$CONFIG_MSG remote=$REMOTE_DIR duration=${DURATION}s keep_last=$KEEP_LAST retencja_zdalna=$RETENCJA_MSG"
 log "$MSG"
 notify_rollbar info "$MSG"
 notify_healthchecks "" "$MSG" || true
