@@ -262,6 +262,14 @@ Obecnie jest ich dwanaście:
   `/mcp/auth` (wymaga tokenu Bearer, narzędzia `zapytanie_*` biorą DjangoQL)
   schodzi do `DetectionOnly` — jak DjangoQL w 10003.
 
+- **`id:10018` — `950150` („ASP.NET exception leakage") zdjęta na ekranach
+  integracji z PBN.** `/pbn_export_queue/`, `/pbn_import/`,
+  `/importer_publikacji/`, `/importer_autorow_pbn/` pokazują nazwę klasy
+  wyjątku klienta PBN `HttpException`, a ten goły ciąg jest w
+  `asp-dotnet-errors.data`. Zgłoszenie FD#612 (2026-11-21): kolejka eksportu
+  PBN kończyła się pustą stroną (`500 0`). Reszta reguł wychodzących zostaje.
+  Szczegóły: [`HttpException` z PBN](#httpexception-pbn).
+
 Reguły 10002 i 10003 schodzą dla swoich ścieżek do `ctl:ruleEngine=DetectionOnly`:
 trafienia nadal trafiają do audit logu (i posłużą do napisania precyzyjnych
 wykluczeń), ale nikomu nie urywają połączenia. To **tępe narzędzie na start** —
@@ -359,8 +367,9 @@ wersja każdego z nich może wnieść własny fałszywy alarm.
 !!! note "Aplikacja BPP nadal jest skanowana"
     10004 dotyczy **wyłącznie** czterech ścieżek paneli. Odpowiedzi Django lecą
     przez reguły wychodzące jak dotąd — i tam mają sens, bo to nasz kod może
-    wypluć komunikat błędu bazy danych. Jedynym wyjątkiem jest `953110`, zdjęta
-    globalnie przez [regułę 10010](#doi-fopen).
+    wypluć komunikat błędu bazy danych. Wyjątki: `953110`, zdjęta
+    globalnie przez [regułę 10010](#doi-fopen), i `950150`, zdjęta na ekranach
+    PBN przez [regułę 10018](#httpexception-pbn).
 
 ### DOI z `fopen` — reguła 10010 {#doi-fopen}
 
@@ -418,6 +427,62 @@ na brzegu ([Utwardzenie brzegu](utwardzenie-brzegu.md)).
     dzisiejszy `php-errors.data` ma 218 wpisów i wszystkie są długimi frazami
     („PDO: driver", „Cannot redeclare class", „Stack trace:"), więc na danych
     bibliograficznych się nie zapalają.
+
+### `HttpException` z PBN — reguła 10018 {#httpexception-pbn}
+
+Zgłoszenie FD#612 (bpp.apoz.edu.pl, 2026-11-21): „Do kolejki eksportu nie da
+się dostać, nie ma takiego adresu". Powtarzalne, u dwóch użytkowników.
+
+Django oddawał `200`, a WAF urywał odpowiedź w `phase:4`:
+
+```text
+GET /pbn_export_queue/
+ruleId=950150  ASP.NET exception leakage
+   data: Matched Data: HttpException found within RESPONSE_BODY
+ruleId=959100  Outbound Anomaly Score Exceeded (Total Score: 4)
+nginx: [alert] header already sent      access log: 500 0
+```
+
+**Przyczyna.** `950150` to `@pmFromFile asp-dotnet-errors.data` — dopasowanie
+po **podciągu**, bez wielkości liter. Na liście jest, obok
+`System.Web.HttpException`, także **goły** wpis `HttpException`. Tak samo
+nazywa się klasa wyjątku klienta PBN (`pbn_client.exceptions.HttpException`),
+a BPP pokazuje ją celowo: lista kolejki eksportu ma nagłówek błędu w stylu
+„HttpException: HTTP 400", a zapisany komunikat to traceback kończący się nazwą
+tej klasy. Wystarczy jeden nieudany eksport na liście, żeby cała lista przestała
+się otwierać. W BPP nie ma .NET-u — to czysty fałszywy alarm.
+
+**Zakres — ścieżki.** Tylko ekrany, które (sprawdzone w kodzie BPP) renderują
+nazwę klasy wyjątku PBN:
+
+| Prefiks | Co tam widać |
+|---|---|
+| `/pbn_export_queue/` | lista, tabela i szczegóły wpisu kolejki (FD#612) |
+| `/pbn_import/` | dashboard i logi importu — traceback |
+| `/importer_publikacji/` | błąd zadania importu — traceback (superużytkownik) |
+| `/importer_autorow_pbn/` | postęp pobierania cache — traceback |
+
+Panel admina (np. `/admin/pbn_api/sentdata/`) jest już w `DetectionOnly`
+przez [10009](#formularze-admina). Ekrany zapisujące tylko `str(e)` (wysyłka
+oświadczeń, pobieranie danych z PBN) nazwy klasy nie pokazują i nie są objęte.
+
+**Zakres — reguła.** Jedna reguła `950150`, nie zakres `950000-959999` jak
+w [10004](#panele-poza-regulami-wychodzacymi). Te ekrany z natury pokazują
+surowe tracebacki, więc pozostałe reguły wychodzące (błędy SQL, PHP, IIS…)
+mają tu akurat sens i działają dalej.
+
+**Dlaczego nie globalnie, jak 10010.** Argument z [10010](#doi-fopen) („w BPP
+nie ma tej technologii") pasuje i tu, więc globalne zdjęcie `950150` też byłoby
+obronne. Na razie zakres jest wąski; jeśli `HttpException` albo inny wpis
+z `asp-dotnet-errors.data` zapali się na kolejnej stronie BPP — zamienić 10018
+na bezwarunkowy `SecAction`, zamiast dopisywać prefiksy w nieskończoność.
+
+**Kontrole w `make test-waf`.** Atrapa serwuje tę samą stronę z błędem PBN pod
+czterema prefiksami (żadna reguła `95xxx` nie może się zapalić) i pod `/bpp/`
+(kontrola: `950150` **musi** się zapalić). Asercje po audit logu. Te ścieżki
+nie stoją za `auth_request`, więc — inaczej niż przy 10004 — inspekcja
+odpowiedzi działa lokalnie naprawdę: zweryfikowane, że bez 10018 cztery
+przypadki czerwienieją.
 
 ## Dlaczego Grafana jest wyjęta w całości (reguła 10006) {#grafana-poza-waf}
 
@@ -1364,7 +1429,9 @@ odpowiedzi**. Atrapa serwuje stronę z komunikatem błędu PHP, a test sprawdza,
 czy zapaliła się któraś reguła `95xxx`. Asercja idzie po **audit logu**, a nie
 po wyniku HTTP — bo [blokowanie wychodzące jest wyścigiem](#reguly-wychodzace)
 i wynik HTTP migotał (1 na 5 przebiegów kończył się inaczej). Wykrycie jest
-deterministyczne, egzekucja nie.
+deterministyczne, egzekucja nie. Tak samo sprawdzane są
+[DOI z `fopen`](#doi-fopen) (10010) i [`HttpException` z PBN](#httpexception-pbn)
+(10018, z kontrolą na `/bpp/`).
 
 Trzecie to **zapytanie LogQL z Grafany** — para POST-ów z prawdziwym ciałem
 `/grafana/api/ds/query`, pilnująca reguły [`10006`](#grafana-poza-waf).

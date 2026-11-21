@@ -857,3 +857,64 @@ SecRule REQUEST_FILENAME "@rx ^/mcp/auth/?$" \
     nolog,\
     t:none,\
     ctl:ruleEngine=DetectionOnly"
+
+# ---------------------------------------------------------------------------
+# 10018: 950150 ("ASP.NET exception leakage") na ekranach integracji z PBN
+# ---------------------------------------------------------------------------
+# ZGLOSZENIE FD#612 (bpp.apoz.edu.pl, 2026-11-21): "Do kolejki eksportu nie
+# da sie dostac, nie ma takiego adresu". Audit log:
+#
+#   GET /pbn_export_queue/
+#   950150 ASP.NET exception leakage
+#     Matched Data: HttpException found within RESPONSE_BODY
+#   959100 Outbound Anomaly Score Exceeded (Total Score: 4)
+#
+# Django oddal 200, ale 959100 dziala w phase:4, gdy naglowki sa juz
+# wyslane — nginx loguje `[alert] header already sent`, w access logu zostaje
+# `500 0`, a uzytkownik widzi urwana/pusta strone, nie blokade (ten sam
+# mylacy objaw co przy 10004 i 10010). Powtarzalne, u dwoch uzytkownikow.
+#
+# PRZYCZYNA: regula uzywa `@pmFromFile asp-dotnet-errors.data`, czyli
+# dopasowania po PODCIAGU, bez wielkosci liter. Na liscie jest goly wpis
+# `HttpException` (obok `System.Web.HttpException`). Tymczasem
+# `HttpException` to nazwa klasy wyjatku z klienta PBN (pbn_client /
+# pbn_api, Python) — BPP pokazuje ja celowo: kolejka eksportu ma naglowek
+# bledu w stylu "HttpException: HTTP 400", a zapisany komunikat to traceback
+# konczacy sie na `pbn_client.exceptions.HttpException: (400, ...)`. To NIE
+# jest wyciek z ASP.NET — w BPP nie ma .NET-u.
+#
+# ZAKRES — SCIEZKI: tylko ekrany BPP, ktore renderuja nazwe klasy wyjatku PBN
+# (sprawdzone w kodzie BPP, 2026-11-21):
+#   /pbn_export_queue/      — lista, tabela, szczegoly wpisu (FD#612),
+#   /pbn_import/            — dashboard i logi importu (traceback),
+#   /importer_publikacji/   — blad zadania importu (traceback dla superusera),
+#   /importer_autorow_pbn/  — postep pobierania cache (traceback).
+# Panel admina (np. /admin/pbn_api/sentdata/) juz jest w DetectionOnly przez
+# 10009. Ekrany, ktore zapisuja tylko `str(e)` (wysylka oswiadczen,
+# pobieranie danych PBN), nazwy klasy nie pokazuja i ich tu NIE ma.
+# Na reszcie serwisu 950150 dalej dziala — kontrola w test-waf.sh.
+#
+# ZAKRES — REGULA: zdejmujemy JEDNA regule 950150, nie zakres 950000-959999
+# jak w 10004. Pozostale reguly wychodzace (953100 bledy PHP, 951xxx bledy
+# SQL, 954xxx IIS, ...) dalej skanuja te strony — a to sa ekrany, ktore
+# z natury pokazuja surowe tracebacki, wiec ochrona przed wyciekiem jest tu
+# akurat sensowna.
+#
+# DLACZEGO NIE GLOBALNIE (jak 10010): argument z 10010 ("w BPP nie ma tej
+# technologii") pasuje i tutaj, wiec globalne zdjecie 950150 tez byloby
+# obronne. Na razie wybieramy waski zakres; jesli `HttpException` (albo inny
+# wpis z asp-dotnet-errors.data) zapali sie na kolejnej stronie BPP —
+# rozwazyc zamiane tej reguly na SecAction bez warunku, zamiast dopisywac
+# sciezki w nieskonczonosc.
+#
+# REQUEST_FILENAME, nie REQUEST_URI: query string nie moze otworzyc
+# wykluczenia (`/bpp/?x=/pbn_export_queue/` nie pasuje do `^/...`, ale trzymamy
+# sie konwencji z 10011/10013). Musi byc phase:1, zeby wykonac sie przed
+# phase:4, w ktorej dziala 950150.
+SecRule REQUEST_FILENAME "@rx ^/(?:pbn_export_queue|pbn_import|importer_publikacji|importer_autorow_pbn)/" \
+    "id:10018,\
+    phase:1,\
+    pass,\
+    nolog,\
+    t:none,\
+    ctl:ruleRemoveById=950150"
