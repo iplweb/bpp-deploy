@@ -11,11 +11,11 @@
   z `pipefail`. Orkiestrator nie ma własnych binarek backupu (`pg_dump`/rclone
   wykonuje przez `docker exec`), więc sonduje to, co realnie może paść: socket
   i zgodność powłoki — niekompatybilny `BPP_ORCHESTRATOR_IMAGE` ma być
-  `unhealthy` przy `make up`, nie odkryty o 02:30.
+  `unhealthy` przy `make up`, nie odkryty w nocy.
 - `rclone` — `rclone version` **oraz** niepusty
   `/etc/ssl/certs/ca-certificates.crt`. Sonda CA zostaje mimo że upstreamowy
   obraz ma bundle wbudowany: `BPP_RCLONE_IMAGE` pozwala podstawić dowolny obraz,
-  a brak CA nie objawia się niczym aż do nocnego cyklu o 02:30 — wtedy pada
+  a brak CA nie objawia się niczym aż do nocnego cyklu — wtedy pada
   każde HTTPS
   ([awaria TLS](../eksploatacja/backup-i-rclone.md#awaria-tls-certificate-signed-by-unknown-authority)).
 - `celerybeat` — świeżość pliku-heartbeatu `/tmp/celerybeat-heartbeat`

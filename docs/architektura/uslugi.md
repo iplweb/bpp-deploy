@@ -55,7 +55,7 @@
 |---|---|
 | **ofelia** | Cron dla Dockera ([zadania okresowe](zadania-ofelia.md)) |
 | **autoheal** | Sidecar restartujący niezdrowe kontenery ([healthchecks](healthchecks-autoheal.md)) |
-| **backup-runner** | **Orkiestrator** codziennego cyklu backupu (obraz `docker:28-cli`, bezczynny `sleep infinity`). Sam robi tylko sekwencję i tar; `pg_dump` wykonuje przez `docker exec` w `dbserver`, wysyłkę w serwisie `rclone`, notyfikację Rollbara przez `appserver`. Ofelia `0 30 2 * * *`; manual: `make backup-cycle`. Szczegóły: [Backup i rclone](../eksploatacja/backup-i-rclone.md#codzienny-backup) |
+| **backup-runner** | **Orkiestrator** codziennego cyklu backupu (obraz `docker:28-cli`, bezczynny `sleep infinity`). Sam robi tylko sekwencję i tar; `pg_dump` wykonuje przez `docker exec` w `dbserver`, wysyłkę w serwisie `rclone`, notyfikację Rollbara przez `appserver`. Ofelia `0 45 1 * * *`; manual: `make backup-cycle`. Szczegóły: [Backup i rclone](../eksploatacja/backup-i-rclone.md#codzienny-backup) |
 | **rclone** | Zadeklarowany, stale działający serwis z rclone (obraz `rclone/rclone`, bezczynny `sleep infinity`) — wykonuje `rclone copy` i retencję zdalną cyklu nocnego oraz targety `make rclone-config/-sync/-check`. Jako serwis (a nie `docker run --rm`), bo compose ściąga obrazy tylko zadeklarowanych serwisów, a `docker system prune -af` na końcu `make up` kasowałby obraz bez działającego kontenera. [Szczegóły](../eksploatacja/backup-i-rclone.md#serwis-rclone) |
 
 ### Usługi za profilem (nie startują z `make up`)
