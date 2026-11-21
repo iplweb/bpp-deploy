@@ -86,6 +86,13 @@ server {
         alias /html/;
         default_type "text/html; charset=UTF-8";
     }
+    # FD#612: ta sama strona z bledem PBN pod sciezkami objetymi regula 10018
+    # (PASS) i pod /bpp/ (kontrola — 950150 ma sie zapalic).
+    location ~ ^/(?:pbn_export_queue|pbn_import|importer_publikacji|importer_autorow_pbn|bpp)/fd612/$ {
+        root /html;
+        try_files /pbn-httpexception.html =404;
+        default_type "text/html; charset=UTF-8";
+    }
 }
 BACKEND
 
@@ -107,6 +114,21 @@ cat > "$TMP/html/zrodlo-doi.html" <<'DOI'
 "nazwa": "4open", "doi": "10.1051/fopen/", "jezyk": "angielski"
 </body></html>
 DOI
+
+# FD#612 (bpp.apoz.edu.pl, 2026-11-21): lista kolejki eksportu PBN pokazuje
+# naglowek bledu "HttpException: HTTP 400" i traceback z klienta PBN. Goly wpis
+# `HttpException` w asp-dotnet-errors.data zapalal 950150 ("ASP.NET exception
+# leakage") i urywal strone. Wyklucza to regula 10018 — tylko na ekranach PBN.
+cat > "$TMP/html/pbn-httpexception.html" <<'PBN'
+<!DOCTYPE html><html><body>
+<div class="pbn-export-queue__error-display">
+<strong class="pbn-export-queue__error-title">HttpException: HTTP 400</strong>
+<pre>Traceback (most recent call last):
+  File "/app/src/pbn_export_queue/models.py", line 590, in send_to_pbn
+pbn_client.exceptions.HttpException: (400, '/api/v1/publications', '{"code":400,"message":"Bad Request"}')</pre>
+</div>
+</body></html>
+PBN
 
 docker network create "$NET" >/dev/null 2>&1
 
@@ -422,11 +444,49 @@ else
     BLEDY=$((BLEDY + 1))
 fi
 
+# Regula 10018 (FD#612): `HttpException` z klienta PBN NIE moze zapalac 950150
+# na ekranach integracji z PBN — ale TEN SAM tekst pod /bpp/ MUSI ja zapalac.
+#
+# Rozstrzygamy po audit logu, z tego samego powodu co wyzej. Kontrola jest
+# obowiazkowa: bez niej przypadki PASS przeszlyby tak samo, gdyby upstream
+# usunal `HttpException` z asp-dotnet-errors.data albo gdyby ktos zdjal cala
+# inspekcje ciala odpowiedzi — i nie wiedzielibysmy, ze 10018 nic nie robi.
+# Te strony NIE stoja za auth_request, wiec (inaczej niz przy 10004) inspekcja
+# odpowiedzi dziala tu lokalnie naprawde — sprawdzone: bez 10018 przypadki PASS
+# czerwienieja.
+for sciezka_fd612 in pbn_export_queue pbn_import importer_publikacji importer_autorow_pbn; do
+    curl -sk --http1.1 -o /dev/null --max-time 8 --resolve "$HOST_NAME:$PORT:127.0.0.1" \
+        "https://$HOST_NAME:$PORT/$sciezka_fd612/fd612/" >/dev/null 2>&1
+    TRAFIENIA_FD612=$(docker logs "$FRONT" 2>&1 \
+        | grep -c "\"uri\":\"/$sciezka_fd612/fd612/\".*\"ruleId\":\"95" || true)
+    if [ "$TRAFIENIA_FD612" -eq 0 ]; then
+        printf "  \033[32mOK\033[0m   %-46s %s\n" \
+            "HttpException PBN na /$sciezka_fd612/" "zadnego trafienia 95xxx"
+    else
+        printf "  \033[31mFAIL\033[0m %-46s %s\n" \
+            "HttpException PBN na /$sciezka_fd612/" "$TRAFIENIA_FD612 trafien (10018 nie dziala?)"
+        BLEDY=$((BLEDY + 1))
+    fi
+done
+curl -sk --http1.1 -o /dev/null --max-time 8 --resolve "$HOST_NAME:$PORT:127.0.0.1" \
+    "https://$HOST_NAME:$PORT/bpp/fd612/" >/dev/null 2>&1
+TRAFIENIA_FD612=$(docker logs "$FRONT" 2>&1 \
+    | grep -c '"uri":"/bpp/fd612/".*"ruleId":"950150"' || true)
+if [ "$TRAFIENIA_FD612" -gt 0 ]; then
+    printf "  \033[32mOK\033[0m   %-46s %s\n" \
+        "kontrola: HttpException na /bpp/ wykryty" "950150 zapalona"
+else
+    printf "  \033[31mFAIL\033[0m %-46s %s\n" \
+        "kontrola: HttpException na /bpp/ wykryty" "950150 sie NIE zapalila (10018 za szeroka? upstream zmienil dane?)"
+    BLEDY=$((BLEDY + 1))
+fi
+
 # Suma przypadkow: tablica PRZYPADKI + DWA sprawdzenia inspekcji ciala
-# odpowiedzi (klasa 95xxx dziala / DOI z `fopen` jej nie zapala). Przypadek
+# odpowiedzi (klasa 95xxx dziala / DOI z `fopen` jej nie zapala) + PIEC
+# przypadkow FD#612 (cztery sciezki PBN + kontrola /bpp/). Przypadek
 # HTTP/3 dolicza sie nizej, bo jako jedyny bywa POMIJANY (brak klienta QUIC) —
 # a wtedy nie ma go czym liczyc.
-LACZNIE=$(( ${#PRZYPADKI[@]} + 2 ))
+LACZNIE=$(( ${#PRZYPADKI[@]} + 2 + 5 ))
 
 # --------------------------------------------------------------------------
 # Regula 10006: /grafana/ poza inspekcja WAF-a
