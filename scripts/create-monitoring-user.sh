@@ -60,7 +60,6 @@ _get_env() {
 MON_USER="bpp_monitor"
 MON_PASS="$(_get_env DJANGO_BPP_PG_MONITOR_PASSWORD "$ENV_FILE")"
 SU_USER="$(_get_env DJANGO_BPP_DB_USER "$ENV_FILE")"
-SU_PASS="$(_get_env DJANGO_BPP_DB_PASSWORD "$ENV_FILE")"
 DB_NAME="$(_get_env DJANGO_BPP_DB_NAME "$ENV_FILE")"
 
 [ -n "$MON_PASS" ] || fail "DJANGO_BPP_PG_MONITOR_PASSWORD puste w $ENV_FILE (uruchom: make ensure-config-files)"
@@ -134,9 +133,13 @@ done
 
 echo "Tworze/aktualizuje role read-only '${MON_USER}' w bazie '${DB_NAME}'..."
 # -v ON_ERROR_STOP=1: psql ma zwrocic != 0 przy bledzie SQL (inaczej exit 0 mimo bledu).
-# PGPASSWORD jako env exec - nie ląduje w argv (ps).
-if ! docker compose exec -T -e PGPASSWORD="$SU_PASS" dbserver \
-        psql -v ON_ERROR_STOP=1 -U "$SU_USER" -d "$DB_NAME" -c "$SQL"; then
+# Nic tajnego w argv (`ps` widzi kazdy uzytkownik hosta): haslo superusera
+# czytane WEWNATRZ kontenera z DJANGO_BPP_DB_PASSWORD (env_file dbservera), a SQL
+# - zawierajacy haslo roli monitoringu - idzie przez stdin, nie przez `-c`.
+# shellcheck disable=SC2016  # $DJANGO_BPP_DB_PASSWORD rozwija sh w kontenerze
+if ! printf '%s\n' "$SQL" | docker compose exec -T dbserver \
+        sh -c 'PGPASSWORD="$DJANGO_BPP_DB_PASSWORD" exec "$@"' sh \
+        psql -X -q -v ON_ERROR_STOP=1 -U "$SU_USER" -d "$DB_NAME"; then
     fail "nie udalo sie utworzyc roli ${MON_USER} (czy ${SU_USER} jest superuserem?)"
 fi
 

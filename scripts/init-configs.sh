@@ -257,8 +257,9 @@ if [ ! -f "$ENV_FILE" ]; then
 
         echo ""
         echo "Probuje wykryc wersje PostgreSQL na $DB_HOST:$DB_PORT..."
-        if DETECTED_PG_MAJOR="$("$REPO_DIR/scripts/detect-postgres-version.sh" \
-                "$DB_HOST" "$DB_PORT" "$DB_USER" "$DB_PASS" "$DB_NAME" 2>/dev/null)" \
+        # Haslo przez srodowisko, nie argument (argv widac w `ps`).
+        if DETECTED_PG_MAJOR="$(PGPASSWORD="$DB_PASS" "$REPO_DIR/scripts/detect-postgres-version.sh" \
+                "$DB_HOST" "$DB_PORT" "$DB_USER" "" "$DB_NAME" 2>/dev/null)" \
                 && [ -n "$DETECTED_PG_MAJOR" ]; then
             echo "Wykryto PostgreSQL major $DETECTED_PG_MAJOR"
             EXT_PG_VERSION="$DETECTED_PG_MAJOR"
@@ -678,8 +679,9 @@ else
 
         echo ""
         echo "Probuje wykryc wersje zewnetrznej bazy PostgreSQL na $_db_host:$_db_port..."
-        if DETECTED_PG_MAJOR="$("$REPO_DIR/scripts/detect-postgres-version.sh" \
-                "$_db_host" "$_db_port" "$_db_user" "$_db_pass" "$_db_name" 2>/dev/null)" \
+        # Haslo przez srodowisko, nie argument (argv widac w `ps`).
+        if DETECTED_PG_MAJOR="$(PGPASSWORD="$_db_pass" "$REPO_DIR/scripts/detect-postgres-version.sh" \
+                "$_db_host" "$_db_port" "$_db_user" "" "$_db_name" 2>/dev/null)" \
                 && [ -n "$DETECTED_PG_MAJOR" ]; then
             echo "Wykryto PostgreSQL major $DETECTED_PG_MAJOR"
             ensure_env_var "DJANGO_BPP_POSTGRESQL_VERSION" "$DETECTED_PG_MAJOR" \

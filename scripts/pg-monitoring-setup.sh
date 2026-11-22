@@ -78,11 +78,14 @@ EOF
 fi
 
 # Internal mode
-# PGPASSWORD przez -e (nie w argv -> niewidoczne w `ps`); ON_ERROR_STOP=1 zeby
-# blad SQL zwracal != 0 (bez tego psql konczy exit 0 mimo bledu, set -e nie lapie).
-DB_PASSWORD="$(_get_env DJANGO_BPP_DB_PASSWORD)"
+# Haslo czytane WEWNATRZ kontenera z DJANGO_BPP_DB_PASSWORD (env_file dbservera).
+# NIE jako wartosc `-e PGPASSWORD` - to argv `docker compose`, widoczne
+# w `ps` dla kazdego uzytkownika hosta. ON_ERROR_STOP=1 zeby blad SQL zwracal
+# != 0 (bez tego psql konczy exit 0 mimo bledu, set -e nie lapie).
 psql_run() {
-    docker compose exec -T -e PGPASSWORD="$DB_PASSWORD" dbserver \
+    # shellcheck disable=SC2016  # $DJANGO_BPP_DB_PASSWORD rozwija sh w kontenerze
+    docker compose exec -T dbserver \
+        sh -c 'PGPASSWORD="$DJANGO_BPP_DB_PASSWORD" exec "$@"' sh \
         psql -v ON_ERROR_STOP=1 -U "$DB_USER" -d "$DB_NAME" -tA -c "$1"
 }
 

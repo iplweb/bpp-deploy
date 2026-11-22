@@ -194,7 +194,12 @@ if [ ! -f "$APP_ENV" ]; then
     exit 1
 fi
 
-DJANGO_BPP_DB_PASSWORD="$(get_env_var DJANGO_BPP_DB_PASSWORD "$APP_ENV")"
+# Haslo do bazy czytane WEWNATRZ kontenera dbserver (oba warianty serwisu maja
+# service-level env_file z DJANGO_BPP_DB_PASSWORD). Nie jako wartosc `-e PGPASSWORD`:
+# wartosc trafilaby do argv `docker compose`, widocznego w `ps` dla kazdego
+# uzytkownika hosta. Uzycie: dc exec -T dbserver "${PG_HASLO_Z_KONTENERA[@]}" psql ...
+# shellcheck disable=SC2016  # $DJANGO_BPP_DB_PASSWORD rozwija sh w kontenerze
+PG_HASLO_Z_KONTENERA=(sh -c 'PGPASSWORD="$DJANGO_BPP_DB_PASSWORD" exec "$@"' sh)
 DJANGO_BPP_DB_HOST="$(get_env_var DJANGO_BPP_DB_HOST "$APP_ENV")"
 DJANGO_BPP_DB_PORT="$(get_env_var DJANGO_BPP_DB_PORT "$APP_ENV")"
 DJANGO_BPP_DB_USER="$(get_env_var DJANGO_BPP_DB_USER "$APP_ENV")"
@@ -218,12 +223,12 @@ PARALLEL_JOBS="${PARALLEL_JOBS:-4}"
 # ---- Operacje na bazie (uzywane przez restore_db) ------------------------
 db_dropdb_createdb() {
     echo "+ dropdb --force $DJANGO_BPP_DB_NAME"
-    dc exec -T -e "PGPASSWORD=$DJANGO_BPP_DB_PASSWORD" dbserver \
+    dc exec -T dbserver "${PG_HASLO_Z_KONTENERA[@]}" \
         dropdb --force \
             -h "$DJANGO_BPP_DB_HOST" -p "$DJANGO_BPP_DB_PORT" \
             -U "$DJANGO_BPP_DB_USER" "$DJANGO_BPP_DB_NAME"
     echo "+ createdb $DJANGO_BPP_DB_NAME"
-    dc exec -T -e "PGPASSWORD=$DJANGO_BPP_DB_PASSWORD" dbserver \
+    dc exec -T dbserver "${PG_HASLO_Z_KONTENERA[@]}" \
         createdb \
             -h "$DJANGO_BPP_DB_HOST" -p "$DJANGO_BPP_DB_PORT" \
             -U "$DJANGO_BPP_DB_USER" "$DJANGO_BPP_DB_NAME"
@@ -231,7 +236,7 @@ db_dropdb_createdb() {
 
 # psql czytajacy SQL ze stdin (plain / plain-gz po dekompresji na hoscie).
 db_psql_stdin() {
-    dc exec -T -e "PGPASSWORD=$DJANGO_BPP_DB_PASSWORD" dbserver \
+    dc exec -T dbserver "${PG_HASLO_Z_KONTENERA[@]}" \
         psql -v ON_ERROR_STOP=1 \
             -h "$DJANGO_BPP_DB_HOST" -p "$DJANGO_BPP_DB_PORT" \
             -U "$DJANGO_BPP_DB_USER" -d "$DJANGO_BPP_DB_NAME"
@@ -239,7 +244,7 @@ db_psql_stdin() {
 
 # pg_restore czytajacy archiwum -Fc ze stdin.
 db_pgrestore_stdin() {
-    dc exec -T -e "PGPASSWORD=$DJANGO_BPP_DB_PASSWORD" dbserver \
+    dc exec -T dbserver "${PG_HASLO_Z_KONTENERA[@]}" \
         pg_restore --no-owner --no-privileges \
             -h "$DJANGO_BPP_DB_HOST" -p "$DJANGO_BPP_DB_PORT" \
             -U "$DJANGO_BPP_DB_USER" -d "$DJANGO_BPP_DB_NAME"
@@ -267,7 +272,7 @@ restore_db_directory() {
     fi
     run dc exec -T dbserver tar xzf "/backup/$rel" -C /backup
     echo "+ pg_restore -Fd -j $PARALLEL_JOBS --no-owner --no-privileges"
-    dc exec -T -e "PGPASSWORD=$DJANGO_BPP_DB_PASSWORD" dbserver \
+    dc exec -T dbserver "${PG_HASLO_Z_KONTENERA[@]}" \
         pg_restore \
             -Fd -j "$PARALLEL_JOBS" \
             -h "$DJANGO_BPP_DB_HOST" -p "$DJANGO_BPP_DB_PORT" \

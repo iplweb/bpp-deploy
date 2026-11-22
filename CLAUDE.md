@@ -203,6 +203,10 @@ Images are slim — `uv` is no longer present. Use native `python` / `celery`:
 - Django: `python src/manage.py <command>` (CWD is the dir above `src/`)
 - Celery: `celery -A django_bpp.celery_tasks <command>`
 
+### CRITICAL: DB password never in host argv
+
+Symptom: during `make db-backup` any local user saw `docker compose exec -T -e PGPASSWORD=<plaintext> …` in `ps`. **Never pass a secret as the value of `-e`** (nor as a positional script argument) — the value lands in the argv of `sh -c`/`docker`, world-readable via `ps`/`/proc`. Instead: (1) for `dbserver` (local DB and the external sentinel both have a service-level `env_file`) read it **inside** the container — Makefile: `docker compose exec [-T] dbserver $(PG_HASLO_Z_KONTENERA) pg_dump …` (`mk/database.mk`), scripts: the `PG_HASLO_Z_KONTENERA` array — same `sh -c 'PGPASSWORD="$DJANGO_BPP_DB_PASSWORD" exec "$@"' sh` form `backup-cycle.sh` uses; (2) for `docker run` without our env: `-e VAR` **without a value**, `VAR` set in the docker process's environment (`detect-postgres-version.sh`, `test-upgrade.sh`); (3) SQL embedding a password goes via stdin, not `psql -c`. Guarded by `test_db_password_not_in_argv` (`make -n` with a sentinel password + grep over `Makefile`/`mk`/`scripts` for `-e …PASSWORD=<value>`).
+
 ### Safe migrations
 
 `make migrate` automatically: stops denorm workers → runs migrations → restarts workers.

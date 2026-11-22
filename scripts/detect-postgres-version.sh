@@ -10,7 +10,9 @@
 #   $1 - HOST
 #   $2 - PORT
 #   $3 - USER
-#   $4 - PASSWORD
+#   $4 - PASSWORD (przestarzale; pusty = haslo ze zmiennej srodowiskowej
+#        PGPASSWORD). Wolajacy powinni podawac haslo przez PGPASSWORD -
+#        argument pozycyjny widac w `ps` dla kazdego uzytkownika hosta.
 #   $5 - DBNAME
 #
 # Wyjście:
@@ -25,7 +27,7 @@ set -euo pipefail
 HOST="${1:-}"
 PORT="${2:-}"
 USER="${3:-}"
-PASSWORD="${4:-}"
+PASSWORD="${4:-${PGPASSWORD:-}}"
 DBNAME="${5:-}"
 
 if [ -z "$HOST" ] || [ -z "$PORT" ] || [ -z "$USER" ] || [ -z "$DBNAME" ]; then
@@ -37,9 +39,11 @@ fi
 # (na macOS/Windows Docker Desktop zachowuje się inaczej, ale zewnętrzne
 # bazy w deploymentach produkcyjnych są zwykle osiągalne publicznie lub
 # przez host network).
+# `-e PGPASSWORD` BEZ wartosci: docker bierze ja ze swojego srodowiska, wiec
+# haslo nie trafia do argv (`ps`).
 if ! server_version_num="$(
-    docker run --rm \
-        -e PGPASSWORD="$PASSWORD" \
+    PGPASSWORD="$PASSWORD" docker run --rm \
+        -e PGPASSWORD \
         -e PGCONNECT_TIMEOUT=5 \
         --network host \
         postgres:17-alpine \

@@ -89,7 +89,6 @@ load_env() {
         echo "BLAD: brak $APP_ENV. Uruchom 'make init-configs'." >&2; exit 1
     fi
 
-    DJANGO_BPP_DB_PASSWORD="$(get_env_var DJANGO_BPP_DB_PASSWORD "$APP_ENV")"
     DJANGO_BPP_DB_HOST="$(get_env_var DJANGO_BPP_DB_HOST "$APP_ENV")"
     DJANGO_BPP_DB_PORT="$(get_env_var DJANGO_BPP_DB_PORT "$APP_ENV")"
     DJANGO_BPP_DB_USER="$(get_env_var DJANGO_BPP_DB_USER "$APP_ENV")"
@@ -108,7 +107,7 @@ load_env() {
 
     # Te zmienne sa uzywane przez skrypty sourcujace te biblioteke (export
     # zaspokaja tez shellcheck SC2034 — "used externally").
-    export DJANGO_BPP_DB_PASSWORD DJANGO_BPP_DB_HOST DJANGO_BPP_DB_PORT \
+    export DJANGO_BPP_DB_HOST DJANGO_BPP_DB_PORT \
            DJANGO_BPP_DB_USER DJANGO_BPP_DB_NAME HOST_BACKUP_DIR
 }
 
@@ -116,3 +115,10 @@ load_env() {
 dc() {
     docker compose -f "$REPO_DIR/docker-compose.yml" "$@"
 }
+
+# Haslo do bazy czytane WEWNATRZ kontenera dbserver (oba warianty serwisu maja
+# service-level env_file z DJANGO_BPP_DB_PASSWORD). Nie jako wartosc `-e PGPASSWORD`:
+# wartosc trafilaby do argv `docker compose`, widocznego w `ps` dla kazdego
+# uzytkownika hosta. Uzycie: dc exec -T dbserver "${PG_HASLO_Z_KONTENERA[@]}" psql ...
+# shellcheck disable=SC2016,SC2034  # SC2034: uzywane przez skrypty sourcujace; $DJANGO_BPP_DB_PASSWORD rozwija sh w kontenerze
+PG_HASLO_Z_KONTENERA=(sh -c 'PGPASSWORD="$DJANGO_BPP_DB_PASSWORD" exec "$@"' sh)
