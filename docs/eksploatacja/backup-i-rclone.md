@@ -27,7 +27,8 @@ do kontenerów, które i tak istnieją i mają właściwe narzędzia:
    zamontowane także w orkiestratorze),
 3. rotacja lokalna (`DJANGO_BPP_BACKUP_KEEP_LAST`),
 4. `rclone copy` + retencja zdalna — w serwisie `rclone` (patrz niżej),
-5. notyfikacja do Rollbara — `docker exec appserver python` (bez `curl`/`jq`).
+5. notyfikacja do Rollbara i/lub [GlitchTipa](../monitoring/bledy-aplikacji.md#notyfikacje-nocnego-backupu)
+   — `docker exec appserver python` (bez `curl`/`jq`); każdy kanał tylko, gdy skonfigurowany.
 6. heartbeat do [Healthchecks.io](#monitoring-backupu-healthchecksio) — busyboxowy
    `wget` z samego orkiestratora (opcjonalnie, `DJANGO_BPP_HEALTHCHECKS_PING_KEY`).
 

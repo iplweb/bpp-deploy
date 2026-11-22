@@ -143,6 +143,7 @@ Pojedyncze testy (każdy robi dokładnie jedną rzecz) można też wywołać wpr
 ```bash
 make test-email       # Wyślij testowe e-maile (wymaga DJANGO_BPP_ADMIN_EMAIL)
 make test-rollbar     # Wyślij testowe zdarzenie do Rollbara (wymaga ROLLBAR_ACCESS_TOKEN)
+make test-sentry      # Wyślij testowe zdarzenie do GlitchTip/Sentry (wymaga SENTRY_DSN)
 make test-ntfy        # Wyślij testowy push na ntfy (wymaga NTFY_TOPIC)
 make ntfy-test        # Deprecated alias dla test-ntfy
 ```

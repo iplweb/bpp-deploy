@@ -409,7 +409,7 @@ echo "=== [7/7] Start kandydata na kopii bazy (gunicorn, bez nginx/workerow/moni
 # Normalny entrypoint obrazu (te same fazy co w produkcji: baseline/migrate =
 # no-op po kroku 6, seed staticow, gunicorn). Wlasne puste wolumeny na static
 # i media - produkcyjnych nie dotykamy. Kanaly powiadomien wyzerowane, zeby
-# ewentualny blad kandydata nie trafil do produkcyjnego Rollbara/Slacka.
+# ewentualny blad kandydata nie trafil do produkcyjnego Rollbara/GlitchTipa/Slacka.
 docker volume create "$SHADOW_STATIC_VOL" >/dev/null
 docker volume create "$SHADOW_MEDIA_VOL" >/dev/null
 docker run -d --name "$SHADOW_APP" --network "$SHADOW_NET" \
@@ -420,6 +420,7 @@ docker run -d --name "$SHADOW_APP" --network "$SHADOW_NET" \
     -e STATIC_ROOT=/staticroot/ \
     -e DJANGO_BPP_MEDIA_ROOT=/mediaroot \
     -e ROLLBAR_ACCESS_TOKEN= \
+    -e SENTRY_DSN= \
     -e DJANGO_BPP_SLACK_WEBHOOK= \
     -v "$SHADOW_STATIC_VOL":/staticroot \
     -v "$SHADOW_MEDIA_VOL":/mediaroot \

@@ -116,6 +116,7 @@ Wymuszenie zmiany hasła po podejrzeniu wycieku robi się w BPP poleceniem
 |---|---|---|---|---|---|
 | `DJANGO_BPP_SLACK_WEBHOOK` | url | *(pusta)* | tak | tak | Slack webhook URL (pusta = bez powiadomien na Slacka) |
 | `ROLLBAR_ACCESS_TOKEN` | sekret | *(pusta)* | tak | tak | Rollbar access token typu post_server_item (pusta = backup-cycle bez powiadomien) |
+| `SENTRY_DSN` | sekret | *(pusta)* | nie | tak | DSN GlitchTip/Sentry (bledy aplikacji + notyfikacje backupu; pusta = wylaczone, Rollbar dziala niezaleznie) |
 | `DJANGO_BPP_HEALTHCHECKS_PING_KEY` | sekret | *(pusta)* | tak | tak | Ping key projektu Healthchecks.io - heartbeat nocnego backupu (pusta = bez heartbeatu) |
 
 ### Google

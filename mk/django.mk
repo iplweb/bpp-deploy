@@ -1,5 +1,5 @@
 .PHONY: changepassword invalidate schowaj-jezyki-dyscypliny pbn-first-import \
-       createsuperuser test-email test-rollbar
+       createsuperuser test-email test-rollbar test-sentry
 
 changepassword:
 	docker compose exec appserver python src/manage.py changepassword $(DJANGO_BPP_ADMIN_USERNAME)
@@ -41,3 +41,16 @@ test-rollbar:
 		exit 1; \
 	fi
 	docker compose exec appserver python src/manage.py test_rollbar
+
+# Testowe zdarzenie do GlitchTip/Sentry - ten sam program co notify_sentry
+# w backup-cycle.sh (scripts/sentry-store.py, wysylka z appservera).
+test-sentry:
+	@if [ -z "$(SENTRY_DSN)" ]; then \
+		echo "SENTRY_DSN nie jest ustawiony. Ustaw go w $(BPP_CONFIGS_DIR)/.env i zrob make up"; \
+		exit 1; \
+	fi
+	docker compose exec -T \
+		-e BPP_SENTRY_LEVEL=info \
+		-e "BPP_SENTRY_MSG=make test-sentry: test notyfikacji z $$(hostname)" \
+		-e BPP_SENTRY_LOGGER=make-test-sentry \
+		appserver python - < scripts/sentry-store.py

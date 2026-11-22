@@ -245,6 +245,7 @@ help:
 	@echo "    doctor               - Interaktywne menu: mail/ntfy/rollbar/health/backup"
 	@echo "    test-email           - Test email configuration"
 	@echo "    test-rollbar         - Test Rollbar configuration"
+	@echo "    test-sentry          - Test GlitchTip/Sentry (SENTRY_DSN)"
 	@echo "    test-ntfy            - Test ntfy push notification"
 	@echo "    ntfy-test            - Deprecated alias for test-ntfy"
 	@echo ""

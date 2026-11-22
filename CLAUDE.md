@@ -386,6 +386,12 @@ Tripwire'y, każdy nośny:
 - **Kontenery adresuj po labelach compose** (`bpp_container` w
   `scripts/lib-container.sh`), nigdy po nazwie — compose nazwy generuje
   (`<projekt>-<usługa>-<n>`), a to repo nie ustawia `container_name:`.
+- **`notify_sentry` (GlitchTip, `SENTRY_DSN`) to bliźniak `notify_rollbar` — te same
+  reguły** (sukces zawsze, `|| true`, wysyłka z appservera). Program leży w
+  `scripts/sentry-store.py` (tylko stdlib, podawany na stdin `python -`) i jest
+  wspólny z `make test-sentry`. **Nie przepisuj go na `sentry-sdk`** — musi działać
+  na obrazach appservera sprzed tej biblioteki. Kanały są niezależne: wyłączenie
+  Rollbara = usunięcie `ROLLBAR_ACCESS_TOKEN`. Operator doc: `docs/monitoring/bledy-aplikacji.md`.
 - **Każda komenda w trapie EXIT (`on_exit`, `notify_rollbar`) musi mieć
   `|| true`** — błąd w trapie urywa go przed `exit "$rc"` i klobruje kod wyjścia
   na 1, a kanał notyfikacji (`docker exec appserver`) pada dokładnie wtedy, gdy

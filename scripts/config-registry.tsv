@@ -25,6 +25,7 @@ DJANGO_BPP_SSL_MODE	SSL	wybor:manual/letsencrypt	manual	nie	nie	Skad nginx bierz
 DJANGO_BPP_LETSENCRYPT_EMAIL	SSL	email	${DJANGO_BPP_ADMIN_EMAIL}	nie	nie	E-mail dla Let's Encrypt (powiadomienia o wygasajacych certyfikatach)
 DJANGO_BPP_SLACK_WEBHOOK	Powiadomienia	url		tak	tak	Slack webhook URL (pusta = bez powiadomien na Slacka)
 ROLLBAR_ACCESS_TOKEN	Powiadomienia	sekret		tak	tak	Rollbar access token typu post_server_item (pusta = backup-cycle bez powiadomien)
+SENTRY_DSN	Powiadomienia	sekret		nie	tak	DSN GlitchTip/Sentry (bledy aplikacji + notyfikacje backupu; pusta = wylaczone, Rollbar dziala niezaleznie)
 DJANGO_BPP_HEALTHCHECKS_PING_KEY	Powiadomienia	sekret		tak	tak	Ping key projektu Healthchecks.io - heartbeat nocnego backupu (pusta = bez heartbeatu)
 DJANGO_BPP_GOOGLE_ANALYTICS_PROPERTY_ID	Google	tekst		tak	tak	Google Analytics Property ID (pusta = bez GA)
 DJANGO_BPP_GOOGLE_VERIFICATION_CODE	Google	tekst		tak	tak	Google Search Console verification code (pusta = brak)
