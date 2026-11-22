@@ -213,30 +213,45 @@ services:
   # Buduje CSS motywu z ustawień z konfiguratora wyglądu („Zastosuj”) i przy
   # migracji wyglądu po aktualizacji BPP (appserver: manage.py odswiez_motywy).
   # Wykonuje kod JS (dart-sass) na danych od uzytkownika, wiec jest ODIZOLOWANY:
-  # wlasna siec `internal` (bez internetu, widzi go tylko appserver), bez bazy,
-  # sekretow i wolumenow, system plikow tylko do odczytu, bez capabilities.
-  # Wersja obrazu = wersja BPP (te same pliki SCSS/JS co appserver).
+  # wlasna siec `internal` (bez internetu, widzi go tylko appserver), bez bazy
+  # i sekretow, system plikow tylko do odczytu, bez capabilities.
   #
-  # Kontrakt wstecznej zgodnosci: obraz istnieje dopiero od wersji BPP
-  # z konfiguratorem wygladu. Host z DOCKER_VERSION przypieta do starszej
-  # wersji ustawia w .env repo MOTYW_KOMPILATOR_VERSION=latest — starsze BPP
-  # z kompilatora nie korzysta, a `make up` nie wywala sie na braku obrazu.
+  # Gotowy obraz node:22-alpine — bez wlasnego obrazu. Serwer i pliki
+  # kompilatora czyta z wolumenu staticfiles (TYLKO DO ODCZYTU; to publiczne
+  # pliki, ktore i tak serwuje nginx), ktory appserver przy starcie wypelnia
+  # plikami swojej wersji — kompilator zawsze pasuje do appservera. Nowe
+  # pliki po aktualizacji wczytuje sam; nowa wersja serwera konczy proces
+  # i restart: always uruchamia ja ponownie.
+  #
+  # Starsze BPP (bez konfiguratora) nie ma tych plikow w wolumenie — serwis
+  # wtedy tylko czeka (healthcheck przechodzi), `make up --wait` sie nie
+  # zatrzymuje.
   motyw-kompilator:
-    image: iplweb/bpp_motyw_kompilator:${MOTYW_KOMPILATOR_VERSION:-${DOCKER_VERSION:-latest}}
+    image: node:22-alpine
+    command:
+      - sh
+      - -c
+      - >-
+        while [ ! -f /static/bpp/js/motyw-kompilator-serwer.js ]; do sleep 30; done;
+        exec node /static/bpp/js/motyw-kompilator-serwer.js
+    user: node
     restart: always
     logging: *default-logging
     networks:
       - motyw-kompilator
+    volumes:
+      - staticfiles:/static:ro
     read_only: true
     cap_drop:
       - ALL
     security_opt:
       - no-new-privileges:true
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8095/zdrowie"]
+      # /zywy = proces dziala; brak pliku serwera = starsze BPP, czekamy.
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8095/zywy >/dev/null 2>&1 || [ ! -f /static/bpp/js/motyw-kompilator-serwer.js ]"]
       interval: 30s
       timeout: 5s
-      start_period: 10s
+      start_period: 30s
       retries: 3
     deploy:
       resources:
