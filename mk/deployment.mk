@@ -38,9 +38,10 @@ up: validate-env-quotes ask-missing-config ensure-config-files update-configs
 	@# Stack jest UP i healthy (--wait powyzej; przy bledzie make juz by stanal).
 	@# Sprzatamy nieuzywane obrazy/kontenery/sieci/cache Dockera. BEZ --volumes,
 	@# wiec nazwane wolumeny (postgresql_data, media, staticfiles) sa BEZPIECZNE.
-	@# -af kasuje WSZYSTKIE nieuzywane obrazy (tez stare wersje BPP, osierocony
-	@# alpine po przejsciu backup-runnera na obraz dbservera). Pokazujemy tylko
-	@# ile miejsca zwolniono. Serwis html2docx (gdy wlaczony profilem) jest juz
+	@# -af kasuje WSZYSTKIE nieuzywane obrazy (tez stare wersje BPP). Pokazujemy
+	@# tylko ile miejsca zwolniono. Jednorazowe `docker run --rm` (backup,
+	@# restore) jada na BPP_HELPER_IMAGE = obraz backup-runnera, wiec prune im
+	@# obrazu nie zabiera. Serwis html2docx (gdy wlaczony profilem) jest juz
 	@# UP przed prune, wiec jego obraz jest w uzyciu i prune go nie usunie.
 	@echo "Sprzatanie Dockera (docker system prune -af)..."
 	@docker system prune -af 2>/dev/null \

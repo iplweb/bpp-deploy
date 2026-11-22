@@ -41,6 +41,9 @@
 set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+# Obraz dla jednorazowych `docker run --rm`: ten sam co backup-runner, wiec
+# `docker system prune -af` go nie kasuje (patrz BPP_HELPER_IMAGE w Makefile).
+HELPER_IMAGE="${BPP_HELPER_IMAGE:-${BPP_ORCHESTRATOR_IMAGE:-docker:28-cli}}"
 REPO_ENV="$REPO_DIR/.env"
 
 # ---- Parsowanie argumentow ----------------------------------------------
@@ -598,7 +601,7 @@ on_error() {
 #   5. docker run --rm \\
 #        -v $BACKUP_VOLUME:/from:ro \\
 #        -v $VOLUME_NAME:/to \\
-#        alpine sh -c 'cp -a /from/. /to/'
+#        --entrypoint sh $HELPER_IMAGE -c 'cp -a /from/. /to/'
 #   6. W $APP_ENV:
 #        DJANGO_BPP_POSTGRESQL_VERSION=$CURRENT_POSTGRESQL_VERSION
 #        DJANGO_BPP_POSTGRESQL_VERSION_MAJOR=$CURRENT_PG_MAJOR
@@ -642,7 +645,7 @@ auto_rollback() {
     run docker run --rm \
         -v "$BACKUP_VOLUME:/from:ro" \
         -v "$VOLUME_NAME:/to" \
-        alpine sh -c 'cp -a /from/. /to/'
+        --entrypoint sh "$HELPER_IMAGE" -c 'cp -a /from/. /to/'
     run docker volume rm "$BACKUP_VOLUME"
     run set_env_var DJANGO_BPP_POSTGRESQL_VERSION "$CURRENT_POSTGRESQL_VERSION" "$APP_ENV"
     run set_env_var DJANGO_BPP_POSTGRESQL_VERSION_MAJOR "$CURRENT_PG_MAJOR" "$APP_ENV"
@@ -767,7 +770,7 @@ if [ "$FROM_STEP" -le 5 ] && ! step_is_skipped 5; then
     run docker run --rm \
         -v "$VOLUME_NAME:/from:ro" \
         -v "$BACKUP_VOLUME:/to" \
-        alpine sh -c 'cp -a /from/. /to/'
+        --entrypoint sh "$HELPER_IMAGE" -c 'cp -a /from/. /to/'
 fi
 
 # ---- Krok 6: usun stary volume ------------------------------------------

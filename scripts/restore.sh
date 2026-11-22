@@ -35,6 +35,9 @@
 set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+# Obraz dla jednorazowych `docker run --rm`: ten sam co backup-runner, wiec
+# `docker system prune -af` go nie kasuje (patrz BPP_HELPER_IMAGE w Makefile).
+HELPER_IMAGE="${BPP_HELPER_IMAGE:-${BPP_ORCHESTRATOR_IMAGE:-docker:28-cli}}"
 REPO_ENV="$REPO_DIR/.env"
 
 # ---- Parsowanie argumentow ----------------------------------------------
@@ -523,8 +526,8 @@ if [ "$SINGLE_DB" != 1 ] && [ "$DB_ONLY" != 1 ]; then
     run docker run --rm \
         -v "${COMPOSE_PROJECT_NAME}_media:/dst" \
         -v "$HOST_BACKUP_DIR:/backup:ro" \
-        alpine \
-        tar xzf "/backup/$MEDIA_TAR" -C /dst
+        --entrypoint tar "$HELPER_IMAGE" \
+        xzf "/backup/$MEDIA_TAR" -C /dst
     echo "Media restore: OK"
 fi
 

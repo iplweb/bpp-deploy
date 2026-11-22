@@ -70,15 +70,15 @@ media-backup:
 	docker run --rm \
 		-v $(COMPOSE_PROJECT_NAME)_media:/src:ro \
 		-v $(DJANGO_BPP_HOST_BACKUP_DIR):/backup \
-		alpine \
-		tar czf /backup/$(MEDIA_BACKUP_TAR) -C /src .
+		--entrypoint tar $(BPP_HELPER_IMAGE) \
+		czf /backup/$(MEDIA_BACKUP_TAR) -C /src .
 	@echo "Media backup saved to: $(MEDIA_BACKUP_FULL_PATH)"
 	@echo "Restore: tar xzf $(MEDIA_BACKUP_TAR) -C /mediaroot/"
 
 # Archiwum katalogu konfiguracyjnego ($BPP_CONFIGS_DIR: .env z kluczem
 # szyfrowania sekretow, rclone.conf, ssl/...) -> config-backup-<TS>.tar.gz
 # (0600) obok zrzutow bazy, ten sam timestamp co db-/media-backup w `make
-# backup`. Efemeryczny kontener alpine (jak media-backup): dziala jako root,
+# backup`. Efemeryczny kontener (jak media-backup): dziala jako root,
 # wiec czyta tez pliki root:root (letsencrypt/), i nie wymaga dzialajacego
 # stacku. Ta sama logika co krok 2b nocnego cyklu: scripts/config-backup.sh.
 # Odtworzenie: make restore-config FILE=... (Makefile, przed ifdef FIRST_RUN).
@@ -89,8 +89,8 @@ config-backup:
 		-v $(BPP_CONFIGS_DIR):/configs:ro \
 		-v $(DJANGO_BPP_HOST_BACKUP_DIR):/backup \
 		-v $(CURDIR)/scripts:/scripts:ro \
-		alpine \
-		sh /scripts/config-backup.sh $(BACKUP_TIMESTAMP)
+		--entrypoint sh $(BPP_HELPER_IMAGE) \
+		/scripts/config-backup.sh $(BACKUP_TIMESTAMP)
 	@echo "Restore: make restore-config FILE=$(DJANGO_BPP_HOST_BACKUP_DIR)/config-backup-$(BACKUP_TIMESTAMP).tar.gz"
 
 # Restore z backupow zrobionych przez `make backup` (lub backup-cycle).

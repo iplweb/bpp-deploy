@@ -338,7 +338,7 @@ make config-backup    # samo archiwum konfiguracji
 make backup           # baza + media + konfiguracja, jeden timestamp
 ```
 
-Działa w efemerycznym kontenerze `alpine` (jak `media-backup`), więc nie wymaga
+Działa w efemerycznym kontenerze na obrazie `backup-runner`a (jak `media-backup`), więc nie wymaga
 działającego stacku i czyta także pliki `root:root` (np. `letsencrypt/`).
 
 ### Odtworzenie — `make restore-config`

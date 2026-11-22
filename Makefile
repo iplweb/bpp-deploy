@@ -101,6 +101,14 @@ ifneq ($(wildcard $(BPP_CONFIGS_DIR)/.env),)
 endif
 export BPP_CONFIGS_DIR
 
+# Obraz dla jednorazowych `docker run --rm` (tar/cp na wolumenach): ten sam,
+# na ktorym chodzi backup-runner. Dzialajacy kontener trzyma go przed
+# `docker system prune -af` z konca `make up` - `alpine` znikal po kazdym
+# deployu i backup/restore sciagaly go od nowa z Docker Huba. Default musi
+# byc zgodny z docker-compose.backup.yml (pilnuje test_helper_image).
+BPP_HELPER_IMAGE := $(if $(strip $(BPP_ORCHESTRATOR_IMAGE)),$(strip $(BPP_ORCHESTRATOR_IMAGE)),docker:28-cli)
+export BPP_HELPER_IMAGE
+
 .DEFAULT_GOAL := help
 
 include mk/deployment.mk

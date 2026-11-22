@@ -2185,6 +2185,33 @@ test_rclone_service_declared() {
     fi
 }
 
+test_helper_image() {
+    yellow "=== Test: jednorazowe kontenery jada na obrazie backup-runnera ==="
+
+    # `docker system prune -af` z konca `make up` kasowal `alpine` po kazdym
+    # deployu. Obraz orkiestratora trzyma dzialajacy kontener, wiec zostaje -
+    # ale tylko dopoki default jest TEN SAM we wszystkich miejscach.
+    local defaults
+    defaults=$(grep -ohE 'docker:[0-9]+-cli' \
+        "$REPO_DIR/docker-compose.backup.yml" "$REPO_DIR/Makefile" \
+        "$REPO_DIR/scripts/restore.sh" "$REPO_DIR/scripts/upgrade-postgres.sh" \
+        | sort -u | tr '\n' ' ')
+    if [ "$(echo $defaults | wc -w)" -eq 1 ]; then
+        pass "jeden default obrazu pomocniczego (compose/Makefile/skrypty): $defaults"
+    else
+        fail "rozjechane defaulty obrazu pomocniczego: $defaults"
+    fi
+
+    local f
+    for f in mk/database.mk mk/docker.mk scripts/restore.sh scripts/upgrade-postgres.sh; do
+        if grep -vE '^[[:space:]]*#' "$REPO_DIR/$f" | grep -qE '(^|[[:space:]])alpine(:latest)?([[:space:]]|$)'; then
+            fail "$f nadal uruchamia goly obraz alpine (zniknie po prune -af)"
+        else
+            pass "$f nie uruchamia golego obrazu alpine"
+        fi
+    done
+}
+
 test_backup_pg_image_retired() {
     yellow "=== Test: BPP_BACKUP_PG_IMAGE wygaszona ==="
 
@@ -3505,6 +3532,7 @@ test_rclone_config_mount_writable
 test_ofelia_timezone
 test_rclone_service_declared
 test_backup_pg_image_retired
+test_helper_image
 test_diag_db_commands
 test_configure_rate_limits
 test_configure_registry
