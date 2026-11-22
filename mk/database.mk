@@ -46,15 +46,10 @@ migrate: stop-denorm-celery do-migrate start-denorm-celery
 
 backup: db-backup media-backup config-backup
 
+# exec -T: target wolaja tez cron/autoupdate/test-upgrade (bez terminala).
 db-backup:
 	@mkdir -p $(DJANGO_BPP_HOST_BACKUP_DIR)
 	@echo "Creating parallel database backup ($(PARALLEL_JOBS) jobs)..."
-	# pg_dump pisze bezposrednio do /backup w kontenerze, ktory jest
-	# bind-mountem z hosta $(DJANGO_BPP_HOST_BACKUP_DIR). Nic nie laduje
-	# w writable layer kontenera, wiec dbserver nie puchnie przy kolejnych
-	# backupach (nawet jesli wywolanie bedzie przerwane).
-	# -T: bez TTY - target wolaja tez cron/autoupdate/test-upgrade, a starsze
-	# Compose bez terminala odmawialy "the input device is not a TTY".
 	@docker compose exec -T -e PGPASSWORD=$(DJANGO_BPP_DB_PASSWORD) dbserver pg_dump \
 		-Fd \
 		-j $(PARALLEL_JOBS) \
@@ -72,10 +67,6 @@ db-backup:
 media-backup:
 	@mkdir -p $(DJANGO_BPP_HOST_BACKUP_DIR)
 	@echo "Creating media files backup..."
-	# docker run --rm tworzy efemeryczny kontener alpine ktory po tar czf
-	# jest usuwany. Volumen media jest montowany read-only, katalog backupow
-	# na hoscie - jako /backup. Dziala niezaleznie od tego czy appserver
-	# /workery sa uruchomione.
 	docker run --rm \
 		-v $(COMPOSE_PROJECT_NAME)_media:/src:ro \
 		-v $(DJANGO_BPP_HOST_BACKUP_DIR):/backup \

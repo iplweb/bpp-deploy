@@ -7,7 +7,6 @@ celery-inspect-report:
 	docker compose exec workerserver celery -A django_bpp.celery_tasks inspect report
 
 celery-purge:
-	# Jeden worker obsluguje obie kolejki (celery + denorm) - purge -f czysci wszystkie.
 	docker compose exec workerserver celery -A django_bpp.celery_tasks purge -f
 
 celery-inspect-tasks:
