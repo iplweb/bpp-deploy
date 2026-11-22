@@ -107,6 +107,7 @@ nav:
       - Wydanie: eksploatacja/wydanie.md
   - Monitoring i logi:
       - Przegląd: monitoring/przeglad.md
+      - Zgłaszanie błędów (Rollbar, GlitchTip): monitoring/bledy-aplikacji.md
       - Logowanie: monitoring/logowanie.md
       - Netdata i alerty ntfy: monitoring/netdata-alerty.md
       - Wolne zapytania (slow queries): monitoring/slow-queries.md

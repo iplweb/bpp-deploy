@@ -1,7 +1,7 @@
 #!/bin/sh
 #
 # Codzienny cykl backupu: pg_dump -> tar media -> tar konfiguracji -> lokalna
-# rotacja -> rclone copy -> retencja zdalna -> Rollbar notify + heartbeat
+# rotacja -> rclone copy -> retencja zdalna -> Rollbar/GlitchTip notify + heartbeat
 # Healthchecks.io. Wywolywane przez Ofelie (label na kontenerze
 # backup-runner) lub recznie: `make backup-cycle`.
 #
@@ -11,6 +11,7 @@
 #
 # Opcjonalne:
 #   ROLLBAR_ACCESS_TOKEN         - gdy pusty, notify jest no-opem
+#   SENTRY_DSN                   - DSN GlitchTip/Sentry; gdy pusty, notify jest no-opem
 #   DJANGO_BPP_HEALTHCHECKS_PING_KEY - ping key projektu Healthchecks.io;
 #                                   gdy pusty, heartbeat jest no-opem
 #   DJANGO_BPP_HEALTHCHECKS_URL   - baza adresow pingu (wlasna instancja
@@ -207,6 +208,33 @@ with urllib.request.urlopen(req, timeout=10) as r:
     return 0
 }
 
+# Ta sama notyfikacja do GlitchTip/Sentry (SENTRY_DSN). Okres przejsciowy:
+# oba kanaly dzialaja niezaleznie, wylaczenie Rollbara = usuniecie jego tokenu.
+# Wysylka jak w notify_rollbar: python W APPSERVERZE (orkiestrator nie ma
+# curl/jq), DSN czytany z env appservera, program podawany na stdin ze
+# scripts/sentry-store.py (wspolny z `make test-sentry`).
+# KRYTYCZNE (jak notify_rollbar): funkcja konczy sie sukcesem ZAWSZE.
+notify_sentry() {
+    _level="$1"; _message="$2"
+    if [ -z "${SENTRY_DSN:-}" ]; then
+        log "sentry: skip (SENTRY_DSN not set)"
+        return 0
+    fi
+    _app="$(bpp_container appserver)" || {
+        log "sentry: brak dzialajacego appservera - notyfikacja pominieta"
+        return 0
+    }
+    docker exec -i \
+        -e "BPP_SENTRY_LEVEL=$_level" \
+        -e "BPP_SENTRY_MSG=$_message" \
+        -e "BPP_SENTRY_TS=$TIMESTAMP" \
+        -e "BPP_SENTRY_ENV=${BPP_HOST_ID:-unknown}" \
+        -e "BPP_SENTRY_LOGGER=backup-cycle" \
+        "$_app" python - < "$SCRIPT_DIR/sentry-store.py" \
+        2>&1 | while IFS= read -r _line; do log "sentry: $_line"; done || true
+    return 0
+}
+
 # Heartbeat do Healthchecks.io (dead man's switch). Rollbar mowi tylko o cyklach,
 # ktore sie WYKONALY; Healthchecks alarmuje takze wtedy, gdy cykl w ogole nie
 # ruszyl (Ofelia, backup-runner, wylaczony serwer) albo zawisl po /start.
@@ -258,6 +286,9 @@ fail() {
     notify_rollbar error "Backup FAIL on ${BPP_HOST_ID:-unknown}: step=$step exit=$code
 Log tail:
 $tail_log" || true
+    notify_sentry error "Backup FAIL on ${BPP_HOST_ID:-unknown}: step=$step exit=$code
+Log tail:
+$tail_log" || true
     notify_healthchecks /fail "step=$step exit=$code
 Log tail:
 $tail_log" || true
@@ -286,6 +317,7 @@ on_exit() {
     BPP_INTENDED_EXIT=1
     log "FAIL: unexpected-error (exit=$rc)" || true
     notify_rollbar error "Backup FAIL on ${BPP_HOST_ID:-unknown}: step=unexpected-error exit=$rc" || true
+    notify_sentry error "Backup FAIL on ${BPP_HOST_ID:-unknown}: step=unexpected-error exit=$rc" || true
     notify_healthchecks /fail "step=unexpected-error exit=$rc" || true
     exit "$rc"
 }
@@ -478,6 +510,7 @@ DURATION=$(( END_TS - START_TS ))
 MSG="Backup OK on ${BPP_HOST_ID:-unknown}: db=$(fmt_size "$DB_SIZE") media=$(fmt_size "$MEDIA_SIZE") config=$CONFIG_MSG remote=$REMOTE_DIR duration=${DURATION}s keep_last=$KEEP_LAST retencja_zdalna=$RETENCJA_MSG"
 log "$MSG"
 notify_rollbar info "$MSG"
+notify_sentry info "$MSG" || true
 notify_healthchecks "" "$MSG" || true
 
 BPP_INTENDED_EXIT=1

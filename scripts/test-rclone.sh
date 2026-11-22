@@ -157,6 +157,12 @@ cat > "$BIN/python" <<'MOCK'
 # notify_rollbar odpala ten program WEWNATRZ appservera (docker exec). Testy
 # nie maja isc do prawdziwego Rollbara - potwierdzamy tylko, ze atrapa dockera
 # faktycznie doszla do wywolania pythona, bez zadnego zadania sieciowego.
+# notify_sentry podaje program na stdin (`python -`, scripts/sentry-store.py).
+if [ "${1:-}" = "-" ]; then
+    echo "python - <sentry-store>" >> "$MOCK_RECORD"
+    echo "http=200"
+    exit 0
+fi
 echo "python -c <rollbar-payload>" >> "$MOCK_RECORD"
 echo "rollbar http=200"
 exit 0
@@ -336,6 +342,7 @@ run_cycle() {
         DJANGO_BPP_HOSTNAMES="${HOSTNAMES_ENV:-}" \
         DJANGO_BPP_RCLONE_REMOTE="backup_enc:" \
         ROLLBAR_ACCESS_TOKEN="$rollbar_token" \
+        SENTRY_DSN="${SENTRY_DSN_ENV:-}" \
         DJANGO_BPP_HEALTHCHECKS_PING_KEY="${HC_KEY_ENV:-}" \
         ${KEEP_MONTHS_KV:+"$KEEP_MONTHS_KV"} \
         bash "$CYCLE" > "$CYCLE_LOG" 2>&1
@@ -990,6 +997,29 @@ MOCK_YM=2026-08 ROLLBAR_TOKEN_ENV=1 MOCK_FAIL_ON=exec-appserver MOCK_FAIL_ON_STE
 assert_eq "1" "$CYCLE_RC" "padly appserver NIE zmienia kodu wyjscia (1, nie sklobrowane)"
 assert_contains "$(cat "$CYCLE_LOG")" "FAIL: pg_dump" \
     "log nadal pokazuje prawdziwa przyczyne (pg_dump), nie notyfikacje"
+
+# 8b. notify_sentry (GlitchTip) - ten sam kontrakt co notify_rollbar.
+echo
+echo "8b. notify_sentry przez appservera"
+: > "$RECORD"
+MOCK_YM=2026-08 run_cycle
+assert_contains "$(cat "$CYCLE_LOG")" "sentry: skip (SENTRY_DSN not set)" \
+    "bez SENTRY_DSN notify_sentry jest no-opem"
+assert_not_contains "$(cat "$RECORD")" "<sentry-store>" \
+    "bez SENTRY_DSN zadnego wywolania pythona dla GlitchTipa"
+
+: > "$RECORD"
+MOCK_YM=2026-08 SENTRY_DSN_ENV="https://klucz@glitchtip.example/1" run_cycle
+assert_eq "0" "$CYCLE_RC" "udany cykl z SENTRY_DSN konczy sie sukcesem"
+assert_contains "$(cat "$RECORD")" "python - <sentry-store>" \
+    "notify_sentry podaje scripts/sentry-store.py pythonowi w appserverze"
+assert_contains "$(cat "$CYCLE_LOG")" "sentry: http=200" \
+    "odpowiedz GlitchTipa trafia do logu cyklu"
+
+# Padly appserver: kod wyjscia zostaje 1 (pg_dump), nie 42 z atrapy dockera.
+: > "$RECORD"
+MOCK_YM=2026-08 SENTRY_DSN_ENV="https://klucz@glitchtip.example/1" MOCK_FAIL_ON=exec-appserver MOCK_FAIL_ON_STEP=pg_dump run_cycle
+assert_eq "1" "$CYCLE_RC" "padly appserver przy notify_sentry NIE zmienia kodu wyjscia"
 
 # ==========================================================================
 # 9. fail() przy zepsutym zapisie logu (profil: pelny dysk)

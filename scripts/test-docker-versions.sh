@@ -310,6 +310,7 @@ assert_file_contains "$TU_LOG" "pg_restore -Fd -j 4 --no-owner --no-privileges" 
 assert_file_contains "$TU_LOG" "--name bpp-shadow-appserver" "kandydat: startuje obok na kopii bazy"
 assert_file_contains "$TU_LOG" "Host: bpp.uczelnia-a.pl" "kandydat: strona glowna pytana o pierwszy hostname"
 assert_file_contains "$TU_LOG" "-e ROLLBAR_ACCESS_TOKEN= " "kandydat: Rollbar wyzerowany"
+assert_file_contains "$TU_LOG" "-e SENTRY_DSN= " "kandydat: GlitchTip/Sentry wyzerowany"
 assert_file_contains "$TEST_ROOT/tu-out.log" "Sprzatam shadow stack..." "sukces: shadow posprzatany"
 
 # 2. Kontrola miejsca liczona z rozmiaru wolumenu: za duza baza -> stop PRZED backupem.
