@@ -28,4 +28,8 @@ repos:
     rev: v3.88.26
     hooks:
       - id: trufflehog
-        entry: trufflehog git file://. --since-commit HEAD --only-verified --fail
+        # Jeden proces na commit (pass_filenames: false) i wspólny limit RAM przez
+        # ~/.config/systemd/user/trufflehog.slice (chezmoi); bez systemd (CI, macOS)
+        # biegnie zwykłe wywołanie.
+        entry: bash -c 't="trufflehog git file://. --since-commit HEAD --only-verified --fail --no-update --concurrency=6"; if command -v systemd-run >/dev/null && [ -S "${XDG_RUNTIME_DIR:-/nonexistent}/bus" ]; then exec systemd-run --user --scope --quiet --collect --slice=trufflehog.slice $t; else exec $t; fi'
+        require_serial: true
