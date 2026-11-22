@@ -462,6 +462,46 @@ od `DOCKER_VERSION` — pin przez `HTML2DOCX_VERSION`.
     usunięty. Flaga w istniejących `.env` jest **nieszkodliwa** (nikt jej już nie
     czyta) — nie trzeba jej kasować, ale nic już nie robi.
 
+## Kompilator motywów — serwis `motyw-kompilator`
+
+BPP ma **konfigurator wyglądu** (`/bpp/konfigurator-wygladu/`): administrator
+ustawia kolory, czcionki, menu, przyciski, tryb jasny/ciemny i klika
+„Zastosuj”. CSS motywu buduje osobny serwis `motyw-kompilator`
+(`iplweb/bpp_motyw_kompilator`, wersja = `DOCKER_VERSION`). Ten sam serwis
+przebudowuje zapisane motywy po aktualizacji BPP (appserver przy starcie
+uruchamia `manage.py odswiez_motywy`) — wygląd sam „migruje” do nowej wersji.
+
+Serwis jest **włączony domyślnie**. Wykonuje kod JS (kompilator Sass) na
+danych od użytkownika, dlatego jest **odizolowany**:
+
+- własna sieć `motyw-kompilator` z `internal: true` — bez wyjścia do internetu,
+  widzi go tylko appserver (`motyw-kompilator:8095`),
+- bez bazy, sekretów (`.env`), wolumenów i publikowanego portu,
+- system plików tylko do odczytu, `cap_drop: ALL`, `no-new-privileges`,
+  limity pamięci, CPU i liczby procesów (`MOTYW_KOMPILATOR_MEM_LIMIT`,
+  `MOTYW_KOMPILATOR_CPU_LIMIT`).
+
+Adres kompilatora appserver dostaje z compose
+(`DJANGO_BPP_MOTYW_KOMPILATOR_URL`, nadpisanie przez `BPP_MOTYW_KOMPILATOR_URL`
+w `.env` repo).
+
+!!! warning "Host z przypiętą starszą wersją BPP"
+    Obraz kompilatora istnieje dopiero od wersji BPP z konfiguratorem wyglądu.
+    Jeśli `DOCKER_VERSION` jest przypięta do starszej wersji, ustaw w `.env`
+    w **katalogu repo** `bpp-deploy`:
+
+    ```bash
+    MOTYW_KOMPILATOR_VERSION=latest
+    ```
+
+    Starsze BPP z kompilatora nie korzysta, a `make up` nie zatrzyma się na
+    braku obrazu. Po aktualizacji BPP do wersji z konfiguratorem usuń ten wpis
+    — kompilator ma mieć tę samą wersję co appserver.
+
+Gdy kompilator nie działa, BPP degraduje się łagodnie: konfigurator proponuje
+**zapisanie** motywu (zostanie zbudowany i zastosowany później), a zapisany
+wcześniej motyw zostaje bez przebudowy.
+
 ## Pierwsze uruchomienie — dwa przebiegi `make`
 
 ```bash
