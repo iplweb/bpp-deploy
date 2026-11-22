@@ -108,6 +108,10 @@ run_doctor rollbar
 assert_log_has "test-rollbar" "rollbar -> make test-rollbar"
 assert_log_lines 1 "rollbar: dokladnie jeden cel"
 
+run_doctor sentry
+assert_log_has "test-sentry" "sentry -> make test-sentry"
+assert_log_lines 1 "sentry: dokladnie jeden cel"
+
 run_doctor health
 assert_log_has "health" "health -> make health"
 assert_log_lines 1 "health: dokladnie jeden cel"
@@ -120,13 +124,14 @@ run_doctor config
 assert_log_has "config-check" "config -> make config-check"
 assert_log_lines 1 "config: dokladnie jeden cel"
 
-# "wszystko" = mail + ntfy + rollbar (BEZ health/backup).
+# "wszystko" = mail + ntfy + rollbar + sentry (BEZ health/backup).
 run_doctor all
 assert_exit 0 "$RUN_EXIT" "all: exit 0"
 assert_log_has "test-email" "all zawiera test-email"
 assert_log_has "test-ntfy" "all zawiera test-ntfy"
 assert_log_has "test-rollbar" "all zawiera test-rollbar"
-assert_log_lines 3 "all: dokladnie trzy cele"
+assert_log_has "test-sentry" "all zawiera test-sentry"
+assert_log_lines 4 "all: dokladnie cztery cele"
 if grep -qE 'health|backup-cycle|config-check' "$MAKE_LOG"; then
     fail "all: NIE powinno zawierac health/backup/config"
 else
