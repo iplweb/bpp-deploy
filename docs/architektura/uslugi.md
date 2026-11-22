@@ -67,6 +67,7 @@ Compose'owe `profiles:` trzymają te usługi poza domyślnym `docker compose up`
 | **workerserver-status** | `manual` | Na żądanie: `docker compose run --rm workerserver-status` |
 | **certbot** | `letsencrypt` | Na żądanie z `make ssl-letsencrypt-issue` / `-renew` oraz z codziennego joba Ofelii ([SSL](../konfiguracja/ssl.md)) |
 | **html2docx** | `html2docx` | Opcjonalny sidecar HTTP fallbacku konwersji HTML→DOCX (gdy pandoc z obrazu appservera zawiedzie) — opt-in, patrz [Architektura konfiguracji](../konfiguracja/architektura.md#fallback-htmldocx-opcjonalny-sidecar-html2docx) |
+| **motyw-kompilator** | `motyw-kompilator` | Odizolowany kompilator motywów konfiguratora wyglądu BPP („Zastosuj”, migracja wyglądu po aktualizacji) — patrz [Architektura konfiguracji](../konfiguracja/architektura.md#kompilator-motywow-serwis-motyw-kompilator) |
 
 ## Przepływ danych
 

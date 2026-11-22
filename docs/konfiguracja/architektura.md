@@ -462,6 +462,46 @@ od `DOCKER_VERSION` — pin przez `HTML2DOCX_VERSION`.
     usunięty. Flaga w istniejących `.env` jest **nieszkodliwa** (nikt jej już nie
     czyta) — nie trzeba jej kasować, ale nic już nie robi.
 
+## Kompilator motywów — serwis `motyw-kompilator`
+
+BPP ma **konfigurator wyglądu** (`/bpp/konfigurator-wygladu/`): administrator
+ustawia kolory, czcionki, menu, przyciski, tryb jasny/ciemny i klika
+„Zastosuj”. CSS motywu buduje osobny serwis `motyw-kompilator`. Ten sam
+serwis przebudowuje zapisane motywy po aktualizacji BPP (appserver przy
+starcie uruchamia `manage.py odswiez_motywy`) — wygląd sam „migruje” do nowej
+wersji.
+
+Serwis to **gotowy obraz `node:22-alpine`** — bez własnego obrazu BPP.
+Serwer i pliki kompilatora czyta z wolumenu `staticfiles` (tylko do
+odczytu), który appserver przy każdym starcie wypełnia plikami swojej
+wersji, więc kompilator zawsze pasuje do appservera. Po aktualizacji BPP
+nowe pliki wczytuje sam; gdy zmienia się sam serwer, proces się kończy
+i Docker (`restart: always`) uruchamia nową wersję.
+
+Serwis jest **włączony domyślnie**. Wykonuje kod JS (kompilator Sass) na
+danych od użytkownika, dlatego jest **odizolowany**:
+
+- własna sieć `motyw-kompilator` z `internal: true` — bez wyjścia do internetu,
+  widzi go tylko appserver (`motyw-kompilator:8095`),
+- bez bazy, sekretów (`.env`) i publikowanego portu; jedyny wolumen to
+  `staticfiles` **tylko do odczytu** — publiczne pliki, które i tak serwuje
+  nginx (media, backupy i konfiguracja są poza zasięgiem),
+- system plików tylko do odczytu, użytkownik `node`, `cap_drop: ALL`,
+  `no-new-privileges`, limity pamięci, CPU i liczby procesów
+  (`MOTYW_KOMPILATOR_MEM_LIMIT`, `MOTYW_KOMPILATOR_CPU_LIMIT`).
+
+Adres kompilatora appserver dostaje z compose
+(`DJANGO_BPP_MOTYW_KOMPILATOR_URL`, nadpisanie przez `BPP_MOTYW_KOMPILATOR_URL`
+w `.env` repo).
+
+Na hoście ze starszą wersją BPP (bez konfiguratora) w wolumenie nie ma plików
+kompilatora — serwis tylko czeka na nie, healthcheck przechodzi, a `make up`
+działa jak dotąd. Nic nie trzeba ustawiać.
+
+Gdy kompilator nie działa, BPP degraduje się łagodnie: konfigurator proponuje
+**zapisanie** motywu (zostanie zbudowany i zastosowany później), a zapisany
+wcześniej motyw zostaje bez przebudowy.
+
 ## Pierwsze uruchomienie — dwa przebiegi `make`
 
 ```bash

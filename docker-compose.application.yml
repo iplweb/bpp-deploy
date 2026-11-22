@@ -102,6 +102,13 @@ services:
       # appserver bezposrednio do bazy.
       DJANGO_BPP_DB_HOST: ${BPP_APPSERVER_DB_HOST:-pgbouncer}
       DJANGO_BPP_DB_PORT: ${BPP_APPSERVER_DB_PORT:-6432}
+      # Kompilator motywów konfiguratora wyglądu (serwis `motyw-kompilator`
+      # nizej). Gdy nie dziala, BPP degraduje sie lagodnie: konfigurator
+      # proponuje zapisanie motywu zamiast zastosowania, stary motyw zostaje.
+      DJANGO_BPP_MOTYW_KOMPILATOR_URL: ${BPP_MOTYW_KOMPILATOR_URL:-http://motyw-kompilator:8095}
+    networks:
+      - default
+      - motyw-kompilator
     volumes:
       - staticfiles:/staticroot
       - media:/mediaroot
@@ -202,6 +209,57 @@ services:
     restart: always
     logging: *default-logging
 
+  # === Kompilator motywów (konfigurator wyglądu BPP) ===
+  # Buduje CSS motywu z ustawień z konfiguratora wyglądu („Zastosuj”) i przy
+  # migracji wyglądu po aktualizacji BPP (appserver: manage.py odswiez_motywy).
+  # Wykonuje kod JS (dart-sass) na danych od uzytkownika, wiec jest ODIZOLOWANY:
+  # wlasna siec `internal` (bez internetu, widzi go tylko appserver), bez bazy
+  # i sekretow, system plikow tylko do odczytu, bez capabilities.
+  #
+  # Gotowy obraz node:22-alpine — bez wlasnego obrazu. Serwer i pliki
+  # kompilatora czyta z wolumenu staticfiles (TYLKO DO ODCZYTU; to publiczne
+  # pliki, ktore i tak serwuje nginx), ktory appserver przy starcie wypelnia
+  # plikami swojej wersji — kompilator zawsze pasuje do appservera. Nowe
+  # pliki po aktualizacji wczytuje sam; nowa wersja serwera konczy proces
+  # i restart: always uruchamia ja ponownie.
+  #
+  # Starsze BPP (bez konfiguratora) nie ma tych plikow w wolumenie — serwis
+  # wtedy tylko czeka (healthcheck przechodzi), `make up --wait` sie nie
+  # zatrzymuje.
+  motyw-kompilator:
+    image: node:22-alpine
+    command:
+      - sh
+      - -c
+      - >-
+        while [ ! -f /static/bpp/js/motyw-kompilator-serwer.js ]; do sleep 30; done;
+        exec node /static/bpp/js/motyw-kompilator-serwer.js
+    user: node
+    restart: always
+    logging: *default-logging
+    networks:
+      - motyw-kompilator
+    volumes:
+      - staticfiles:/static:ro
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      # /zywy = proces dziala; brak pliku serwera = starsze BPP, czekamy.
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8095/zywy >/dev/null 2>&1 || [ ! -f /static/bpp/js/motyw-kompilator-serwer.js ]"]
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          memory: ${MOTYW_KOMPILATOR_MEM_LIMIT:-512m}
+          cpus: "${MOTYW_KOMPILATOR_CPU_LIMIT:-1.0}"
+          pids: 64
+
   # === Certbot ===
   # Sidecar uruchamiany na zadanie ('docker compose run --rm certbot ...')
   # przez make ssl-letsencrypt-issue / make ssl-letsencrypt-renew. NIE startuje
@@ -217,6 +275,11 @@ services:
     volumes:
       - acme-challenge:/var/www/certbot
       - ${BPP_CONFIGS_DIR}/letsencrypt:/etc/letsencrypt
+
+networks:
+  # Tylko appserver <-> motyw-kompilator; `internal` = bez wyjscia do internetu.
+  motyw-kompilator:
+    internal: true
 
 volumes:
   staticfiles:
