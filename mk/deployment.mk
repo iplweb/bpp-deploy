@@ -8,6 +8,10 @@ all: run
 # wiec atrapa dockera z tests/test_makefile.sh bylaby niewidoczna.
 DOCKER_COMPOSE ?= docker compose
 
+# Stanowa infrastruktura, ktorej `make up` NIE odtwarza na sile (patrz `up`).
+BPP_INFRA_SERVICES := dbserver redis pgbouncer
+space := $(subst ,, )
+
 validate-env-quotes:
 	@bash scripts/validate-env-quotes.sh
 
@@ -39,11 +43,19 @@ build:
 
 up: validate-env-quotes ask-missing-config ensure-config-files update-configs
 	@# NAJPIERW konsumenci bazy/redisa (appserver, workery, ...), POTEM up.
-	@# --force-recreate odtwarza dbserver/redis/pgbouncer pod dzialajacymi
-	@# workerami -> seria falszywych bledow polaczen w Sentry przy kazdym
-	@# deployu. Fail-open, nie usuwac: docs/rozwoj/pulapki-wdrozenia.md
+	@# Odtworzenie dbserver/redis/pgbouncer (przy zmianie obrazu/konfiguracji)
+	@# pod dzialajacymi workerami -> seria falszywych bledow polaczen w Sentry.
+	@# Konsumenci i tak sa odtwarzani (--force-recreate nizej), wiec stop nic
+	@# nie kosztuje. Fail-open, nie usuwac: docs/rozwoj/pulapki-wdrozenia.md
 	@bash scripts/stop-db-consumers.sh
-	$(DOCKER_COMPOSE) up -d --wait --force-recreate --remove-orphans
+	@# Stanowa infrastruktura BEZ --force-recreate: Compose odtwarza ja sam przy
+	@# zmianie obrazu/konfiguracji (pliki startowe przez label z
+	@# scripts/infra-files-hash.sh). Reszta dalej na sile - czyta bind-mounty
+	@# (nginx, grafana, alloy, loki, netdata) i labele (ofelia) tylko przy starcie.
+	@# Pusta lista uslug (blad `config`) = stare zachowanie: recreate wszystkiego.
+	$(DOCKER_COMPOSE) up -d --wait --remove-orphans $(BPP_INFRA_SERVICES)
+	$(DOCKER_COMPOSE) up -d --wait --force-recreate --remove-orphans \
+		$$($(DOCKER_COMPOSE) config --services 2>/dev/null | grep -vxE '$(subst $(space),|,$(BPP_INFRA_SERVICES))')
 	@bash scripts/create-monitoring-user.sh --soft
 	@# Stack jest UP i healthy (--wait powyzej; przy bledzie make juz by stanal).
 	@# Sprzatamy nieuzywane obrazy/kontenery/sieci/cache Dockera. BEZ --volumes,

@@ -12,6 +12,11 @@
 # przy KAZDYM wdrozeniu. `depends_on` porzadkuje start i `down`, ale nie chroni
 # przed odtworzeniem zaleznosci pod dzialajacym konsumentem.
 #
+# make up nie odtwarza juz dbserver/redis/pgbouncer na sile — tylko gdy zmieni
+# sie obraz, konfiguracja albo suma plikow startowych (infra-files-hash.sh).
+# Stop konsumentow zostaje bezwarunkowy: oni i tak sa odtwarzani na sile, a
+# zgadywanie z gory, czy infrastruktura sie zmieni, byloby kruche.
+#
 # Ktore uslugi: wyliczane, nie wpisane na sztywno — wszystkie DZIALAJACE
 # kontenery projektu, ktore przechodnio zaleza (`depends_on`) od dbserver, redis
 # albo pgbouncer. Zaleznosci czytamy z labela `com.docker.compose.depends_on`,

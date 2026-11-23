@@ -10,7 +10,7 @@ make help             # Pełna lista wszystkich targetów Make (źródło prawdy
 
 ```bash
 make run                # Pełne wdrożenie (pull, build, configs, up)
-make up                 # Start wszystkich usług (force recreate) + sprzątanie Dockera
+make up                 # Start wszystkich usług (recreate; baza/redis/pgbouncer tylko przy zmianie) + sprzątanie Dockera
 make up-quick           # Szybki start bez recreation (bez sprzątania)
 make refresh            # prune + pull + recreate (po update obrazu)
 make wait               # Czeka na build z GH Actions, potem make refresh
@@ -43,6 +43,16 @@ padniętej sesji): [Przerwa techniczna z ostrzeżeniem](przerwa-techniczna.md).
     serwisową. Czas na łagodne zamknięcie (m.in. dokończenie krótkich zadań Celery)
     to 30 s, zmienny przez `BPP_DEPLOY_STOP_TIMEOUT` w `.env`. `make up-quick` tego
     kroku nie robi. Szczegóły: [Pułapki wdrożenia](../rozwoj/pulapki-wdrozenia.md#kolejnosc-restartu).
+
+!!! note "Baza, Redis i pgbouncer restartują się tylko przy zmianie"
+    `make up` odtwarza aplikację, nginx i monitoring zawsze, ale `dbserver`,
+    `redis` i `pgbouncer` — tylko gdy zmienił się ich obraz (po `make pull`),
+    `.env`, limity zasobów albo skrypty startowe z repozytorium (`dbserver/`,
+    `pgbouncer/entrypoint.sh`; ich sumę `make up` trzyma w `.env` jako
+    `BPP_INFRA_FILES_HASH` — nie edytuj). Baza nie jest więc restartowana przy każdym
+    wdrożeniu, a przerwa jest krótsza. Ręczny restart bazy:
+    `docker compose restart dbserver` albo `make refresh`. Szczegóły:
+    [Pułapki wdrożenia](../rozwoj/pulapki-wdrozenia.md#infra-bez-force-recreate).
 
 !!! note "Sprzątanie Dockera po `make up` / `make run`"
     Po **udanym** starcie (`--wait` — wszystkie usługi zdrowe) `make up` (a więc i

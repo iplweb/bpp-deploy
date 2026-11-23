@@ -95,3 +95,6 @@ Compose'owe `profiles:` trzymają te usługi poza domyślnym `docker compose up`
   zatrzymywani są konsumenci bazy i Redisa, dopiero potem odtwarzane `dbserver`,
   `redis` i `pgbouncer` — inaczej działająca aplikacja traci bazę spod nóg
   ([szczegóły](../rozwoj/pulapki-wdrozenia.md#kolejnosc-restartu)).
+- `dbserver`, `redis` i `pgbouncer` nie są przy `make up` odtwarzane na siłę —
+  tylko gdy zmieni się ich obraz, konfiguracja albo skrypty startowe
+  ([szczegóły](../rozwoj/pulapki-wdrozenia.md#infra-bez-force-recreate)).

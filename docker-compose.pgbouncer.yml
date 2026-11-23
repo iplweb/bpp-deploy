@@ -28,6 +28,12 @@ services:
     entrypoint: ["sh", "/bpp-entrypoint.sh"]
     volumes:
       - ./pgbouncer/entrypoint.sh:/bpp-entrypoint.sh:ro
+    # Suma plikow startowych (bind-mounty czytane tylko przy starcie). make up
+    # NIE odtwarza tej uslugi na sile, a Compose nie widzi zmian tresci
+    # bind-mountow — zmiana sumy zmienia konfiguracje i wymusza recreate.
+    # Liczona przez scripts/infra-files-hash.sh (prerekwizyt make up), w .env.
+    labels:
+      pl.iplweb.bpp.pliki-startowe: "${BPP_INFRA_FILES_HASH:-}"
     depends_on:
       # W trybie bazy zewnetrznej dbserver to sentinel sondujacy prawdziwa
       # baze — wiec to dziala w obu trybach.
