@@ -3522,7 +3522,7 @@ MOCK
     # `docker compose up ...` z recepty nie trafialo do atrapy. make szuka
     # najpierw .exe/.cmd/.bat, wiec .cmd przekierowuje do tej samej atrapy.
     # Wywolania z bash (skrypty, potoki) dalej trafiaja w plik bez rozszerzenia.
-    printf '@echo off\r\nbash "%%~dp0docker" %%*\r\n' > "$dir/docker.cmd"
+    printf '@echo off\r\necho %%* >> "%%~dp0cmd.log"\r\nbash "%%~dp0docker" %%*\r\n' > "$dir/docker.cmd"
 }
 
 # Graf jak na produkcji (etykiety com.docker.compose.depends_on, format Compose).
@@ -3596,6 +3596,7 @@ test_up_stops_consumers_first() {
     make -C "$REPO_COPY" init-configs BPP_CONFIGS_DIR="$CONFIG_DIR" >/dev/null 2>&1
     echo "BPP_CONFIGS_DIR=$CONFIG_DIR" > "$REPO_COPY/.env"
 
+    local up_rc=0
     _stop_consumers_mock_docker "$WORK_DIR/bin"
     export MOCK_LOG="$WORK_DIR/docker.log"
     : > "$MOCK_LOG"
@@ -3604,7 +3605,7 @@ test_up_stops_consumers_first() {
     PATH="$WORK_DIR/bin:$PATH" MOCK_IDS="a b" MOCK_GRAPH="$STOP_CONSUMERS_GRAPH" \
         BPP_SKIP_HEALTH_GATE=1 BPP_NO_CONFIG_PROMPT=1 \
         make -C "$REPO_COPY" -o validate-env-quotes -o ask-missing-config \
-            -o ensure-config-files -o update-configs up > "$WORK_DIR/up.out" 2>&1 || true
+            -o ensure-config-files -o update-configs up > "$WORK_DIR/up.out" 2>&1 || up_rc=$?
 
     local stop_ln up_ln
     stop_ln="$(grep -n "^compose stop " "$MOCK_LOG" | head -1 | cut -d: -f1 || true)"
@@ -3612,7 +3613,7 @@ test_up_stops_consumers_first() {
     if [ -n "$stop_ln" ] && [ -n "$up_ln" ] && [ "$stop_ln" -lt "$up_ln" ]; then
         pass "make up: 'compose stop' (linia $stop_ln) przed 'compose up --force-recreate' (linia $up_ln)"
     else
-        fail "make up: brak stopu konsumentow przed up (stop='$stop_ln', up='$up_ln'): $(tr '\n' ';' < "$MOCK_LOG") | make: $(tail -5 "$WORK_DIR/up.out" | tr '\n' ';')"
+        fail "make up: brak stopu konsumentow przed up (stop='$stop_ln', up='$up_ln'): $(tr '\n' ';' < "$MOCK_LOG") | make rc=$up_rc: $(tr '\n' ';' < "$WORK_DIR/up.out") | cmd: $(cat "$WORK_DIR/bin/cmd.log" 2>/dev/null | tr '\r\n' ';;') | type: $(PATH="$WORK_DIR/bin:$PATH" type -a docker 2>&1 | tr '\n' ';')"
     fi
     if grep -q '^compose stop .*appserver' "$MOCK_LOG" && ! grep -qE '^compose stop .*(dbserver|redis|webserver)' "$MOCK_LOG"; then
         pass "make up: zatrzymuje appserver, nie rusza dbserver/redis/webserver"
