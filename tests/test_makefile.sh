@@ -3516,27 +3516,19 @@ fi
 exit 0
 MOCK
     chmod +x "$dir/docker"
-    # Windows: natywny GNU make (choco) uruchamia proste linie recepty BEZ
-    # powloki (CreateProcess) i szuka programu po rozszerzeniach .exe/.cmd/.bat —
-    # skrypt bez rozszerzenia jest dla niego niewidoczny. .cmd przekierowuje do
-    # tej samej atrapy; prawdziwy docker.exe usuwa z PATH _path_dla_atrapy.
-    printf '@echo off\r\nbash "%%~dp0docker" %%*\r\n' > "$dir/docker.cmd"
 }
 
-# PATH dla `make` z atrapa dockera: katalog atrapy + PATH bez katalogow
-# zawierajacych docker.exe. Na Windows runner ma prawdziwy docker.exe w
-# C:\Windows\system32, a natywny make szuka najpierw .exe we WSZYSTKICH
-# katalogach PATH — trafial w prawdziwego dockera mimo atrapy na poczatku PATH
-# (CI: `CreateFile ...\.env: The system cannot find the path specified`).
-# Na Linux/macOS docker.exe nie ma, wiec PATH zostaje bez zmian.
-_path_dla_atrapy() {
-    local wynik="$1" d
-    local IFS=:
-    for d in $PATH; do
-        [ -e "$d/docker.exe" ] && continue
-        wynik="$wynik:$d"
-    done
-    printf '%s' "$wynik"
+# Windows: natywny GNU make (choco) uruchamia proste linie recepty BEZ powloki
+# (CreateProcess), a Windows szuka programu najpierw w C:\Windows\system32 —
+# na runnerze lezy tam prawdziwy docker.exe, wiec atrapa w PATH jest dla takiej
+# linii niewidoczna (CI: `CreateFile ...\.env: The system cannot find the path
+# specified`). Tam podstawiamy DOCKER_COMPOSE z mk/deployment.mk; `sh` nie ma
+# w system32, wiec znajduje sie przez PATH. Linux/macOS testuja recepte doslownie.
+_make_compose_override() {
+    case "$(uname -s)" in
+        MINGW* | MSYS* | CYGWIN*)
+            printf 'DOCKER_COMPOSE=sh %s compose' "$(cygpath -m "$1/docker")" ;;
+    esac
 }
 
 # Graf jak na produkcji (etykiety com.docker.compose.depends_on, format Compose).
@@ -3610,16 +3602,17 @@ test_up_stops_consumers_first() {
     make -C "$REPO_COPY" init-configs BPP_CONFIGS_DIR="$CONFIG_DIR" >/dev/null 2>&1
     echo "BPP_CONFIGS_DIR=$CONFIG_DIR" > "$REPO_COPY/.env"
 
-    local up_rc=0
+    local up_rc=0 override
     _stop_consumers_mock_docker "$WORK_DIR/bin"
+    override="$(_make_compose_override "$WORK_DIR/bin")"
     export MOCK_LOG="$WORK_DIR/docker.log"
     : > "$MOCK_LOG"
     # Prerekwizyty (walidacja .env, pytania, rendering configow) maja wlasne testy;
     # tu liczy sie sama recepta `up`.
-    PATH="$(_path_dla_atrapy "$WORK_DIR/bin")" MOCK_IDS="a b" MOCK_GRAPH="$STOP_CONSUMERS_GRAPH" \
+    PATH="$WORK_DIR/bin:$PATH" MOCK_IDS="a b" MOCK_GRAPH="$STOP_CONSUMERS_GRAPH" \
         BPP_SKIP_HEALTH_GATE=1 BPP_NO_CONFIG_PROMPT=1 \
         make -C "$REPO_COPY" -o validate-env-quotes -o ask-missing-config \
-            -o ensure-config-files -o update-configs up > "$WORK_DIR/up.out" 2>&1 || up_rc=$?
+            -o ensure-config-files -o update-configs ${override:+"$override"} up > "$WORK_DIR/up.out" 2>&1 || up_rc=$?
 
     local stop_ln up_ln
     stop_ln="$(grep -n "^compose stop " "$MOCK_LOG" | head -1 | cut -d: -f1 || true)"
