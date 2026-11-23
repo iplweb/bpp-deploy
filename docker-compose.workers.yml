@@ -80,6 +80,12 @@ services:
     #   timeout: 5s
     #   retries: 3
     restart: always
+    # PID 1 to goly `python manage.py denorm_queue` bez handlera SIGTERM, a PID 1
+    # w kontenerze ignoruje sygnaly bez handlera — `docker stop` czekal wiec caly
+    # timeout i konczyl SIGKILL-em (zmierzone: 30 s przy stop-db-consumers, 10 s
+    # przy recreate), blokujac zatrzymanie workerserver/appserver za nim.
+    # SIGINT Python obsluguje zawsze (KeyboardInterrupt) — wyjscie w < 1 s, kod 0.
+    stop_signal: SIGINT
     depends_on:
       workerserver:
         condition: service_healthy

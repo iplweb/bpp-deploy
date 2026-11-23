@@ -33,6 +33,11 @@ build:
 	docker compose build
 
 up: validate-env-quotes ask-missing-config ensure-config-files update-configs
+	@# NAJPIERW konsumenci bazy/redisa (appserver, workery, ...), POTEM up.
+	@# --force-recreate odtwarza dbserver/redis/pgbouncer pod dzialajacymi
+	@# workerami -> seria falszywych bledow polaczen w Sentry przy kazdym
+	@# deployu. Fail-open, nie usuwac: docs/rozwoj/pulapki-wdrozenia.md
+	@bash scripts/stop-db-consumers.sh
 	docker compose up -d --wait --force-recreate --remove-orphans
 	@bash scripts/create-monitoring-user.sh --soft
 	@# Stack jest UP i healthy (--wait powyzej; przy bledzie make juz by stanal).

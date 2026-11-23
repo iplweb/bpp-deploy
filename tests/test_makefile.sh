@@ -3490,6 +3490,133 @@ echo "========================================"
 echo "  Repo: $REPO_DIR"
 echo ""
 
+# ============================================================
+# Kolejnosc restartu: konsumenci bazy/redisa zatrzymani PRZED `up --force-recreate`
+# ============================================================
+
+# Atrapa dockera: loguje kazde wywolanie (jedna linia = argumenty), odpowiada
+# na `compose ps -q` i `inspect` danymi z MOCK_IDS / MOCK_GRAPH.
+_stop_consumers_mock_docker() {
+    local dir="$1"
+    mkdir -p "$dir"
+    cat > "$dir/docker" <<'MOCK'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$MOCK_LOG"
+case "$1 ${2:-}" in
+    "compose ps")
+        [ -n "${MOCK_PS_RC:-}" ] && exit "$MOCK_PS_RC"
+        [ "${3:-}" = "-q" ] && [ -n "${MOCK_IDS:-}" ] && printf '%s\n' $MOCK_IDS
+        exit 0 ;;
+    "compose stop") exit "${MOCK_STOP_RC:-0}" ;;
+esac
+if [ "$1" = "inspect" ]; then
+    [ -n "${MOCK_INSPECT_RC:-}" ] && exit "$MOCK_INSPECT_RC"
+    printf '%b' "$MOCK_GRAPH"
+fi
+exit 0
+MOCK
+    chmod +x "$dir/docker"
+}
+
+# Graf jak na produkcji (etykiety com.docker.compose.depends_on, format Compose).
+# ofelia i denorm-queue celowo PRZED swoimi zaleznosciami: jednoprzebiegowe
+# domkniecie (bez petli do punktu stalego) by je zgubilo.
+STOP_CONSUMERS_GRAPH='ofelia|appserver:service_started:false\ndenorm-queue|workerserver:service_healthy:false\ndbserver|\npgbouncer|dbserver:service_healthy:false\nredis|\nappserver|redis:service_healthy:false,dbserver:service_healthy:false,pgbouncer:service_healthy:false\nauthserver|dbserver:service_healthy:false,redis:service_healthy:false\nworkerserver|appserver:service_healthy:false,redis:service_healthy:false\ncelerybeat|redis:service_healthy:false,appserver:service_started:false\nflower|redis:service_healthy:false\nwebserver|webserver-init:service_completed_successfully:false\ngrafana|loki:service_started:false\nloki|\nbackup-runner|\nrclone|\nmotyw-kompilator|\nhtml2docx|\n'
+
+test_stop_db_consumers() {
+    yellow "=== Test: stop-db-consumers.sh — kogo zatrzymuje przed odtworzeniem ==="
+    local t out stopline
+    t=$(mktemp -d)
+    _stop_consumers_mock_docker "$t/bin"
+    export MOCK_LOG="$t/log"
+
+    # 1. Pelny stack: zatrzymani dokladnie konsumenci (przechodnio), nic wiecej.
+    : > "$MOCK_LOG"
+    out="$(PATH="$t/bin:$PATH" MOCK_IDS="a b c" MOCK_GRAPH="$STOP_CONSUMERS_GRAPH" \
+        bash "$REPO_DIR/scripts/stop-db-consumers.sh" 2>&1)" ; local rc=$?
+    stopline="$(grep '^compose stop' "$MOCK_LOG" || true)"
+    if [ "$stopline" = "compose stop -t 30 appserver authserver celerybeat denorm-queue flower ofelia workerserver" ]; then
+        pass "zatrzymuje konsumentow (przechodnio), bez infrastruktury/nginksa/monitoringu"
+    else
+        fail "lista zatrzymywanych uslug: '$stopline' ($out)"
+    fi
+    if [ "$rc" -eq 0 ]; then pass "pelny stack: exit 0"; else fail "pelny stack: exit $rc"; fi
+
+    # 2. Swieza instalacja: brak kontenerow -> exit 0, zadnego stop.
+    : > "$MOCK_LOG"
+    PATH="$t/bin:$PATH" MOCK_IDS="" bash "$REPO_DIR/scripts/stop-db-consumers.sh" >/dev/null 2>&1; rc=$?
+    if [ "$rc" -eq 0 ] && ! grep -q '^compose stop' "$MOCK_LOG"; then
+        pass "brak kontenerow: exit 0, bez 'compose stop'"
+    else
+        fail "brak kontenerow: rc=$rc, log: $(cat "$MOCK_LOG")"
+    fi
+
+    # 3. Fail-open: blad ps / inspect / stop nie wywraca deployu.
+    local v
+    for v in MOCK_PS_RC=3 MOCK_INSPECT_RC=4 MOCK_STOP_RC=5; do
+        : > "$MOCK_LOG"
+        env PATH="$t/bin:$PATH" MOCK_IDS="a" MOCK_GRAPH="$STOP_CONSUMERS_GRAPH" "$v" \
+            bash "$REPO_DIR/scripts/stop-db-consumers.sh" >/dev/null 2>&1; rc=$?
+        if [ "$rc" -eq 0 ]; then pass "fail-open przy $v"; else fail "fail-open przy $v (exit $rc)"; fi
+    done
+
+    # 4. Timeout z env; smieci -> domyslne 30.
+    : > "$MOCK_LOG"
+    PATH="$t/bin:$PATH" MOCK_IDS="a" MOCK_GRAPH="$STOP_CONSUMERS_GRAPH" BPP_DEPLOY_STOP_TIMEOUT=45 \
+        bash "$REPO_DIR/scripts/stop-db-consumers.sh" >/dev/null 2>&1
+    assert_file_contains "BPP_DEPLOY_STOP_TIMEOUT=45 trafia do compose stop" '^compose stop -t 45 ' "$MOCK_LOG"
+    : > "$MOCK_LOG"
+    PATH="$t/bin:$PATH" MOCK_IDS="a" MOCK_GRAPH="$STOP_CONSUMERS_GRAPH" BPP_DEPLOY_STOP_TIMEOUT='10; rm' \
+        bash "$REPO_DIR/scripts/stop-db-consumers.sh" >/dev/null 2>&1
+    assert_file_contains "nieliczbowy timeout -> 30" '^compose stop -t 30 ' "$MOCK_LOG"
+
+    unset MOCK_LOG
+    rm -rf "$t"
+
+    # denorm-queue: PID 1 to python bez handlera SIGTERM -> `docker stop` czekal
+    # caly timeout, blokujac workerserver/appserver za nim.
+    assert_svc_contains "denorm-queue: stop_signal SIGINT (szybkie zatrzymanie)" \
+        'stop_signal: SIGINT' "$(svc_block denorm-queue "$REPO_DIR/docker-compose.workers.yml")"
+}
+
+# Prawdziwa recepta `make up` na atrapie dockera: stop konsumentow MUSI
+# poprzedzac `compose up --force-recreate`. Grep zrodla nie wystarcza — liczy
+# sie kolejnosc wywolan, ktora widac dopiero po wykonaniu recepty.
+test_up_stops_consumers_first() {
+    yellow "=== Test: make up — najpierw stop konsumentow, potem up --force-recreate ==="
+    setup_temp
+    mkdir -p "$CONFIG_DIR"
+    make -C "$REPO_COPY" init-configs BPP_CONFIGS_DIR="$CONFIG_DIR" >/dev/null 2>&1
+    echo "BPP_CONFIGS_DIR=$CONFIG_DIR" > "$REPO_COPY/.env"
+
+    _stop_consumers_mock_docker "$WORK_DIR/bin"
+    export MOCK_LOG="$WORK_DIR/docker.log"
+    : > "$MOCK_LOG"
+    # Prerekwizyty (walidacja .env, pytania, rendering configow) maja wlasne testy;
+    # tu liczy sie sama recepta `up`.
+    PATH="$WORK_DIR/bin:$PATH" MOCK_IDS="a b" MOCK_GRAPH="$STOP_CONSUMERS_GRAPH" \
+        BPP_SKIP_HEALTH_GATE=1 BPP_NO_CONFIG_PROMPT=1 \
+        make -C "$REPO_COPY" -o validate-env-quotes -o ask-missing-config \
+            -o ensure-config-files -o update-configs up > "$WORK_DIR/up.out" 2>&1 || true
+
+    local stop_ln up_ln
+    stop_ln="$(grep -n "^compose stop " "$MOCK_LOG" | head -1 | cut -d: -f1 || true)"
+    up_ln="$(grep -n "^compose up .*--force-recreate" "$MOCK_LOG" | head -1 | cut -d: -f1 || true)"
+    if [ -n "$stop_ln" ] && [ -n "$up_ln" ] && [ "$stop_ln" -lt "$up_ln" ]; then
+        pass "make up: 'compose stop' (linia $stop_ln) przed 'compose up --force-recreate' (linia $up_ln)"
+    else
+        fail "make up: brak stopu konsumentow przed up (stop='$stop_ln', up='$up_ln'): $(tr '\n' ';' < "$MOCK_LOG")"
+    fi
+    if grep -q '^compose stop .*appserver' "$MOCK_LOG" && ! grep -qE '^compose stop .*(dbserver|redis|webserver)' "$MOCK_LOG"; then
+        pass "make up: zatrzymuje appserver, nie rusza dbserver/redis/webserver"
+    else
+        fail "make up: zla lista zatrzymywanych: $(grep '^compose stop' "$MOCK_LOG" || true)"
+    fi
+
+    unset MOCK_LOG
+    cleanup_temp
+}
+
 test_first_run_setup
 test_first_run_empty_env
 test_init_configs_creates_structure
@@ -3543,6 +3670,8 @@ test_restore_config_first_run
 test_backup_runner_mounts_configs
 test_db_autotune_external
 test_db_budget
+test_stop_db_consumers
+test_up_stops_consumers_first
 
 echo ""
 echo "========================================"
