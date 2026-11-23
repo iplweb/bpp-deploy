@@ -3516,6 +3516,13 @@ fi
 exit 0
 MOCK
     chmod +x "$dir/docker"
+    # Windows: natywny GNU make (choco) uruchamia proste linie recepty BEZ
+    # powloki, przez CreateProcess. Skrypt bez rozszerzenia z shebangiem
+    # `#!/usr/bin/env bash` jest wtedy nieuruchamialny (sciezka POSIX), wiec
+    # `docker compose up ...` z recepty nie trafialo do atrapy. make szuka
+    # najpierw .exe/.cmd/.bat, wiec .cmd przekierowuje do tej samej atrapy.
+    # Wywolania z bash (skrypty, potoki) dalej trafiaja w plik bez rozszerzenia.
+    printf '@echo off\r\nbash "%%~dp0docker" %%*\r\n' > "$dir/docker.cmd"
 }
 
 # Graf jak na produkcji (etykiety com.docker.compose.depends_on, format Compose).
@@ -3605,7 +3612,7 @@ test_up_stops_consumers_first() {
     if [ -n "$stop_ln" ] && [ -n "$up_ln" ] && [ "$stop_ln" -lt "$up_ln" ]; then
         pass "make up: 'compose stop' (linia $stop_ln) przed 'compose up --force-recreate' (linia $up_ln)"
     else
-        fail "make up: brak stopu konsumentow przed up (stop='$stop_ln', up='$up_ln'): $(tr '\n' ';' < "$MOCK_LOG")"
+        fail "make up: brak stopu konsumentow przed up (stop='$stop_ln', up='$up_ln'): $(tr '\n' ';' < "$MOCK_LOG") | make: $(tail -5 "$WORK_DIR/up.out" | tr '\n' ';')"
     fi
     if grep -q '^compose stop .*appserver' "$MOCK_LOG" && ! grep -qE '^compose stop .*(dbserver|redis|webserver)' "$MOCK_LOG"; then
         pass "make up: zatrzymuje appserver, nie rusza dbserver/redis/webserver"
