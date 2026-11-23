@@ -13,7 +13,7 @@ Wszystkie godziny na tej stronie są w strefie [`BPP_CRON_TZ`](#strefa-czasowa)
 |---|---|
 | 22:00 | denorm rebuild |
 | 01:30 | sitemap |
-| 01:45 | [backup](../eksploatacja/backup-i-rclone.md) (job-exec na `backup-runner` — orkiestratorze, który deleguje ciężkie kroki przez `docker exec`) |
+| 01:45 | [backup](../eksploatacja/backup-i-rclone.md) (job-exec na `backup-runner` — orkiestratorze, który deleguje ciężkie kroki przez `docker exec`; [wyłączalny](../eksploatacja/backup-i-rclone.md#wylaczenie-backupu) przez `DJANGO_BPP_BACKUP_ENABLED=nie`) |
 | 03:30 | rebuild_kolejnosc |
 | 04:00 | [Let's Encrypt renew](../konfiguracja/ssl.md#codzienny-renew) (job-run certbot) |
 | 04:05 | LE reload (job-exec nginx, jeśli sentinel) |

@@ -2183,6 +2183,14 @@ test_rclone_service_declared() {
     else
         fail "backup-cycle nie celuje w backup-runner (orkiestrator cyklu)"
     fi
+    # Reczne `make backup-cycle` (tez `make doctor` pkt 5) ma dzialac mimo
+    # DJANGO_BPP_BACKUP_ENABLED=nie - wylacznik dotyczy tylko nocnego cyklu
+    # z Ofelii. Sama obsluga flagi jest testowana e2e w scripts/test-rclone.sh.
+    if recipe_of backup-cycle "$mk" | grep -q -- '-e BPP_BACKUP_CYCLE_FORCE=1'; then
+        pass "backup-cycle omija wylacznik nocnego backupu (BPP_BACKUP_CYCLE_FORCE=1)"
+    else
+        fail "backup-cycle nie ustawia BPP_BACKUP_CYCLE_FORCE=1 - reczny backup zablokuje wylacznik"
+    fi
 }
 
 test_helper_image() {
