@@ -3517,12 +3517,26 @@ exit 0
 MOCK
     chmod +x "$dir/docker"
     # Windows: natywny GNU make (choco) uruchamia proste linie recepty BEZ
-    # powloki, przez CreateProcess. Skrypt bez rozszerzenia z shebangiem
-    # `#!/usr/bin/env bash` jest wtedy nieuruchamialny (sciezka POSIX), wiec
-    # `docker compose up ...` z recepty nie trafialo do atrapy. make szuka
-    # najpierw .exe/.cmd/.bat, wiec .cmd przekierowuje do tej samej atrapy.
-    # Wywolania z bash (skrypty, potoki) dalej trafiaja w plik bez rozszerzenia.
-    printf '@echo off\r\necho %%* >> "%%~dp0cmd.log"\r\nbash "%%~dp0docker" %%*\r\n' > "$dir/docker.cmd"
+    # powloki (CreateProcess) i szuka programu po rozszerzeniach .exe/.cmd/.bat —
+    # skrypt bez rozszerzenia jest dla niego niewidoczny. .cmd przekierowuje do
+    # tej samej atrapy; prawdziwy docker.exe usuwa z PATH _path_dla_atrapy.
+    printf '@echo off\r\nbash "%%~dp0docker" %%*\r\n' > "$dir/docker.cmd"
+}
+
+# PATH dla `make` z atrapa dockera: katalog atrapy + PATH bez katalogow
+# zawierajacych docker.exe. Na Windows runner ma prawdziwy docker.exe w
+# C:\Windows\system32, a natywny make szuka najpierw .exe we WSZYSTKICH
+# katalogach PATH — trafial w prawdziwego dockera mimo atrapy na poczatku PATH
+# (CI: `CreateFile ...\.env: The system cannot find the path specified`).
+# Na Linux/macOS docker.exe nie ma, wiec PATH zostaje bez zmian.
+_path_dla_atrapy() {
+    local wynik="$1" d
+    local IFS=:
+    for d in $PATH; do
+        [ -e "$d/docker.exe" ] && continue
+        wynik="$wynik:$d"
+    done
+    printf '%s' "$wynik"
 }
 
 # Graf jak na produkcji (etykiety com.docker.compose.depends_on, format Compose).
@@ -3602,7 +3616,7 @@ test_up_stops_consumers_first() {
     : > "$MOCK_LOG"
     # Prerekwizyty (walidacja .env, pytania, rendering configow) maja wlasne testy;
     # tu liczy sie sama recepta `up`.
-    PATH="$WORK_DIR/bin:$PATH" MOCK_IDS="a b" MOCK_GRAPH="$STOP_CONSUMERS_GRAPH" \
+    PATH="$(_path_dla_atrapy "$WORK_DIR/bin")" MOCK_IDS="a b" MOCK_GRAPH="$STOP_CONSUMERS_GRAPH" \
         BPP_SKIP_HEALTH_GATE=1 BPP_NO_CONFIG_PROMPT=1 \
         make -C "$REPO_COPY" -o validate-env-quotes -o ask-missing-config \
             -o ensure-config-files -o update-configs up > "$WORK_DIR/up.out" 2>&1 || up_rc=$?
@@ -3613,7 +3627,7 @@ test_up_stops_consumers_first() {
     if [ -n "$stop_ln" ] && [ -n "$up_ln" ] && [ "$stop_ln" -lt "$up_ln" ]; then
         pass "make up: 'compose stop' (linia $stop_ln) przed 'compose up --force-recreate' (linia $up_ln)"
     else
-        fail "make up: brak stopu konsumentow przed up (stop='$stop_ln', up='$up_ln'): $(tr '\n' ';' < "$MOCK_LOG") | make rc=$up_rc: $(tr '\n' ';' < "$WORK_DIR/up.out") | cmd: $(cat "$WORK_DIR/bin/cmd.log" 2>/dev/null | tr '\r\n' ';;') | type: $(PATH="$WORK_DIR/bin:$PATH" type -a docker 2>&1 | tr '\n' ';')"
+        fail "make up: brak stopu konsumentow przed up (stop='$stop_ln', up='$up_ln'): $(tr '\n' ';' < "$MOCK_LOG") | make rc=$up_rc: $(tr '\n' ';' < "$WORK_DIR/up.out")"
     fi
     if grep -q '^compose stop .*appserver' "$MOCK_LOG" && ! grep -qE '^compose stop .*(dbserver|redis|webserver)' "$MOCK_LOG"; then
         pass "make up: zatrzymuje appserver, nie rusza dbserver/redis/webserver"
