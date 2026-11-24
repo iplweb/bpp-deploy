@@ -34,7 +34,7 @@ każdy błąd trafia wtedy do obu systemów. Służy to do okresu przejściowego
 
 3. `make up` (zmienna trafia do kontenerów przy ich tworzeniu).
 4. `make test-sentry` wysyła testowe zdarzenie. W GlitchTipie powinno się pojawić
-   zgłoszenie „make test-sentry: test notyfikacji z …”.
+   zgłoszenie „make test-sentry: test notyfikacji z …”. To samo robi pozycja **sentry** w `make doctor`.
 
 `SENTRY_DSN` jest w [rejestrze zmiennych operatora](../konfiguracja/zmienne.md)
 (grupa *Powiadomienia*). `make up` o nią nie pyta, ustawiasz ją przez

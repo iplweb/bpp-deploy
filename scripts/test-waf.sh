@@ -985,6 +985,321 @@ for para in "PASS|FP 932370 prod: next z wydruku multiseek|GET|accounts/login/?$
 done
 
 # --------------------------------------------------------------------------
+# Reguly 10019, 10020: importer publikacji (BibTeX, adres strony pracy)
+# --------------------------------------------------------------------------
+# Zgloszenie z instalacji produkcyjnej (2026-10): redaktor wkleja wpis BibTeX
+# i dostaje "Blad polaczenia z serwerem" — front pokazuje to tylko wtedy, gdy
+# przegladarka nie dostala zadnej odpowiedzi, czyli przy naszym 444. Logi byly
+# juz zrotowane, wiec przyczyne ustalil TEN TEST. Uzasadnienie i lista
+# zapalonych regul — w komentarzu przy 10019 w modsecurity-override.conf.template.
+#
+# DLACZEGO OSOBNA FUNKCJA, A NIE PETLA `IFS='|' read` JAK WYZEJ: wpis BibTeX
+# jest WIELOLINIOWY, a `read` konczy na pierwszym znaku nowej linii — przypadek
+# zostalby obciety do `@article{klucz,` i przechodzil, niczego nie dowodzac.
+# A nowa linia jest tu trescia ataku w oczach CRS: 932235 zapala sie wlasnie
+# na "\n" + `file`. Dlatego tresc jedzie z PLIKU (`--data-urlencode pole@plik`).
+#
+# Wpisy sa zmyslone (nazwiska, DOI z prefiksem 10.12345, domeny example.*),
+# ale KSZTALT jest prawdziwy: tak wygladaja eksporty z Zotero, JabRefa
+# i recznie pisane pliki .bib.
+#
+# CZTERY GRUPY:
+#   1. FALSZYWE ALARMY — bez 10019/10020 blokowane (sprawdzone mutacyjnie).
+#   2. CENA — rodziny zdjete z `text_input` / `identifier`. Oczekiwany PASS.
+#   3. KONTROLE — XSS w obu polach DALEJ blokowany, to samo w INNYM polu tego
+#      samego formularza dalej blokowane, te same pola na INNEJ sciezce
+#      importera dalej blokowane. Bez nich PASS-y przeszlyby tak samo po
+#      wylaczeniu calego CRS. Kontrole granic biora realne ataki z grupy CENA,
+#      nie tresc z grupy 1 — plywajacy tag CRS potrafi sam naprawic falszywy
+#      alarm i taka kontrola przestaje czegokolwiek dowodzic (patrz 10009).
+#   4. STRAZNICY — pola importera, ktore dzis przechodza BEZ wykluczenia
+#      (lista DOI, krok weryfikacji, zrodlo, autorzy). Zadna regula ich nie
+#      obejmuje; gdy po `make pull` ktorys sie zaczerwieni, to nowy falszywy
+#      alarm po stronie CRS, a nie regresja 10019/10020.
+IMP="$TMP/importer"
+mkdir -p "$IMP"
+
+# @article z akcentami LaTeX-a — przechodzi i bez reguly; zostaje jako regresja.
+cat > "$IMP/article.bib" <<'BIB'
+@article{kowalski2021wplyw,
+  author = {Kowalski, Jan and Nowak-Wi{\'s}niewska, Anna and M{\"u}ller, J{\"o}rg and Dvo{\v{r}}{\'a}k, Petr},
+  title = {Wp{\l}yw nawo{\.z}enia azotowego na plonowanie pszenicy ozimej ({Triticum aestivum} L.) w warunkach Polski po{\l}udniowo-wschodniej},
+  journal = {Acta Agrophysica Exemplaria},
+  year = {2021},
+  volume = {28},
+  number = {3},
+  pages = {45--62},
+  doi = {10.12345/aae.2021.28.3.04},
+  issn = {1234-5678},
+  keywords = {pszenica ozima; nawo{\.z}enie azotowe; plon; bia{\l}ko},
+  language = {polish}
+}
+BIB
+
+cat > "$IMP/book.bib" <<'BIB'
+@book{nowak2019podstawy,
+  author    = {Nowak, Anna and Zieli{\'n}ski, Pawe{\l}},
+  editor    = {W{\'o}jcik, Katarzyna},
+  title     = {Podstawy biochemii klinicznej: podr{\k{e}}cznik dla student{\'o}w (wyd. 2, popr. i uzup.)},
+  publisher = {Wydawnictwo Naukowe Przyk{\l}ad},
+  address   = {Warszawa},
+  year      = {2019},
+  edition   = {2},
+  isbn      = {978-83-00-00000-0},
+  pages     = {412},
+  series    = {Biblioteka Diagnosty; t. 7},
+  note      = {Bibliogr. s. 398--409. Indeks.}
+}
+BIB
+
+cat > "$IMP/inproceedings.bib" <<'BIB'
+@inproceedings{wisniewska2023deep,
+  author    = {Wi{\'s}niewska, Maria and Kami{\'n}ski, Tomasz and O'Brien, Sean},
+  title     = {Deep Learning for Early Detection of Diabetic Retinopathy: A Multi-Centre Study},
+  booktitle = {Proceedings of the 15th International Conference on Medical Image Analysis (ICMIA 2023)},
+  year      = {2023},
+  pages     = {118--127},
+  publisher = {Example Press},
+  address   = {Vienna, Austria},
+  month     = sep,
+  doi       = {10.12345/icmia.2023.00118},
+  url       = {https://proceedings.example.org/icmia2023/papers/118.pdf},
+  abstract  = {Background: Diabetic retinopathy (DR) is a leading cause of blindness; type 2 diabetes accounts for >90% of cases. Methods: We trained a convolutional network on 48,112 fundus images (train/val/test = 70/15/15) and compared it with 3 graders. Results: sensitivity was 94.1% (95% CI: 92.3--95.7), specificity 91.8%; p < 0.001 vs. graders (McNemar's test). The model's AUC = 0.97. Conclusions: the system can select patients for referral & reduce workload; code is available at https://git.example.org/dr-screen.}
+}
+BIB
+
+# Legalny HTML w tytule i streszczeniu (eksporty wydawcow). Przechodzi przez
+# 941 — i ma przechodzic, bo XSS na `text_input` ZOSTAJE.
+cat > "$IMP/html.bib" <<'BIB'
+@article{kaminski2022co2,
+  author  = {Kami{\'n}ski, Tomasz and Wójcik, Katarzyna},
+  title   = {Adsorption of CO<sub>2</sub> on activated carbons from <i>Miscanthus</i> &times; <i>giganteus</i>},
+  journal = {Example Journal of CO2 Utilization},
+  year    = {2022},
+  volume  = {58},
+  pages   = {101915},
+  doi     = {10.12345/j.jcou.2022.101915},
+  abstract = {<jats:p>The uptake reached 4.8 mmol g<sup>-1</sup> at 0 &deg;C; <b>selectivity</b> over N<sub>2</sub> was &gt;20.</jats:p>}
+}
+BIB
+
+# FP 932130 (`$(1-\alpha)$`) + 933180 (matematyka w streszczeniu).
+cat > "$IMP/math.bib" <<'BIB'
+@article{zielinski2020estimation,
+  author  = {Zieli{\'n}ski, Piotr and Lewandowska, Ewa},
+  title   = {Estimation of the $\alpha$-stable parameter and $(1-\alpha)$ confidence intervals for $n \to \infty$: the case $\beta_{1} < \beta_{2}$},
+  journal = {Example Journal of Applied Statistics},
+  year    = {2020},
+  volume  = {47},
+  number  = {11},
+  pages   = {2001--2019},
+  doi     = {10.12345/ejas.2020.1745},
+  abstract = {We consider $X_1, \dots, X_n \sim S_\alpha(\sigma, \beta, \mu)$ and show that $\hat{\alpha}_n = \frac{1}{n}\sum_{i=1}^{n} \log|X_i|$ converges at rate $O(n^{-1/2})$; for $p < 0.05$ the test rejects $H_0\colon \alpha = 2$. Costs fell by 15\% (from \$120 to \$102).}
+}
+BIB
+
+# FP 942100: pola w cudzyslowach + cudzyslowy LaTeX-a ``...'' + myslnik `--`.
+cat > "$IMP/quotes.bib" <<'BIB'
+@incollection{lewandowski2018pamiec,
+  author    = "Lewandowski, Micha{\l}",
+  title     = "``Pami{\k{e}}{\'c} miejsca'' w prozie emigracyjnej -- mi{\k{e}}dzy mitem a dokumentem",
+  booktitle = "Literatura i to{\.z}samo{\'s}{\'c}: studia i szkice",
+  editor    = "D{\k{a}}browska, Ewa and Szyma{\'n}ski, Adam",
+  publisher = "Wydawnictwo Uniwersyteckie Przyk{\l}ad",
+  address   = "Krak{\'o}w",
+  year      = "2018",
+  pages     = "201--233",
+  note      = "Tyt. rozdz.: ``Pami{\k{e}}{\'c} miejsca''; zob. te{\.z}: `Dom' i `obczyzna' -- s. 215"
+}
+BIB
+
+# FP 932235: eksport z Zotero dla pozycji z zalacznikiem — pole `file` w osobnej
+# linii. To NAJCZESTSZY wariant: nic w tresci pracy nie musi byc "dziwne".
+# UWAGA: wciecia to TABULATORY (tak eksportuje Zotero) — nie zamieniac na spacje.
+cat > "$IMP/zotero.bib" <<'BIB'
+
+@article{dabrowski_selected_2022,
+	title = {Selected properties of t-norms and s-norms in fuzzy inference: a review},
+	volume = {12},
+	issn = {2076-0000},
+	url = {https://www.example.org/journal/2076-0000/12/4/1987},
+	doi = {10.12345/app12041987},
+	language = {en},
+	number = {4},
+	urldate = {2024-05-12},
+	journal = {Example Applied Sciences},
+	author = {Dąbrowski, Krzysztof and Szymańska, Żaneta},
+	month = feb,
+	year = {2022},
+	keywords = {fuzzy sets, t-norm, s-norm, review},
+	pages = {1987},
+	file = {Full Text PDF:C\:\\Users\\redaktor\\Zotero\\storage\\AB12CD34\\Dąbrowski and Szymańska - 2022 - Selected properties.pdf:application/pdf},
+}
+BIB
+
+# FP 930120: ta sama pozycja z JabRefa na Linuksie — sciezka w `file` w JEDNEJ
+# linii z reszta, zeby zapalala sie sama rodzina LFI (`.config/`), bez 932235.
+cat > "$IMP/jabref.bib" <<'BIB'
+@article{kowalski2021, author = {Kowalski, Jan}, title = {Tytul pracy}, year = {2021}, file = {Full Text:/home/redaktor/.config/JabRef/pdf/Kowalski2021.pdf:application/pdf}}
+BIB
+
+# 20 numerow DOI w postaciach, ktore redaktorzy realnie wklejaja: gole, jako
+# adres doi.org / dx.doi.org, z przedrostkiem `doi:`, oraz stare DOI typu SICI
+# (nawiasy, `<`, `>`, `;`). Prefiks 10.12345 jest zmyslony.
+cat > "$IMP/doi.txt" <<'DOI'
+10.12345/aae.2021.28.3.04
+https://doi.org/10.12345/icmia.2023.00118
+https://doi.org/10.12345/ejas.2020.1745
+10.12345/app12041987
+https://dx.doi.org/10.12345/j.example.2022.106543
+doi:10.12345/s41598-023-00000-1
+DOI: 10.12345/978-3-030-00000-5_12
+10.12345/1097-0142(19990815)86:4<577::AID-CNCR5>3.0.CO;2-S
+https://doi.org/10.12345/0022-3913(95)70123-4
+10.12345/journal.pone.0260000
+http://doi.org/10.12345/bioinformatics/btab123
+10.12345/fopen/2021004
+https://doi.org/10.12345/zenodo.4500000
+10.12345/PhysRevLett.126.141801
+10.12345/acs.jpcc.1c01234
+https://doi.org/10.12345/(SICI)1099-1050(199601)5:1<1::AID-HEC187>3.0.CO;2-K
+10.12345/pan.2023.144567
+https://doi.org/10.12345/rpd.2022.25.4.7
+10.12345/jmir.2021.e25000
+10.12345/ijerph18126543
+DOI
+
+# Jeden strzal w importer. Argumenty po sciezce ida wprost do curla:
+# `--data-urlencode pole=wartosc` / `pole@plik` (POST), z `-G` na poczatku — GET.
+# Tablica argumentow zamiast sklejanego stringa, wiec nic nie jest dzielone
+# po `|` ani po znaku nowej linii.
+strzel_importer() {
+    local oczek="$1" opis="$2" sciezka="$3" kod rc faktyczny szczegol
+    shift 3
+    LACZNIE=$((LACZNIE + 1))
+    kod=$(curl -sk --http1.1 -o /dev/null -w '%{http_code}' --max-time 8 \
+        --resolve "$HOST_NAME:$PORT:127.0.0.1" \
+        "$@" "https://$HOST_NAME:$PORT/$sciezka" 2>/dev/null)
+    rc=$?
+    if [ "$rc" -eq 52 ] || [ "$rc" -eq 56 ] || [ "$rc" -eq 92 ]; then
+        faktyczny="BLOK"; szczegol="polaczenie zerwane (curl $rc)"
+    elif [ "$rc" -ne 0 ]; then
+        faktyczny="BLAD"; szczegol="curl $rc"
+    elif [ "$kod" = "403" ]; then
+        faktyczny="BLOK"; szczegol="HTTP 403 od ModSecurity"
+    else
+        faktyczny="PASS"; szczegol="HTTP $kod"
+    fi
+    if [ "$faktyczny" = "$oczek" ]; then
+        printf "  \033[32mOK\033[0m   %-46s %s\n" "$opis" "$szczegol"
+    else
+        printf "  \033[31mFAIL\033[0m %-46s oczekiwano %s, jest %s (%s)\n" \
+            "$opis" "$oczek" "$faktyczny" "$szczegol"
+        BLEDY=$((BLEDY + 1))
+    fi
+}
+
+echo
+printf "%-6s %-46s %s\n" "WYNIK" "IMPORTER PUBLIKACJI (10019, 10020)" "SZCZEGOLY"
+printf "%s\n" "----------------------------------------------------------------------------------"
+IMP_FETCH='importer_publikacji/fetch/'
+IMP_BIB=(--data-urlencode "provider=BibTeX" --data-urlencode "identifier=")
+IMP_WWW=(--data-urlencode "provider=Pozostałe strony WWW")
+# shellcheck disable=SC2016  # `$(id)` ma NIE byc rozwiniete — to payload
+IMP_RCE='x; cat /etc/passwd; echo $(id)'
+IMP_SQLI="' UNION ALL SELECT NULL,NULL-- a"
+# RCE BEZ sciezki pliku. Na `identifier` zostaje rodzina LFI, wiec payload
+# z `/etc/passwd` blokowalby sie tam niezaleznie od 10020 — CENA bylaby
+# czerwona, a kontrola granicy sciezki zielona z niewlasciwego powodu.
+# shellcheck disable=SC2016  # `$(id)` ma NIE byc rozwiniete — to payload
+IMP_RCE_ADRES='https://example.org/x;$(id)'
+IMP_XSS='<script>alert(1)</script>'
+URL_PRINT='https://journals.example.org/index.php/aae/article/view/1234?lang=en&print=1'
+URL_DIR='https://example.org/pub/show?id=77&sort=date&dir=asc'
+URL_CGI='https://example.org/cgi-bin/show.cgi?file=/vol12/art7.html'
+
+# --- 10019: `text_input` na fetch/ ---
+strzel_importer PASS "@article z akcentami LaTeX-a" "$IMP_FETCH" \
+    "${IMP_BIB[@]}" --data-urlencode "text_input@$IMP/article.bib"
+strzel_importer PASS "@book" "$IMP_FETCH" \
+    "${IMP_BIB[@]}" --data-urlencode "text_input@$IMP/book.bib"
+strzel_importer PASS "@inproceedings ze streszczeniem i URL-em" "$IMP_FETCH" \
+    "${IMP_BIB[@]}" --data-urlencode "text_input@$IMP/inproceedings.bib"
+strzel_importer PASS "legalny HTML w tytule (<i>, <sub>, jats)" "$IMP_FETCH" \
+    "${IMP_BIB[@]}" --data-urlencode "text_input@$IMP/html.bib"
+strzel_importer PASS "FP 932130+933180: wzory \$(1-\\alpha)\$" "$IMP_FETCH" \
+    "${IMP_BIB[@]}" --data-urlencode "text_input@$IMP/math.bib"
+strzel_importer PASS "FP 942100: cudzyslowy \`\`...'' i --" "$IMP_FETCH" \
+    "${IMP_BIB[@]}" --data-urlencode "text_input@$IMP/quotes.bib"
+strzel_importer PASS "FP 932235: eksport Zotero z polem file" "$IMP_FETCH" \
+    "${IMP_BIB[@]}" --data-urlencode "text_input@$IMP/zotero.bib"
+strzel_importer PASS "FP 930120: sciezka zalacznika (JabRef)" "$IMP_FETCH" \
+    "${IMP_BIB[@]}" --data-urlencode "text_input@$IMP/jabref.bib"
+strzel_importer PASS "CENA: realne RCE w text_input" "$IMP_FETCH" \
+    "${IMP_BIB[@]}" --data-urlencode "text_input=$IMP_RCE"
+strzel_importer PASS "CENA: realne SQLi w text_input" "$IMP_FETCH" \
+    "${IMP_BIB[@]}" --data-urlencode "text_input=$IMP_SQLI"
+strzel_importer BLOK "kontrola: XSS w text_input" "$IMP_FETCH" \
+    "${IMP_BIB[@]}" --data-urlencode "text_input=@article{x, title = {$IMP_XSS}}"
+strzel_importer BLOK "kontrola: RCE w polu provider" "$IMP_FETCH" \
+    --data-urlencode "provider=$IMP_RCE" --data-urlencode "text_input=@book{x}"
+strzel_importer BLOK "kontrola: RCE w zgloszenia_filtry" "$IMP_FETCH" \
+    "${IMP_BIB[@]}" --data-urlencode "text_input=@book{x}" \
+    --data-urlencode "zgloszenia_filtry=$IMP_RCE_ADRES"
+strzel_importer BLOK "kontrola: text_input na wiele-doi/" "importer_publikacji/wiele-doi/" \
+    --data-urlencode "text_input=$IMP_RCE"
+strzel_importer BLOK "kontrola: text_input na <id>/verify/" "importer_publikacji/123/verify/" \
+    --data-urlencode "text_input=$IMP_SQLI"
+strzel_importer BLOK "kontrola: text_input (GET) na /importer…/" "importer_publikacji/" \
+    -G --data-urlencode "text_input=$IMP_RCE"
+strzel_importer BLOK "kontrola: eksport Zotero poza importerem" "bpp/szukaj/" \
+    --data-urlencode "text_input@$IMP/zotero.bib"
+
+# --- 10020: `identifier` na fetch/ (POST) i na stronie importera (GET) ---
+strzel_importer PASS "FP 932370: adres z &print (POST fetch/)" "$IMP_FETCH" \
+    "${IMP_WWW[@]}" --data-urlencode "identifier=$URL_PRINT"
+strzel_importer PASS "FP 932380: adres z &dir (POST fetch/)" "$IMP_FETCH" \
+    "${IMP_WWW[@]}" --data-urlencode "identifier=$URL_DIR"
+strzel_importer PASS "FP 932160: adres z cgi-bin/sh… (POST)" "$IMP_FETCH" \
+    "${IMP_WWW[@]}" --data-urlencode "identifier=$URL_CGI"
+strzel_importer PASS "FP 932370: link 'Uzyj importera' (GET)" "importer_publikacji/" \
+    -G "${IMP_WWW[@]}" --data-urlencode "identifier=$URL_PRINT" \
+    --data-urlencode "zgloszenie=17" \
+    --data-urlencode "zgloszenia_filtry=status__exact=0&q=kowalski&o=3.-1"
+strzel_importer PASS "CENA: realne RCE w identifier" "$IMP_FETCH" \
+    "${IMP_WWW[@]}" --data-urlencode "identifier=$IMP_RCE_ADRES"
+strzel_importer BLOK "kontrola: SQLi w identifier" "$IMP_FETCH" \
+    "${IMP_WWW[@]}" --data-urlencode "identifier=$IMP_SQLI"
+strzel_importer BLOK "kontrola: XSS w identifier" "$IMP_FETCH" \
+    "${IMP_WWW[@]}" --data-urlencode "identifier=$IMP_XSS"
+strzel_importer BLOK "kontrola: LFI w identifier (GET)" "importer_publikacji/" \
+    -G "${IMP_WWW[@]}" --data-urlencode "identifier=../../../../etc/passwd"
+strzel_importer BLOK "kontrola: petla zwrotna w identifier" "$IMP_FETCH" \
+    "${IMP_WWW[@]}" --data-urlencode "identifier=http://127.0.0.1:8000/admin/"
+strzel_importer BLOK "kontrola: identifier na sessions/" "importer_publikacji/sessions/" \
+    -G --data-urlencode "identifier=$IMP_RCE_ADRES"
+strzel_importer BLOK "kontrola: adres z &print poza importerem" "bpp/szukaj/" \
+    -G --data-urlencode "identifier=$URL_PRINT"
+
+# --- straznicy: pola importera, ktorych ZADNA regula nie obejmuje ---
+strzel_importer PASS "straznik: 20 DOI na wiele-doi/" "importer_publikacji/wiele-doi/" \
+    --data-urlencode "lista_doi@$IMP/doi.txt"
+strzel_importer PASS "straznik: DOI typu SICI w identifier" "$IMP_FETCH" \
+    --data-urlencode "provider=CrossRef" \
+    --data-urlencode "identifier=https://doi.org/10.12345/(SICI)1099-1050(199601)5:1<1::AID-HEC187>3.0.CO;2-K"
+strzel_importer PASS "straznik: krok weryfikacji (patent)" "importer_publikacji/123/verify/" \
+    --data-urlencode "rodzaj_rekordu=patent" --data-urlencode "rok=2023" \
+    --data-urlencode "numer_zgloszenia=P.432109" \
+    --data-urlencode "numer_prawa_wylacznego=Pat.241234" \
+    --data-urlencode "uprawniony=Uniwersytet Przykładowy; Instytut Przykładowy Sp. z o.o. (Warszawa)"
+strzel_importer PASS "straznik: krok zrodla (wydawca_opis)" "importer_publikacji/123/source/" \
+    --data-urlencode "zrodlo=12" \
+    --data-urlencode 'wydawca_opis=Wydaw. Nauk. "Przykład"; Oficyna Wydawnicza [dla] Uniwersytetu (Kraków)'
+strzel_importer PASS "straznik: nowy autor z apostrofem" "importer_publikacji/123/authors/7/create-new/" \
+    --data-urlencode "nazwisko=O'Brien-Nowak" --data-urlencode "imiona=Seán Patrick" \
+    --data-urlencode "zapisany_jako=O'Brien-Nowak S. P."
+
+# --------------------------------------------------------------------------
 # Przypadek osobny: legalne zadanie po HTTP/3
 # --------------------------------------------------------------------------
 # Nie siedzi w tablicy PRZYPADKI, bo tamte strzelaja `curl --http1.1` Z HOSTA,

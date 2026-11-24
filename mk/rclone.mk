@@ -33,5 +33,7 @@ rclone-check:
 # a pg_dump/rclone/notyfikacje deleguje przez `docker exec` do dbservera,
 # serwisu rclone i appservera. Ofelia wola to samo raz dziennie przez label
 # na backup-runner.
+# BPP_BACKUP_CYCLE_FORCE=1: reczne wywolanie omija wylacznik nocnego cyklu
+# (DJANGO_BPP_BACKUP_ENABLED=nie) - operator swiadomie prosi o backup.
 backup-cycle:
-	docker compose exec backup-runner /scripts/backup-cycle.sh
+	docker compose exec -e BPP_BACKUP_CYCLE_FORCE=1 backup-runner /scripts/backup-cycle.sh

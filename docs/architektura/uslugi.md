@@ -91,3 +91,10 @@ Compose'owe `profiles:` trzymają te usługi poza domyślnym `docker compose up`
 - `celerybeat` używa `service_started` (nie `_healthy`) dla `appserver` — szybszy start.
 - `pgbouncer` czeka na `dbserver` healthy (w trybie bazy zewnętrznej to sentinel sondujący
   prawdziwą bazę); `appserver` czeka na `pgbouncer` healthy — jak na `dbserver`.
+- Przy **odtwarzaniu** (`make up`) kolejność jest odwrotna niż przy starcie: najpierw
+  zatrzymywani są konsumenci bazy i Redisa, dopiero potem odtwarzane `dbserver`,
+  `redis` i `pgbouncer` — inaczej działająca aplikacja traci bazę spod nóg
+  ([szczegóły](../rozwoj/pulapki-wdrozenia.md#kolejnosc-restartu)).
+- `dbserver`, `redis` i `pgbouncer` nie są przy `make up` odtwarzane na siłę —
+  tylko gdy zmieni się ich obraz, konfiguracja albo skrypty startowe
+  ([szczegóły](../rozwoj/pulapki-wdrozenia.md#infra-bez-force-recreate)).

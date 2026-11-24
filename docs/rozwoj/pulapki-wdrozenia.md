@@ -179,6 +179,175 @@ z przypadkiem produkcyjnym:
 **Loguj, który obraz się zmienił.** Bezimienne „Wykryto nowszy obraz Docker."
 przy 18 obrazach było nie do zdiagnozowania.
 
+## `make up`
+
+### Najpierw stop konsumentów, potem `--force-recreate` {#kolejnosc-restartu}
+
+**Objaw, który tu prowadzi:** po każdym wdrożeniu do Sentry/GlitchTip (i Rollbara)
+wpada seria błędów, których w działającym systemie nie ma:
+`OperationalError: could not translate host name "dbserver"`,
+`Error -3 connecting to redis:6379`, kombu
+`AttributeError: 'NoneType' object has no attribute 'hostname'` przy
+`WorkerShutdown`.
+
+**Przyczyna:** `docker compose up` odtwarza kontenery w
+kolejności zależności — najpierw `dbserver`, `redis`, `pgbouncer`, dopiero potem
+ich konsumentów (dawniej na siłę przy każdym `make up`, od
+[tej zmiany](#infra-bez-force-recreate) — przy zmianie obrazu lub konfiguracji). Stary `appserver` i workery Celery żyją więc dalej, kiedy baza
+i Redis już zniknęły (nazwa hosta przestaje się rozwiązywać), i zgłaszają to,
+co widzą. `depends_on` porządkuje start i `down`, ale **nie** chroni przed
+odtworzeniem zależności pod działającym konsumentem. Odtworzone na zabawkowym
+projekcie Compose (`docker events`): `stop db` → `stop app` → `start db` →
+`start app` — między pierwszym a drugim krokiem `app` żyje bez bazy.
+
+**Poprawka:** pierwszy krok recepty `up` to `scripts/stop-db-consumers.sh`,
+który robi `docker compose stop -t ${BPP_DEPLOY_STOP_TIMEOUT:-30}` na
+konsumentach. Lista jest **wyliczana**, nie wpisana na sztywno: działające
+kontenery projektu, które przechodnio zależą (`depends_on`) od `dbserver`,
+`redis` albo `pgbouncer` — zależności czytane z labela
+`com.docker.compose.depends_on`, który Compose nadaje kontenerom. Dziś wychodzi
+`appserver`, `authserver`, `workerserver`, `denorm-queue`, `celerybeat`,
+`flower`, `ofelia` (przez `appserver`) i `workerserver-status`, jeśli akurat
+działa. **Nie** wychodzą: `webserver` (nginx ma pokazywać stronę serwisową),
+monitoring, `backup-runner`, `rclone`, `html2docx`, `motyw-kompilator` — żaden nie
+ma `depends_on` na bazę/Redisa.
+
+Skrypt jest **fail-open**: brak kontenerów (świeża instalacja), błąd
+`docker compose ps`/`inspect`/`stop` → komunikat i exit 0, `up` idzie dalej jak
+dawniej. Kontrakt pilnuje `test_up_stops_consumers_first` w
+`tests/test_makefile.sh` — wykonuje prawdziwą receptę `make up` na atrapie
+dockera i sprawdza **kolejność wywołań** (sprawdzone: bez poprawki test gaśnie).
+
+!!! danger "Anti-fixy — nie rób tego"
+    - **Nie usuwaj kroku „bo `depends_on` wystarczy"** — nie wystarcza, patrz wyżej.
+      Objaw powrotu: znów seria fałszywych błędów połączeń po każdym wdrożeniu.
+    - **Nie zatrzymuj `webservera`** — w czasie przerwy nginx serwuje
+      `maintenance.html` (502 → `error_page`). Bez niego użytkownik dostaje
+      zerwane połączenie.
+    - **Nie każ skryptowi wywracać deployu** przy błędzie — to optymalizacja
+      zgłoszeń błędów, nie warunek wdrożenia.
+    - **Nie hardkoduj listy usług** — nowy konsument (np. kolejny worker) dopisany
+      w compose musi trafić na listę sam, przez `depends_on`.
+
+**`denorm-queue` ma `stop_signal: SIGINT`.** Jego PID 1 to goły
+`python manage.py denorm_queue` bez handlera SIGTERM, a PID 1 w kontenerze
+ignoruje sygnały bez handlera — `docker stop` czekał cały timeout i kończył
+SIGKILL-em. Ponieważ Compose zatrzymuje usługi w odwrotnej kolejności zależności,
+blokowało to też `workerserver` i `appserver` za nim (zmierzone: 30 s przestoju
+więcej). SIGINT Python obsługuje zawsze (`KeyboardInterrupt`): wyjście w < 1 s,
+kod 0. **Nie usuwaj tego „bo domyślny sygnał wystarczy"** — nie wystarcza.
+
+**Wpływ na przerwę — zmierzone na lokalnym stacku** (`dbserver`, `redis`,
+`pgbouncer`, `appserver`, `authserver`, `workerserver`, `denorm-queue`,
+`celerybeat`, `flower`, `ofelia`; obraz BPP 202611.1407):
+
+| | Przed | Po |
+|---|---|---|
+| czas od początku do „wszystko zdrowe" | 46 s | 46 s (stop 5 s + up 41 s) |
+| `appserver` niedostępny | ~26 s, ale bez bazy już od 1. sekundy | ~24 s |
+| linie z błędami połączeń w logach | 11 (`could not translate host name "dbserver"`, `Error 111 connecting to redis:6379`, `denorm-queue` padł dwa razy) | **0** |
+
+Czas zatrzymywania nie jest nowy — `--force-recreate` i tak zatrzymywał każdy
+z tych kontenerów; teraz dzieje się to wcześniej. Różnica jest w tym, **co
+widzi użytkownik**, gdy baza jest odtwarzana: dawniej `appserver` żył bez bazy
+i odpowiadał błędami, teraz nginx pokazuje stronę serwisową. Najgorszy przypadek
+wydłużenia: zajęty worker Celery, który wykorzystuje cały timeout
+(`BPP_DEPLOY_STOP_TIMEOUT`, 30 s zamiast domyślnych 10 s Compose).
+
+**Przerwa techniczna (`make run-with-warning`):** strona odliczania to 503
+z Django, więc zatrzymany `appserver` jej nie serwuje — w tym oknie nginx pokazuje
+statyczne `maintenance.html`. Nie jest to regresja: bez bazy (odtwarzanej i tak
+przy każdym `make up`) Django też nie odczyta stanu odliczania, a heartbeat
+(`docker compose exec appserver …`) nie działał już w trakcie recreate'u —
+blokada trzyma się na podłodze `--at-least` zapisanej w bazie.
+
+**`make up-quick` celowo bez tego kroku** — nie ma `--force-recreate`, więc
+odtwarza tylko usługi, które się zmieniły; bezwarunkowy stop konsumentów
+dokładałby przerwę na każdym wywołaniu. Zostaje ryzyko szczątkowe: gdy po `pull`
+zmieni się obraz `redis`/`postgres`, `up-quick` odtworzy go pod działającą
+aplikacją (te same fałszywe błędy, jednorazowo).
+
+### `dbserver`, `redis`, `pgbouncer` bez `--force-recreate` {#infra-bez-force-recreate}
+
+`make up` odtwarza **na siłę** (`--force-recreate`) wszystko **poza** stanową
+infrastrukturą. `dbserver`, `redis` i `pgbouncer` idą osobnym
+`docker compose up -d --wait` bez tej flagi — Compose odtwarza je sam, gdy coś
+się w nich naprawdę zmieni. Zysk: baza nie jest restartowana przy każdym
+wdrożeniu (zostaje ciepły cache `shared_buffers`, nie ma ~11 s czekania na
+`dbserver` + `pgbouncer` healthy), a `appserver` wstaje od razu po zatrzymaniu.
+
+**Co Compose wykrywa sam** (sprawdzone na Compose 5.8 na zabawkowym projekcie —
+„Running" = bez zmian, „Started/Recreated" = odtworzony):
+
+| Zmiana | Wykryta bez `--force-recreate`? |
+|---|---|
+| nowy obraz pod tym samym tagiem (po `make pull` / build) | **tak** |
+| treść pliku z `env_file` (`$BPP_CONFIGS_DIR/.env`) | **tak** |
+| `environment`, `labels`, `command`, `deploy.resources`, `volumes` (lista) | **tak** — wchodzą do hasha konfiguracji |
+| **treść** pliku bind-mountowanego | **nie** |
+| nic się nie zmieniło, nie było `pull` | nie ma czego wykrywać — `--force-recreate` wystartowałby ten sam obraz |
+
+**Kto czyta bind-mounty tylko przy starcie** — i dlatego reszta zostaje na
+`--force-recreate`:
+
+| Usługa | Pliki czytane przy starcie | Decyzja |
+|---|---|---|
+| `dbserver` | `dbserver/docker-entrypoint-autotune.sh`, `dbserver/autotune.sh` | bez force; suma plików w labelu |
+| `pgbouncer` | `pgbouncer/entrypoint.sh` (renderuje config z env) | bez force; suma plików w labelu |
+| `redis` | brak (tylko `command` z env + wolumen `/data`) | bez force |
+| `webserver`, `webserver-init` | `defaults/webserver/*`, skrypty `docker-entrypoint.d`, certy | **force** |
+| `grafana`, `alloy`, `loki`, `netdata` | konfiguracje force-synced w `$BPP_CONFIGS_DIR` | **force** |
+| `ofelia` | **labele innych kontenerów** (harmonogram czytany przy starcie) | **force** |
+| `backup-runner`, `rclone` | `scripts/` (czytane przy każdym cyklu, nie przy starcie) | force (jak dotąd) |
+| Django, workery | obraz + env | force (jak dotąd; i tak są zatrzymywane przed `up`) |
+
+**Mechanizm sumy:** `scripts/infra-files-hash.sh --zapisz` (krok
+`ensure-config-files`, czyli prerekwizyt `make up`) liczy `cksum` z trzech plików
+startowych i zapisuje do `$BPP_CONFIGS_DIR/.env` jako `BPP_INFRA_FILES_HASH`.
+`dbserver` i `pgbouncer` mają label
+`pl.iplweb.bpp.pliki-startowe: "${BPP_INFRA_FILES_HASH:-}"`, więc zmiana pliku po
+`git pull` zmienia konfigurację usługi i Compose odtwarza kontener. Do `.env`,
+a nie jako zmienna eksportowana z Makefile — inaczej gołe `docker compose up`
+(bez make) widziałoby pusty label i restartowało bazę, a następny `make up` —
+znowu. Fail-open: błąd liczenia = brak zapisu, `up` idzie dalej.
+
+**Zgodność wstecz:** pierwszy `make up` po aktualizacji dopisuje zmienną do `.env`,
+co zmienia env `dbserver`/`pgbouncer` → jednorazowe odtworzenie (zmierzone).
+Później tylko przy realnej zmianie. Żadnej ręcznej edycji. Gdy
+`docker compose config --services` zawiedzie, lista usług jest pusta i druga
+komenda robi `up --force-recreate` **całego** stacka — czyli dawne zachowanie.
+
+!!! danger "Anti-fixy — nie rób tego"
+    - **Nie dodawaj bind-mountu czytanego przy starcie do `dbserver`/`pgbouncer`
+      bez dopisania go do `PLIKI` w `scripts/infra-files-hash.sh`.** Objaw:
+      po `git pull && make up` kontener dalej działa na starej wersji skryptu,
+      bez żadnego śladu w logach. Pilnuje tego `test_infra_files_hash` tylko dla
+      plików, które zna.
+    - **Nie przenoś na tę listę `webservera`, monitoringu ani `ofelii`** — czytają
+      bind-mounty/labele tylko przy starcie; bez `--force-recreate` zmiany
+      w `defaults/webserver/*` czy konfiguracjach force-synced nie dotarłyby do
+      kontenera.
+    - **Nie „upraszczaj" do jednego `up` bez `--force-recreate`** z tego samego
+      powodu.
+    - **Nie usuwaj stopu konsumentów, „bo baza już się nie restartuje"** —
+      restartuje się przy każdej zmianie obrazu Postgresa/Redisa, konfiguracji
+      albo plików startowych.
+
+**Potrzebny ręczny restart bazy** (np. zawieszony proces): `docker compose restart
+dbserver` albo `make refresh` (zatrzymuje i odtwarza cały stack).
+
+**Pomiar (ten sam lokalny stack co wyżej, nic się nie zmieniło):**
+
+| | `--force-recreate` całości | infrastruktura bez force |
+|---|---|---|
+| czas do „wszystko zdrowe" | 46 s | **28 s** |
+| `appserver` niedostępny | ~24 s | **~12 s** |
+| błędy połączeń w logach | 0 | 0 |
+
+Zmiana `pgbouncer/entrypoint.sh` → komunikat
+`pliki startowe dbserver/pgbouncer zmienione` i odtworzenie obu usług (47 s,
+0 błędów).
+
 ## Testy
 
 ```bash

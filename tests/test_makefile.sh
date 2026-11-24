@@ -2183,6 +2183,14 @@ test_rclone_service_declared() {
     else
         fail "backup-cycle nie celuje w backup-runner (orkiestrator cyklu)"
     fi
+    # Reczne `make backup-cycle` (tez `make doctor` pkt 5) ma dzialac mimo
+    # DJANGO_BPP_BACKUP_ENABLED=nie - wylacznik dotyczy tylko nocnego cyklu
+    # z Ofelii. Sama obsluga flagi jest testowana e2e w scripts/test-rclone.sh.
+    if recipe_of backup-cycle "$mk" | grep -q -- '-e BPP_BACKUP_CYCLE_FORCE=1'; then
+        pass "backup-cycle omija wylacznik nocnego backupu (BPP_BACKUP_CYCLE_FORCE=1)"
+    else
+        fail "backup-cycle nie ustawia BPP_BACKUP_CYCLE_FORCE=1 - reczny backup zablokuje wylacznik"
+    fi
 }
 
 test_helper_image() {
@@ -3542,6 +3550,252 @@ echo "========================================"
 echo "  Repo: $REPO_DIR"
 echo ""
 
+# ============================================================
+# Kolejnosc restartu: konsumenci bazy/redisa zatrzymani PRZED `up --force-recreate`
+# ============================================================
+
+# Atrapa dockera: loguje kazde wywolanie (jedna linia = argumenty), odpowiada
+# na `compose ps -q` i `inspect` danymi z MOCK_IDS / MOCK_GRAPH.
+_stop_consumers_mock_docker() {
+    local dir="$1"
+    mkdir -p "$dir"
+    cat > "$dir/docker" <<'MOCK'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$MOCK_LOG"
+case "$1 ${2:-}" in
+    "compose ps")
+        [ -n "${MOCK_PS_RC:-}" ] && exit "$MOCK_PS_RC"
+        [ "${3:-}" = "-q" ] && [ -n "${MOCK_IDS:-}" ] && printf '%s\n' $MOCK_IDS
+        exit 0 ;;
+    "compose stop") exit "${MOCK_STOP_RC:-0}" ;;
+    "compose config")
+        [ -n "${MOCK_CONFIG_RC:-}" ] && exit "$MOCK_CONFIG_RC"
+        [ "${3:-}" = "--services" ] && printf '%s\n' ${MOCK_SERVICES:-}
+        exit 0 ;;
+esac
+if [ "$1" = "inspect" ]; then
+    [ -n "${MOCK_INSPECT_RC:-}" ] && exit "$MOCK_INSPECT_RC"
+    printf '%b' "$MOCK_GRAPH"
+fi
+exit 0
+MOCK
+    chmod +x "$dir/docker"
+}
+
+# Windows: natywny GNU make (choco) uruchamia proste linie recepty BEZ powloki
+# (CreateProcess), a Windows szuka programu najpierw w C:\Windows\system32 —
+# na runnerze lezy tam prawdziwy docker.exe, wiec atrapa w PATH jest dla takiej
+# linii niewidoczna (CI: `CreateFile ...\.env: The system cannot find the path
+# specified`). Tam podstawiamy DOCKER_COMPOSE z mk/deployment.mk; `sh` nie ma
+# w system32, wiec znajduje sie przez PATH. Linux/macOS testuja recepte doslownie.
+_make_compose_override() {
+    case "$(uname -s)" in
+        MINGW* | MSYS* | CYGWIN*)
+            printf 'DOCKER_COMPOSE=sh %s compose' "$(cygpath -m "$1/docker")" ;;
+    esac
+}
+
+# Graf jak na produkcji (etykiety com.docker.compose.depends_on, format Compose).
+# ofelia i denorm-queue celowo PRZED swoimi zaleznosciami: jednoprzebiegowe
+# domkniecie (bez petli do punktu stalego) by je zgubilo.
+STOP_CONSUMERS_GRAPH='ofelia|appserver:service_started:false\ndenorm-queue|workerserver:service_healthy:false\ndbserver|\npgbouncer|dbserver:service_healthy:false\nredis|\nappserver|redis:service_healthy:false,dbserver:service_healthy:false,pgbouncer:service_healthy:false\nauthserver|dbserver:service_healthy:false,redis:service_healthy:false\nworkerserver|appserver:service_healthy:false,redis:service_healthy:false\ncelerybeat|redis:service_healthy:false,appserver:service_started:false\nflower|redis:service_healthy:false\nwebserver|webserver-init:service_completed_successfully:false\ngrafana|loki:service_started:false\nloki|\nbackup-runner|\nrclone|\nmotyw-kompilator|\nhtml2docx|\n'
+
+test_stop_db_consumers() {
+    yellow "=== Test: stop-db-consumers.sh — kogo zatrzymuje przed odtworzeniem ==="
+    local t out stopline
+    t=$(mktemp -d)
+    _stop_consumers_mock_docker "$t/bin"
+    export MOCK_LOG="$t/log"
+
+    # 1. Pelny stack: zatrzymani dokladnie konsumenci (przechodnio), nic wiecej.
+    : > "$MOCK_LOG"
+    out="$(PATH="$t/bin:$PATH" MOCK_IDS="a b c" MOCK_GRAPH="$STOP_CONSUMERS_GRAPH" \
+        bash "$REPO_DIR/scripts/stop-db-consumers.sh" 2>&1)" ; local rc=$?
+    stopline="$(grep '^compose stop' "$MOCK_LOG" || true)"
+    if [ "$stopline" = "compose stop -t 30 appserver authserver celerybeat denorm-queue flower ofelia workerserver" ]; then
+        pass "zatrzymuje konsumentow (przechodnio), bez infrastruktury/nginksa/monitoringu"
+    else
+        fail "lista zatrzymywanych uslug: '$stopline' ($out)"
+    fi
+    if [ "$rc" -eq 0 ]; then pass "pelny stack: exit 0"; else fail "pelny stack: exit $rc"; fi
+
+    # 2. Swieza instalacja: brak kontenerow -> exit 0, zadnego stop.
+    : > "$MOCK_LOG"
+    PATH="$t/bin:$PATH" MOCK_IDS="" bash "$REPO_DIR/scripts/stop-db-consumers.sh" >/dev/null 2>&1; rc=$?
+    if [ "$rc" -eq 0 ] && ! grep -q '^compose stop' "$MOCK_LOG"; then
+        pass "brak kontenerow: exit 0, bez 'compose stop'"
+    else
+        fail "brak kontenerow: rc=$rc, log: $(cat "$MOCK_LOG")"
+    fi
+
+    # 3. Fail-open: blad ps / inspect / stop nie wywraca deployu.
+    local v
+    for v in MOCK_PS_RC=3 MOCK_INSPECT_RC=4 MOCK_STOP_RC=5; do
+        : > "$MOCK_LOG"
+        env PATH="$t/bin:$PATH" MOCK_IDS="a" MOCK_GRAPH="$STOP_CONSUMERS_GRAPH" "$v" \
+            bash "$REPO_DIR/scripts/stop-db-consumers.sh" >/dev/null 2>&1; rc=$?
+        if [ "$rc" -eq 0 ]; then pass "fail-open przy $v"; else fail "fail-open przy $v (exit $rc)"; fi
+    done
+
+    # 4. Timeout z env; smieci -> domyslne 30.
+    : > "$MOCK_LOG"
+    PATH="$t/bin:$PATH" MOCK_IDS="a" MOCK_GRAPH="$STOP_CONSUMERS_GRAPH" BPP_DEPLOY_STOP_TIMEOUT=45 \
+        bash "$REPO_DIR/scripts/stop-db-consumers.sh" >/dev/null 2>&1
+    assert_file_contains "BPP_DEPLOY_STOP_TIMEOUT=45 trafia do compose stop" '^compose stop -t 45 ' "$MOCK_LOG"
+    : > "$MOCK_LOG"
+    PATH="$t/bin:$PATH" MOCK_IDS="a" MOCK_GRAPH="$STOP_CONSUMERS_GRAPH" BPP_DEPLOY_STOP_TIMEOUT='10; rm' \
+        bash "$REPO_DIR/scripts/stop-db-consumers.sh" >/dev/null 2>&1
+    assert_file_contains "nieliczbowy timeout -> 30" '^compose stop -t 30 ' "$MOCK_LOG"
+
+    unset MOCK_LOG
+    rm -rf "$t"
+
+    # denorm-queue: PID 1 to python bez handlera SIGTERM -> `docker stop` czekal
+    # caly timeout, blokujac workerserver/appserver za nim.
+    assert_svc_contains "denorm-queue: stop_signal SIGINT (szybkie zatrzymanie)" \
+        'stop_signal: SIGINT' "$(svc_block denorm-queue "$REPO_DIR/docker-compose.workers.yml")"
+}
+
+# Prawdziwa recepta `make up` na atrapie dockera: stop konsumentow MUSI
+# poprzedzac `compose up --force-recreate`. Grep zrodla nie wystarcza — liczy
+# sie kolejnosc wywolan, ktora widac dopiero po wykonaniu recepty.
+test_up_stops_consumers_first() {
+    yellow "=== Test: make up — najpierw stop konsumentow, potem up --force-recreate ==="
+    setup_temp
+    mkdir -p "$CONFIG_DIR"
+    make -C "$REPO_COPY" init-configs BPP_CONFIGS_DIR="$CONFIG_DIR" >/dev/null 2>&1
+    echo "BPP_CONFIGS_DIR=$CONFIG_DIR" > "$REPO_COPY/.env"
+
+    local up_rc=0 override
+    _stop_consumers_mock_docker "$WORK_DIR/bin"
+    override="$(_make_compose_override "$WORK_DIR/bin")"
+    export MOCK_LOG="$WORK_DIR/docker.log"
+    : > "$MOCK_LOG"
+    # Prerekwizyty (walidacja .env, pytania, rendering configow) maja wlasne testy;
+    # tu liczy sie sama recepta `up`.
+    PATH="$WORK_DIR/bin:$PATH" MOCK_IDS="a b" MOCK_GRAPH="$STOP_CONSUMERS_GRAPH" \
+        MOCK_SERVICES="dbserver redis pgbouncer appserver webserver workerserver" \
+        BPP_SKIP_HEALTH_GATE=1 BPP_NO_CONFIG_PROMPT=1 \
+        make -C "$REPO_COPY" -o validate-env-quotes -o ask-missing-config \
+            -o ensure-config-files -o update-configs ${override:+"$override"} up > "$WORK_DIR/up.out" 2>&1 || up_rc=$?
+
+    local stop_ln up_ln
+    stop_ln="$(grep -n "^compose stop " "$MOCK_LOG" | head -1 | cut -d: -f1 || true)"
+    up_ln="$(grep -n "^compose up " "$MOCK_LOG" | head -1 | cut -d: -f1 || true)"
+    if [ -n "$stop_ln" ] && [ -n "$up_ln" ] && [ "$stop_ln" -lt "$up_ln" ]; then
+        pass "make up: 'compose stop' (linia $stop_ln) przed pierwszym 'compose up' (linia $up_ln)"
+    else
+        fail "make up: brak stopu konsumentow przed up (stop='$stop_ln', up='$up_ln'): $(tr '\n' ';' < "$MOCK_LOG") | make rc=$up_rc: $(tr '\n' ';' < "$WORK_DIR/up.out")"
+    fi
+    if grep -q '^compose stop .*appserver' "$MOCK_LOG" && ! grep -qE '^compose stop .*(dbserver|redis|webserver)' "$MOCK_LOG"; then
+        pass "make up: zatrzymuje appserver, nie rusza dbserver/redis/webserver"
+    else
+        fail "make up: zla lista zatrzymywanych: $(grep '^compose stop' "$MOCK_LOG" || true)"
+    fi
+
+    # Stanowa infrastruktura BEZ --force-recreate (Compose odtwarza ja sam przy
+    # zmianie obrazu/konfiguracji/sumy plikow startowych), reszta NA SILE.
+    local infra_up rest_up
+    infra_up="$(grep -E '^compose up .*dbserver' "$MOCK_LOG" | head -1 || true)"
+    rest_up="$(grep -E '^compose up .*--force-recreate' "$MOCK_LOG" | head -1 || true)"
+    if [ -n "$infra_up" ] && ! printf '%s' "$infra_up" | grep -q -- '--force-recreate' \
+        && printf '%s' "$infra_up" | grep -q redis && printf '%s' "$infra_up" | grep -q pgbouncer; then
+        pass "make up: dbserver/redis/pgbouncer bez --force-recreate ($infra_up)"
+    else
+        fail "make up: infrastruktura odtwarzana na sile albo pominieta ('$infra_up')"
+    fi
+    if printf '%s' "$rest_up" | grep -qE ' appserver( |$)' && printf '%s' "$rest_up" | grep -qE ' webserver( |$)' \
+        && ! printf '%s' "$rest_up" | grep -qE ' (dbserver|redis|pgbouncer)( |$)'; then
+        pass "make up: --force-recreate dla reszty, bez dbserver/redis/pgbouncer"
+    else
+        fail "make up: zla lista --force-recreate ('$rest_up')"
+    fi
+
+    # Blad `docker compose config` -> pusta lista -> stare zachowanie: recreate WSZYSTKIEGO.
+    : > "$MOCK_LOG"
+    PATH="$WORK_DIR/bin:$PATH" MOCK_IDS="" MOCK_CONFIG_RC=1 \
+        BPP_SKIP_HEALTH_GATE=1 BPP_NO_CONFIG_PROMPT=1 \
+        make -C "$REPO_COPY" -o validate-env-quotes -o ask-missing-config \
+            -o ensure-config-files -o update-configs ${override:+"$override"} up > "$WORK_DIR/up2.out" 2>&1 || true
+    if grep -qxE 'compose up -d --wait --force-recreate --remove-orphans *' "$MOCK_LOG"; then
+        pass "make up: blad 'compose config' -> recreate calego stacka (stare zachowanie)"
+    else
+        fail "make up: fallback przy bledzie 'compose config': $(grep '^compose up' "$MOCK_LOG" | tr '\n' ';')"
+    fi
+
+    unset MOCK_LOG
+    cleanup_temp
+}
+
+# scripts/infra-files-hash.sh: suma plikow startowych dbserver/pgbouncer w .env
+# + label w compose. Bez niej zmiana autotune/entrypointu pgbouncera po `git pull`
+# nie dotarlaby do kontenera (make up nie odtwarza ich na sile).
+test_infra_files_hash() {
+    yellow "=== Test: infra-files-hash.sh — suma plikow startowych dbserver/pgbouncer ==="
+    local t r env h1 h2
+    t=$(mktemp -d)
+    r="$t/repo"
+    mkdir -p "$r/scripts" "$r/dbserver" "$r/pgbouncer" "$t/cfg"
+    cp "$REPO_DIR/scripts/infra-files-hash.sh" "$r/scripts/"
+    cp "$REPO_DIR/dbserver/"*.sh "$r/dbserver/"
+    cp "$REPO_DIR/pgbouncer/entrypoint.sh" "$r/pgbouncer/"
+    env="$t/cfg/.env"
+    printf 'A=1\nB=2' > "$env"   # bez konca linii: wpis nie moze sie skleic
+
+    BPP_CONFIGS_DIR="$t/cfg" bash "$r/scripts/infra-files-hash.sh" --zapisz >/dev/null 2>&1
+    h1="$(grep -E '^BPP_INFRA_FILES_HASH=[0-9]+$' "$env" | cut -d= -f2 || true)"
+    if [ -n "$h1" ] && grep -qx 'B=2' "$env"; then
+        pass "zapisuje BPP_INFRA_FILES_HASH (cyfry), nie skleja z ostatnia linia"
+    else
+        fail "brak/zla suma w .env: $(cat "$env")"
+    fi
+
+    BPP_CONFIGS_DIR="$t/cfg" bash "$r/scripts/infra-files-hash.sh" --zapisz >/dev/null 2>&1
+    if [ "$(grep -c '^BPP_INFRA_FILES_HASH=' "$env")" -eq 1 ]; then
+        pass "idempotentny (jedna linia po dwoch wywolaniach)"
+    else
+        fail "zduplikowany wpis: $(grep '^BPP_INFRA_FILES_HASH=' "$env" | tr '\n' ';')"
+    fi
+
+    local f
+    for f in dbserver/autotune.sh dbserver/docker-entrypoint-autotune.sh pgbouncer/entrypoint.sh; do
+        echo "# zmiana" >> "$r/$f"
+        BPP_CONFIGS_DIR="$t/cfg" bash "$r/scripts/infra-files-hash.sh" --zapisz >/dev/null 2>&1
+        h2="$(grep '^BPP_INFRA_FILES_HASH=' "$env" | cut -d= -f2)"
+        if [ "$h2" != "$h1" ] && [ "$(grep -c '^BPP_INFRA_FILES_HASH=' "$env")" -eq 1 ]; then
+            pass "zmiana $f zmienia sume"
+        else
+            fail "zmiana $f NIE zmienia sumy ($h1)"
+        fi
+        h1="$h2"
+    done
+
+    local rc
+    BPP_CONFIGS_DIR="$t/brak" bash "$r/scripts/infra-files-hash.sh" --zapisz >/dev/null 2>&1; rc=$?
+    if [ "$rc" -eq 0 ]; then pass "fail-open bez .env"; else fail "fail-open bez .env (exit $rc)"; fi
+    rm -f "$r/pgbouncer/entrypoint.sh"
+    cp "$env" "$t/env.przed"
+    BPP_CONFIGS_DIR="$t/cfg" bash "$r/scripts/infra-files-hash.sh" --zapisz >/dev/null 2>&1; rc=$?
+    if [ "$rc" -eq 0 ] && cmp -s "$env" "$t/env.przed"; then
+        pass "fail-open przy brakujacym pliku, .env nietkniety"
+    else
+        fail "brakujacy plik: exit $rc albo zmieniony .env"
+    fi
+    rm -rf "$t"
+
+    # Label w obu uslugach (to on, nie env, jest kontraktem wymuszajacym recreate).
+    # shellcheck disable=SC2016  # wzorzec doslowny
+    assert_svc_contains "dbserver: label z BPP_INFRA_FILES_HASH" \
+        'pl.iplweb.bpp.pliki-startowe: "${BPP_INFRA_FILES_HASH:-}"' \
+        "$(svc_block dbserver "$REPO_DIR/docker-compose.database.yml")"
+    # shellcheck disable=SC2016  # wzorzec doslowny
+    assert_svc_contains "pgbouncer: label z BPP_INFRA_FILES_HASH" \
+        'pl.iplweb.bpp.pliki-startowe: "${BPP_INFRA_FILES_HASH:-}"' \
+        "$(svc_block pgbouncer "$REPO_DIR/docker-compose.pgbouncer.yml")"
+    assert_file_contains "ensure-config-files liczy sume (prerekwizyt make up)" \
+        'scripts/infra-files-hash.sh --zapisz' "$REPO_DIR/mk/configs.mk"
+}
+
 test_first_run_setup
 test_first_run_empty_env
 test_init_configs_creates_structure
@@ -3596,6 +3850,9 @@ test_backup_runner_mounts_configs
 test_db_autotune_external
 test_db_budget
 test_db_password_not_in_argv
+test_stop_db_consumers
+test_up_stops_consumers_first
+test_infra_files_hash
 
 echo ""
 echo "========================================"

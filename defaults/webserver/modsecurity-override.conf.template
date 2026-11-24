@@ -918,3 +918,106 @@ SecRule REQUEST_FILENAME "@rx ^/(?:pbn_export_queue|pbn_import|importer_publikac
     nolog,\
     t:none,\
     ctl:ruleRemoveById=950150"
+
+# ---------------------------------------------------------------------------
+# 10019, 10020: importer publikacji — wklejony BibTeX i adres strony pracy
+# ---------------------------------------------------------------------------
+# ZGLOSZENIE (instalacja produkcyjna, 2026-10): redaktor wkleja w "Importerze
+# publikacji" wpis BibTeX i dostaje "Blad polaczenia z serwerem". Ten
+# komunikat front pokazuje WYLACZNIE na `htmx:sendError`, czyli gdy
+# przegladarka nie dostala ZADNEJ odpowiedzi HTTP — a tak wyglada nasze 444.
+# W Django nie ma sladu, bo zadanie do niego nie doszlo. W access logu:
+#
+#   "POST /importer_publikacji/fetch/ HTTP/2.0" 444 0
+#
+# Logi z dnia zgloszenia byly juz zrotowane, wiec przyczyne ustalono testem
+# (make test-waf na CRS 4.30, PL1, 2026-11-23), nie logiem. Blokuje sie
+# ZWYKLY eksport z menedzera bibliografii, bez zadnej "dziwnej" tresci:
+#
+#   932235 Remote Command Execution: Unix Command Injection
+#     Matched Data: \x0a\x09file  found within ARGS:text_input
+#       — pole `file = {...}` w osobnej linii, czyli KAZDY eksport z Zotero,
+#         Mendeleya albo JabRefa dla pozycji z zalacznikiem PDF. Nowa linia +
+#         `file` to dla CRS wywolanie uniksowego polecenia `file`.
+#   930120 OS File Access Attempt
+#     Matched Data: .local/share/ (albo .config/, /tmp/) — sciezka zalacznika
+#       w tym samym polu `file` na Linuksie.
+#   932130 Remote Command Execution: Unix Shell Expression Found
+#     Matched Data: $(1-alpha) — wzor LaTeX-a `$(1-\alpha)$` w tytule.
+#   933180 PHP Injection Attack: Variable Function Call Found
+#     Matched Data: $O(n^{-1/2})$ ... — matematyka w streszczeniu.
+#   942100 SQL Injection Attack Detected via libinjection
+#     — cudzyslowy LaTeX-a ``...'' i apostrofy w polach w cudzyslowach.
+#
+# Kazde trafienie to 5 pkt przy progu 5, wiec wystarcza jedno.
+#
+# DRUGIE POLE TEGO SAMEGO FORMULARZA — `identifier`. Dla dostawcy "Pozostale
+# strony WWW" jest nim ADRES STRONY PRACY, a kazdy adres z query stringiem,
+# w ktorym po `&` stoi parametr o nazwie polecenia, robi to samo co `next`
+# w 10014:
+#
+#   932370/932380 Windows Command Injection
+#     Matched Data: &print / &dir found within ARGS:identifier:
+#       https://.../article/view/1234?lang=en&print=1
+#   932160 Unix Shell Code Found
+#     Matched Data: bin/sh found within ARGS:identifier:
+#       https://.../cgi-bin/show.cgi?...   (`cgi-BIN/SHow.cgi`)
+#
+# Ten sam argument jedzie tez GET-em na /importer_publikacji/ — to link
+# "Uzyj importera" z listy zgloszen publikacji, ktory wstawia do `identifier`
+# adres podany przez zglaszajacego. Stad dwie sciezki w 10020.
+#
+# DLACZEGO NIE `ctl:ruleRemoveTargetById=932235`: to WOLNY TEKST NAUKOWY —
+# ta sama natura danych co streszczenia w 10009, gdzie wyliczanka ID przegrala
+# trzy razy w jedenascie dni. Juz w pierwszym pomiarze zapalilo sie piec regul
+# z czterech rodzin.
+#
+# DLACZEGO NIE `ctl:ruleEngine=DetectionOnly` na calej sciezce (jak 10009),
+# choc widoki sa za logowaniem (superuser albo grupa "wprowadzanie danych")
+# i NIE sa csrf_exempt: bo da sie wezej. Falszywe alarmy siedza w dwoch
+# argumentach; reszta zadania (pozostale pola, ciasteczka, naglowki) i reszta
+# sciezek importera zostaja chronione w pelni.
+#
+# ZAKRES = SINKI + POMIAR, jak w 10011/10013, ale tylko rodziny, ktore
+# faktycznie sie zapalily:
+#   - `text_input` jest parsowany (bibtexparser + pylatexenc), zapisywany
+#     ORM-em i pokazywany w szablonach z autoescape. Nie trafia do powloki,
+#     pliku, PHP ani surowego SQL-a. Zdejmujemy 930 (LFI), 932 (RCE),
+#     933 (PHP) i 942 (SQLi) — WYLACZNIE z tego argumentu, WYLACZNIE na fetch/.
+#     931 (RFI) i 934 (SSRF) zostaja: w pomiarze sie nie zapalily.
+#   - 941 (XSS) ZOSTAJE. Tytul z importu staje sie tytulem rekordu, a tytuly
+#     rekordow BPP renderuje jako HTML. Zmierzone: legalny HTML w BibTeX-ie
+#     (`<i>`, `<sub>`, `<jats:p>`, `&times;`) przez 941 PRZECHODZI, wiec
+#     zostawienie tej rodziny nic redaktorom nie zabiera.
+#   - `identifier` to DOI, identyfikator PBN albo adres, ktory serwer SAM
+#     POBIERA. Zdejmujemy wiec tylko 932 (RCE) — adres nie idzie do powloki.
+#     931 (RFI), 934 (SSRF), 930 (LFI), 942 (SQLi) i 941 (XSS) zostaja jako
+#     druga warstwa za walidacja adresu w aplikacji.
+#
+# CZEGO TU CELOWO NIE MA (zmierzone, przechodzi bez wykluczenia — w test-waf.sh
+# stoja na to straznicy regresji): lista DOI na /importer_publikacji/wiele-doi/
+# (`lista_doi`, takze DOI typu SICI z `<`, `>`, `;`), pola patentowe kroku
+# weryfikacji, `wydawca_opis`, nazwiska autorow. Krok weryfikacji NIE wysyla
+# tytulu ani streszczenia — pokazuje je tylko do odczytu. Gdy ktores z tych
+# pol zacznie blokowac, dopisac je tutaj PO ZMIERZENIU.
+#
+# `REQUEST_FILENAME` z kotwicami z obu stron — z tego samego powodu co
+# w 10009: query string nie moze domknac wzorca na cudzej sciezce.
+SecRule REQUEST_FILENAME "@rx ^/importer_publikacji/fetch/$" \
+    "id:10019,\
+    phase:1,\
+    pass,\
+    nolog,\
+    t:none,\
+    ctl:ruleRemoveTargetByTag=attack-lfi;ARGS:text_input,\
+    ctl:ruleRemoveTargetByTag=attack-rce;ARGS:text_input,\
+    ctl:ruleRemoveTargetByTag=attack-injection-php;ARGS:text_input,\
+    ctl:ruleRemoveTargetByTag=attack-sqli;ARGS:text_input"
+
+SecRule REQUEST_FILENAME "@rx ^/importer_publikacji/(?:fetch/)?$" \
+    "id:10020,\
+    phase:1,\
+    pass,\
+    nolog,\
+    t:none,\
+    ctl:ruleRemoveTargetByTag=attack-rce;ARGS:identifier"

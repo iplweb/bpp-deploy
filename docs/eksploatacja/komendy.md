@@ -10,7 +10,7 @@ make help             # Pełna lista wszystkich targetów Make (źródło prawdy
 
 ```bash
 make run                # Pełne wdrożenie (pull, build, configs, up)
-make up                 # Start wszystkich usług (force recreate) + sprzątanie Dockera
+make up                 # Start wszystkich usług (recreate; baza/redis/pgbouncer tylko przy zmianie) + sprzątanie Dockera
 make up-quick           # Szybki start bez recreation (bez sprzątania)
 make refresh            # prune + pull + recreate (po update obrazu)
 make wait               # Czeka na build z GH Actions, potem make refresh
@@ -32,6 +32,27 @@ make disable-site-down-warning             # awaryjne odblokowanie strony
 
 Pełny opis (fazy, zachowanie przy błędzie, multi-host, zabezpieczenie na wypadek
 padniętej sesji): [Przerwa techniczna z ostrzeżeniem](przerwa-techniczna.md).
+
+!!! note "Najpierw zatrzymanie aplikacji, potem odtworzenie"
+    Zanim `make up` (a więc `make run`, auto-update i `make run-with-warning`)
+    odtworzy kontenery, **zatrzymuje usługi korzystające z bazy i Redisa**:
+    `appserver`, `authserver`, workery Celery, `denorm-queue`, `celerybeat`,
+    `flower` i `ofelia`. Dzięki temu baza i Redis nie znikają spod działającej
+    aplikacji, a do Sentry/GlitchTip/Rollbara nie trafia przy każdym wdrożeniu seria
+    fałszywych błędów połączenia. Nginx działa dalej i w tym czasie pokazuje stronę
+    serwisową. Czas na łagodne zamknięcie (m.in. dokończenie krótkich zadań Celery)
+    to 30 s, zmienny przez `BPP_DEPLOY_STOP_TIMEOUT` w `.env`. `make up-quick` tego
+    kroku nie robi. Szczegóły: [Pułapki wdrożenia](../rozwoj/pulapki-wdrozenia.md#kolejnosc-restartu).
+
+!!! note "Baza, Redis i pgbouncer restartują się tylko przy zmianie"
+    `make up` odtwarza aplikację, nginx i monitoring zawsze, ale `dbserver`,
+    `redis` i `pgbouncer` — tylko gdy zmienił się ich obraz (po `make pull`),
+    `.env`, limity zasobów albo skrypty startowe z repozytorium (`dbserver/`,
+    `pgbouncer/entrypoint.sh`; ich sumę `make up` trzyma w `.env` jako
+    `BPP_INFRA_FILES_HASH` — nie edytuj). Baza nie jest więc restartowana przy każdym
+    wdrożeniu, a przerwa jest krótsza. Ręczny restart bazy:
+    `docker compose restart dbserver` albo `make refresh`. Szczegóły:
+    [Pułapki wdrożenia](../rozwoj/pulapki-wdrozenia.md#infra-bez-force-recreate).
 
 !!! note "Sprzątanie Dockera po `make up` / `make run`"
     Po **udanym** starcie (`--wait` — wszystkie usługi zdrowe) `make up` (a więc i
@@ -135,7 +156,7 @@ Deploy (`make run`) **nie** wysyła już automatycznie testowych maili ani nie t
 Rollbara — diagnostykę uruchamiasz na żądanie. Najprościej przez interaktywne menu:
 
 ```bash
-make doctor           # menu: mail / ntfy / rollbar / health / backup / wszystko
+make doctor           # menu: mail / ntfy / rollbar / sentry / health / backup / wszystko
 ```
 
 Pojedyncze testy (każdy robi dokładnie jedną rzecz) można też wywołać wprost:
@@ -148,7 +169,7 @@ make test-ntfy        # Wyślij testowy push na ntfy (wymaga NTFY_TOPIC)
 make ntfy-test        # Deprecated alias dla test-ntfy
 ```
 
-W menu pozycja **wszystko** = mail + ntfy + rollbar po kolei (dawne zachowanie
+W menu pozycja **wszystko** = mail + ntfy + rollbar + sentry (GlitchTip) po kolei (dawne zachowanie
 po deployu, ale na żądanie). `health` i `backup` (pełny cykl: pg_dump + media +
 rclone + powiadomienie Rollbar) to osobne pozycje menu.
 

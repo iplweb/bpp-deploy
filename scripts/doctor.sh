@@ -3,16 +3,16 @@
 # BPP doctor - interaktywne menu diagnostyczne.
 #
 # Od wersji 2026.06 deploy (`make run`) NIE wysyla juz automatycznie testowych
-# maili ani nie testuje Rollbara. Diagnostyke odpalasz na zadanie stad.
+# maili ani nie testuje Rollbara/GlitchTipa. Diagnostyke odpalasz na zadanie stad.
 #
 # Kazda pozycja menu wola z powrotem do `make` (test-email / test-ntfy /
-# test-rollbar / health / backup-cycle) - single source of truth: straznicy env
+# test-rollbar / test-sentry / health / backup-cycle) - single source of truth: straznicy env
 # i komendy docker zyja w celach make, nie sa duplikowane tutaj.
 #
 # Uruchomienie:
 #   make doctor                 # interaktywne menu
 #   bash scripts/doctor.sh      # j.w.
-#   bash scripts/doctor.sh mail # nieinteraktywnie: mail|ntfy|rollbar|health|backup|config|all
+#   bash scripts/doctor.sh mail # nieinteraktywnie: mail|ntfy|rollbar|sentry|health|backup|config|all
 #
 # Uwaga: NIE ustawiamy `-e` - zawodzacy pojedynczy test (np. brak env) ma wrocic
 # do menu, a nie ubic calego doctora.
@@ -36,19 +36,21 @@ run_choice() {
         mail)    run_target test-email ;;
         ntfy)    run_target test-ntfy ;;
         rollbar) run_target test-rollbar ;;
+        sentry)  run_target test-sentry ;;
         health)  run_target health ;;
         backup)  run_target backup-cycle ;;
         config)  run_target config-check ;;
         all)
-            # "wszystko" = trio powiadomien (dawne post-deploy zachowanie,
+            # "wszystko" = kanaly powiadomien (dawne post-deploy zachowanie,
             # ale na zadanie). Swiadomie BEZ health/backup.
             run_target test-email
             run_target test-ntfy
             run_target test-rollbar
+            run_target test-sentry
             ;;
         *)
             echo "BLAD: nieznana pozycja '$1'" >&2
-            echo "Dozwolone: mail ntfy rollbar health backup config all" >&2
+            echo "Dozwolone: mail ntfy rollbar sentry health backup config all" >&2
             return 2
             ;;
     esac
@@ -63,8 +65,9 @@ print_menu() {
   3) rollbar  — wyślij testowe zdarzenie      (test-rollbar)
   4) health   — status usług + ostatnie błędy (health)
   5) backup   — pełny cykl backupu            (backup-cycle)
-  6) wszystko — mail + ntfy + rollbar po kolei
+  6) wszystko — mail + ntfy + rollbar + sentry po kolei
   7) config   — poprawność zmiennych operatora (config-check)
+  8) sentry   — testowe zdarzenie do GlitchTip (test-sentry)
   q) wyjście
 EOF
 }
@@ -86,6 +89,7 @@ menu() {
             5|backup)       run_choice backup || true ;;
             6|all|wszystko) run_choice all || true ;;
             7|config)       run_choice config || true ;;
+            8|sentry|glitchtip) run_choice sentry || true ;;
             q|Q|quit|exit)  break ;;
             "")             : ;;   # pusty Enter -> przerysuj menu
             *) echo "Nieznany wybór: $choice" >&2 ;;

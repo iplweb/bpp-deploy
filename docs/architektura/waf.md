@@ -270,6 +270,14 @@ Obecnie jest ich dwanaście:
   PBN kończyła się pustą stroną (`500 0`). Reszta reguł wychodzących zostaje.
   Szczegóły: [`HttpException` z PBN](#httpexception-pbn).
 
+- **`id:10019`, `id:10020` — importer publikacji: wklejony BibTeX i adres
+  strony pracy.** Na `/importer_publikacji/fetch/` argument `text_input` nie
+  jest skanowany rodzinami 930/932/933/942, a `identifier` (tam i na
+  `/importer_publikacji/`) — rodziną 932. **XSS (941), RFI (931) i SSRF (934)
+  zostają.** Zgłoszenie: po wklejeniu wpisu BibTeX „Błąd połączenia
+  z serwerem" — zwykły eksport z Zotero z polem `file` zapalał `932235`.
+  Szczegóły: [Importer publikacji](#importer-publikacji).
+
 Reguły 10002 i 10003 schodzą dla swoich ścieżek do `ctl:ruleEngine=DetectionOnly`:
 trafienia nadal trafiają do audit logu (i posłużą do napisania precyzyjnych
 wykluczeń), ale nikomu nie urywają połączenia. To **tępe narzędzie na start** —
@@ -1174,6 +1182,141 @@ Kontrole w `make test-waf`: FP z produkcji przechodzą; `CENA:` RCE w `next`
 i SQLi na `/mcp/auth` przechodzą; SQLi w `next`, RCE w `username`, RCE
 w query stringu whoami, `/api/v1/whoami/x/`, SQLi na publicznym `/mcp` oraz
 te same payloady na `/bpp/szukaj/` dalej blokują.
+
+## Importer publikacji — reguły 10019, 10020 {#importer-publikacji}
+
+### Objaw
+
+Redaktor w „Importerze publikacji" wkleja wpis BibTeX (albo adres strony
+pracy), klika „Pobierz" i dostaje czerwony komunikat **„Błąd połączenia
+z serwerem."** Inne wpisy, wklejane tak samo, przechodzą. W logu Django nie ma
+nic, w access logu:
+
+```
+"POST /importer_publikacji/fetch/ HTTP/2.0" 444 0
+```
+
+Komunikat jest tu wskazówką, nie ogólnikiem: front importera pokazuje go
+wyłącznie na zdarzeniu `htmx:sendError`, czyli wtedy, gdy przeglądarka nie
+dostała **żadnej** odpowiedzi HTTP. Błąd aplikacji wyglądałby inaczej („Błąd
+serwera (500). Sprawdź logi serwera."). Brak odpowiedzi to nasze
+[444](#dlaczego-444-a-nie-403).
+
+### Przyczyna
+
+Zgłoszenie przyszło z instalacji produkcyjnej, ale logi z tamtego dnia były
+już zrotowane — przyczynę ustalił `make test-waf` (CRS 4.30, PL1, 2026-11-23),
+nie audit log. Blokuje się **zwykły eksport z menedżera bibliografii**, bez
+żadnej nietypowej treści:
+
+| Reguła | Co ją zapala w `ARGS:text_input` |
+|---|---|
+| `932235` Unix Command Injection | pole `file = {…}` w osobnej linii — nowa linia + `file` to dla CRS polecenie `file`. **Każdy** eksport z Zotero, Mendeleya i JabRefa dla pozycji z załącznikiem PDF |
+| `930120` OS File Access Attempt | ścieżka załącznika w tym samym polu na Linuksie (`.local/share/`, `.config/`, `/tmp/`) |
+| `932130` Unix Shell Expression | wzór LaTeX-a `$(1-\alpha)$` w tytule |
+| `933180` PHP Variable Function Call | matematyka w streszczeniu (`$O(n^{-1/2})$ … $H_0$`) |
+| `942100` SQLi (libinjection) | cudzysłowy LaTeX-a ` ``…'' ` i apostrofy w polach zapisanych w cudzysłowach |
+
+Każde trafienie to 5 pkt przy progu 5. Wpisy bez pola `file`, bez wzorów
+i w klamrach zamiast cudzysłowów przechodziły — stąd wrażenie, że „raz działa,
+raz nie".
+
+Drugie pole tego samego formularza, `identifier`, dla dostawcy „Pozostałe
+strony WWW" jest **adresem strony pracy**. Adres z query stringiem blokuje się
+z tego samego powodu co `next` w [10014](#logowanie-whoami-mcp):
+
+| Reguła | Adres |
+|---|---|
+| `932370` / `932380` Windows Command Injection | `…/article/view/1234?lang=en&print=1`, `…/show?id=77&sort=date&dir=asc` (`&print`, `&dir`) |
+| `932160` Unix Shell Code | `…/cgi-bin/show.cgi?…` (`cgi-`**`bin/sh`**`ow.cgi`) |
+
+Ten argument jedzie też GET-em na `/importer_publikacji/` — to link „Użyj
+importera" z listy zgłoszeń publikacji, który wstawia do `identifier` adres
+podany przez zgłaszającego.
+
+### Zakres i dlaczego wolno
+
+| Reguła | Ścieżka | Argument | Zdjęte rodziny |
+|---|---|---|---|
+| 10019 | `^/importer_publikacji/fetch/$` | `text_input` | 930 (LFI), 932 (RCE), 933 (PHP), 942 (SQLi) |
+| 10020 | `^/importer_publikacji/(?:fetch/)?$` | `identifier` | 932 (RCE) |
+
+Zakres wyznaczają sinki **i pomiar** — zdjęte są tylko rodziny, które
+faktycznie się zapaliły:
+
+- `text_input` jest parsowany (`bibtexparser` + `pylatexenc`), zapisywany
+  ORM-em i pokazywany w szablonach z autoescape. Nie trafia do powłoki, pliku,
+  PHP ani surowego SQL-a. 931 (RFI) i 934 (SSRF) zostają, bo się nie zapaliły.
+- **941 (XSS) zostaje.** Tytuł z importu staje się tytułem rekordu, a tytuły
+  rekordów BPP renderuje jako HTML. Zmierzone: legalny HTML w BibTeX-ie
+  (`<i>`, `<sub>`, `<jats:p>`, `&times;`) przez 941 przechodzi, więc ta
+  rodzina nic redaktorom nie zabiera.
+- `identifier` to DOI, identyfikator albo adres, który **serwer sam pobiera**.
+  Zdejmujemy tylko 932 — adres nie idzie do powłoki. 931, 934, 930, 942 i 941
+  zostają jako druga warstwa za walidacją adresu w aplikacji.
+
+Widoki importera wymagają logowania (superużytkownik albo grupa
+„wprowadzanie danych") i nie są `csrf_exempt`.
+
+### Dlaczego nie inne warianty
+
+- **Nie `ctl:ruleRemoveTargetById=932235`.** To wolny tekst naukowy — w
+  pierwszym pomiarze zapaliło się pięć reguł z czterech rodzin. Ta sama lekcja
+  co w [10009](#formularze-admina).
+- **Nie `ctl:ruleEngine=DetectionOnly` na całej ścieżce.** Widoki są za
+  logowaniem, więc byłoby to obronne jak w 10009 — ale da się węziej: fałszywe
+  alarmy siedzą w dwóch argumentach, a reszta żądania i reszta ścieżek
+  importera zostaje chroniona w pełni.
+- **Nie dopisywać 941 „dla spójności".** To jedyna rodzina z realnym sinkiem.
+- **Nie rozszerzać wzorca na `^/importer_publikacji/`.** Kontrole w teście
+  wymagają, żeby `text_input` na `wiele-doi/` i `<id>/verify/` dalej blokował.
+
+### Czego reguły celowo nie obejmują
+
+Zmierzone tym samym przebiegiem — przechodzi **bez** wykluczenia:
+
+- lista DOI na `/importer_publikacji/wiele-doi/` (`lista_doi`): gołe numery,
+  adresy `https://doi.org/…`, przedrostek `doi:`, także stare DOI typu SICI
+  z `<`, `>` i `;`;
+- krok weryfikacji — **nie wysyła tytułu ani streszczenia** (pokazuje je tylko
+  do odczytu); jego pola tekstowe to dane patentu (`numer_zgloszenia`,
+  `uprawniony`);
+- krok źródła (`wydawca_opis`) i autorzy (`nazwisko`, `imiona`,
+  `zapisany_jako`).
+
+W teście stoją na to **strażnicy**. Gdy po `make pull` któryś się zaczerwieni,
+to nowy fałszywy alarm po stronie CRS, nie regresja 10019/10020 — wtedy
+dopisać argument do reguły **po zmierzeniu**.
+
+### Cena i kontrole w `make test-waf`
+
+| Wynik | Przypadek |
+|---|---|
+| PASS | `@article`, `@book`, `@inproceedings` ze streszczeniem, HTML w tytule — przechodzą i bez reguły (regresja) |
+| PASS | FP: wzory LaTeX-a, cudzysłowy ` ``…'' `, eksport Zotero z polem `file`, ścieżka załącznika z JabRefa |
+| PASS | FP: adresy z `&print`, `&dir`, `cgi-bin/sh…` w `identifier` — POST na `fetch/` i GET na stronie importera |
+| PASS — `CENA:` | realne RCE i SQLi w `text_input`; realne RCE w `identifier` |
+| BLOK | XSS w `text_input` i w `identifier` |
+| BLOK | SQLi, LFI i pętla zwrotna (`http://127.0.0.1…`) w `identifier` |
+| BLOK | RCE w polach `provider` i `zgloszenia_filtry` tego samego formularza |
+| BLOK | `text_input` na `wiele-doi/`, na `<id>/verify/` i GET-em na stronie importera; `identifier` na `sessions/` |
+| BLOK | eksport Zotero i adres z `&print` na `/bpp/szukaj/` |
+| PASS — strażnik | 20 DOI, DOI typu SICI, krok weryfikacji, źródła i autorzy |
+
+Zweryfikowane mutacyjnie w obie strony: po skasowaniu reguł czerwieni się
+8 przypadków FP i 3 `CENA:`; po poszerzeniu wzorca ścieżki i dopisaniu rodzin
+(941 na `text_input`, 942 na `identifier`) czerwieni się 6 kontroli.
+
+Dwie pułapki testu, obie już raz obeszły asercję:
+
+- **Wpis BibTeX jest wieloliniowy**, a pętla `IFS='|' read` z pozostałych
+  sekcji kończy na pierwszej nowej linii. Przypadek obcięty do
+  `@article{klucz,` przechodzi zawsze — a nowa linia jest tu sednem (`932235`
+  zapala się na „nowa linia + `file`"). Treść jedzie więc z pliku.
+- **Payload `CENA:` dla `identifier` nie może zawierać ścieżki pliku.**
+  Na tym argumencie zostaje LFI, więc `…; cat /etc/passwd` blokuje się
+  niezależnie od 10020, a kontrola granicy ścieżki jest wtedy zielona
+  z niewłaściwego powodu.
 
 ## Logi WAF-a w Grafanie
 
