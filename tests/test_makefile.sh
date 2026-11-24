@@ -775,6 +775,53 @@ test_external_sentinel_logs_in() {
     rm_rf_root "$cfg"
 }
 
+# ============================================================
+# TEST 11g: nocny restart Ofelii trafia w sygnal, ktory PID 1 obsluguje
+# ============================================================
+# PID 1 w kontenerze ignoruje sygnaly bez handlera. denorm-queue to goly
+# `python manage.py denorm_queue` — handler ma tylko SIGINT, wiec `kill 1`
+# (SIGTERM) byl no-opem: restart o 05:25 nigdy sie nie odbywal (StartedAt bez
+# zmian). Pozostale (gunicorn, celery worker/beat, flower) SIGTERM lapia —
+# zmierzone przez SigCgt w /proc/1/status i zywy `docker exec … kill 1`.
+# Na RENDERZE compose config: liczy sie to, co Ofelia naprawde dostanie.
+test_ofelia_restart_signals() {
+    yellow "=== Test 11g: nocne restarty Ofelii — sygnal, ktory PID 1 obsluguje ==="
+
+    if ! command -v docker >/dev/null 2>&1 || ! docker info >/dev/null 2>&1; then
+        skip_or_fail "docker niedostepny — pomijam render compose config"
+        return
+    fi
+
+    local cfg out svc cmd
+    cfg=$(mktemp -d)
+    printf 'DJANGO_BPP_HOST_BACKUP_DIR=%s\n' "$cfg" > "$cfg/.env"
+    if ! out="$(_render_compose "$cfg")"; then
+        fail "compose config nie wyrenderowal sie ($(tail -1 "$cfg/stderr.txt"))"
+        rm_rf_root "$cfg"; return
+    fi
+
+    cmd="$(svc_block denorm-queue <(printf '%s\n' "$out") \
+        | sed -n 's/^ *ofelia\.job-exec\.restart_self\.command: *//p')"
+    if [ "$cmd" = "kill -INT 1" ]; then
+        pass "denorm-queue: nocny restart wysyla SIGINT (kill -INT 1)"
+    else
+        fail "denorm-queue: restart_self.command = '$cmd' (oczekiwane 'kill -INT 1'; goly 'kill 1' to no-op)"
+    fi
+
+    # Pozostale nocne restarty: PID 1 obsluguje SIGTERM, `kill 1` dziala.
+    for svc in appserver workerserver celerybeat flower; do
+        cmd="$(svc_block "$svc" <(printf '%s\n' "$out") \
+            | sed -n 's/^ *ofelia\.job-exec\.restart_self\.command: *//p')"
+        if [ -n "$cmd" ]; then
+            pass "$svc: nocny restart skonfigurowany ($cmd)"
+        else
+            fail "$svc: brak ofelia.job-exec.restart_self.command"
+        fi
+    done
+
+    rm_rf_root "$cfg"
+}
+
 test_pgbouncer_compose() {
     yellow "=== Test 11e: pgbouncer — kto laczy sie przez pule ==="
 
@@ -3820,6 +3867,7 @@ test_nginx_global_limits_wired
 test_nginx2root_guard
 test_pgbouncer_compose
 test_external_sentinel_logs_in
+test_ofelia_restart_signals
 test_waf_crossfilter
 test_log_monitoring_waf_filter
 test_env_sample

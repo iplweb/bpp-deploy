@@ -98,8 +98,13 @@ services:
       ofelia.enabled: "true"
       # Restart najpozniej w staggered secie - po wszystkich pozostalych, zeby NOTIFY
       # ze swiezo podniesionego workera mialy do czego trafic.
+      # SIGINT, NIE goly `kill 1` (SIGTERM): PID 1 to `python manage.py denorm_queue`
+      # bez handlera SIGTERM, a PID 1 ignoruje sygnaly bez handlera — `kill 1`
+      # byl no-opem (StartedAt sie nie zmienial, restart nigdy sie nie odbywal).
+      # Ten sam powod co `stop_signal: SIGINT` wyzej. Inne serwisy (gunicorn,
+      # celery worker/beat, flower) SIGTERM obsluguja — tam `kill 1` dziala.
       ofelia.job-exec.restart_self.schedule: "0 25 5 * * *"
-      ofelia.job-exec.restart_self.command: "kill 1"
+      ofelia.job-exec.restart_self.command: "kill -INT 1"
 
   workerserver-status:
     image: iplweb/bpp_workerserver:${DOCKER_VERSION:-latest}
