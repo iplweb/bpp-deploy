@@ -179,6 +179,93 @@ z przypadkiem produkcyjnym:
 **Loguj, który obraz się zmienił.** Bezimienne „Wykryto nowszy obraz Docker."
 przy 18 obrazach było nie do zdiagnozowania.
 
+## `make up`
+
+### Najpierw stop konsumentów, potem `--force-recreate` {#kolejnosc-restartu}
+
+**Objaw, który tu prowadzi:** po każdym wdrożeniu do Sentry/GlitchTip (i Rollbara)
+wpada seria błędów, których w działającym systemie nie ma:
+`OperationalError: could not translate host name "dbserver"`,
+`Error -3 connecting to redis:6379`, kombu
+`AttributeError: 'NoneType' object has no attribute 'hostname'` przy
+`WorkerShutdown`.
+
+**Przyczyna:** `docker compose up --force-recreate` odtwarza kontenery w
+kolejności zależności — najpierw `dbserver`, `redis`, `pgbouncer`, dopiero potem
+ich konsumentów. Stary `appserver` i workery Celery żyją więc dalej, kiedy baza
+i Redis już zniknęły (nazwa hosta przestaje się rozwiązywać), i zgłaszają to,
+co widzą. `depends_on` porządkuje start i `down`, ale **nie** chroni przed
+odtworzeniem zależności pod działającym konsumentem. Odtworzone na zabawkowym
+projekcie Compose (`docker events`): `stop db` → `stop app` → `start db` →
+`start app` — między pierwszym a drugim krokiem `app` żyje bez bazy.
+
+**Poprawka:** pierwszy krok recepty `up` to `scripts/stop-db-consumers.sh`,
+który robi `docker compose stop -t ${BPP_DEPLOY_STOP_TIMEOUT:-30}` na
+konsumentach. Lista jest **wyliczana**, nie wpisana na sztywno: działające
+kontenery projektu, które przechodnio zależą (`depends_on`) od `dbserver`,
+`redis` albo `pgbouncer` — zależności czytane z labela
+`com.docker.compose.depends_on`, który Compose nadaje kontenerom. Dziś wychodzi
+`appserver`, `authserver`, `workerserver`, `denorm-queue`, `celerybeat`,
+`flower`, `ofelia` (przez `appserver`) i `workerserver-status`, jeśli akurat
+działa. **Nie** wychodzą: `webserver` (nginx ma pokazywać stronę serwisową),
+monitoring, `backup-runner`, `rclone`, `html2docx`, `motyw-kompilator` — żaden nie
+ma `depends_on` na bazę/Redisa.
+
+Skrypt jest **fail-open**: brak kontenerów (świeża instalacja), błąd
+`docker compose ps`/`inspect`/`stop` → komunikat i exit 0, `up` idzie dalej jak
+dawniej. Kontrakt pilnuje `test_up_stops_consumers_first` w
+`tests/test_makefile.sh` — wykonuje prawdziwą receptę `make up` na atrapie
+dockera i sprawdza **kolejność wywołań** (sprawdzone: bez poprawki test gaśnie).
+
+!!! danger "Anti-fixy — nie rób tego"
+    - **Nie usuwaj kroku „bo `depends_on` wystarczy"** — nie wystarcza, patrz wyżej.
+      Objaw powrotu: znów seria fałszywych błędów połączeń po każdym wdrożeniu.
+    - **Nie zatrzymuj `webservera`** — w czasie przerwy nginx serwuje
+      `maintenance.html` (502 → `error_page`). Bez niego użytkownik dostaje
+      zerwane połączenie.
+    - **Nie każ skryptowi wywracać deployu** przy błędzie — to optymalizacja
+      zgłoszeń błędów, nie warunek wdrożenia.
+    - **Nie hardkoduj listy usług** — nowy konsument (np. kolejny worker) dopisany
+      w compose musi trafić na listę sam, przez `depends_on`.
+
+**`denorm-queue` ma `stop_signal: SIGINT`.** Jego PID 1 to goły
+`python manage.py denorm_queue` bez handlera SIGTERM, a PID 1 w kontenerze
+ignoruje sygnały bez handlera — `docker stop` czekał cały timeout i kończył
+SIGKILL-em. Ponieważ Compose zatrzymuje usługi w odwrotnej kolejności zależności,
+blokowało to też `workerserver` i `appserver` za nim (zmierzone: 30 s przestoju
+więcej). SIGINT Python obsługuje zawsze (`KeyboardInterrupt`): wyjście w < 1 s,
+kod 0. **Nie usuwaj tego „bo domyślny sygnał wystarczy"** — nie wystarcza.
+
+**Wpływ na przerwę — zmierzone na lokalnym stacku** (`dbserver`, `redis`,
+`pgbouncer`, `appserver`, `authserver`, `workerserver`, `denorm-queue`,
+`celerybeat`, `flower`, `ofelia`; obraz BPP 202611.1407):
+
+| | Przed | Po |
+|---|---|---|
+| czas od początku do „wszystko zdrowe" | 46 s | 46 s (stop 5 s + up 41 s) |
+| `appserver` niedostępny | ~26 s, ale bez bazy już od 1. sekundy | ~24 s |
+| linie z błędami połączeń w logach | 11 (`could not translate host name "dbserver"`, `Error 111 connecting to redis:6379`, `denorm-queue` padł dwa razy) | **0** |
+
+Czas zatrzymywania nie jest nowy — `--force-recreate` i tak zatrzymywał każdy
+z tych kontenerów; teraz dzieje się to wcześniej. Różnica jest w tym, **co
+widzi użytkownik**, gdy baza jest odtwarzana: dawniej `appserver` żył bez bazy
+i odpowiadał błędami, teraz nginx pokazuje stronę serwisową. Najgorszy przypadek
+wydłużenia: zajęty worker Celery, który wykorzystuje cały timeout
+(`BPP_DEPLOY_STOP_TIMEOUT`, 30 s zamiast domyślnych 10 s Compose).
+
+**Przerwa techniczna (`make run-with-warning`):** strona odliczania to 503
+z Django, więc zatrzymany `appserver` jej nie serwuje — w tym oknie nginx pokazuje
+statyczne `maintenance.html`. Nie jest to regresja: bez bazy (odtwarzanej i tak
+przy każdym `make up`) Django też nie odczyta stanu odliczania, a heartbeat
+(`docker compose exec appserver …`) nie działał już w trakcie recreate'u —
+blokada trzyma się na podłodze `--at-least` zapisanej w bazie.
+
+**`make up-quick` celowo bez tego kroku** — nie ma `--force-recreate`, więc
+odtwarza tylko usługi, które się zmieniły; bezwarunkowy stop konsumentów
+dokładałby przerwę na każdym wywołaniu. Zostaje ryzyko szczątkowe: gdy po `pull`
+zmieni się obraz `redis`/`postgres`, `up-quick` odtworzy go pod działającą
+aplikacją (te same fałszywe błędy, jednorazowo).
+
 ## Testy
 
 ```bash

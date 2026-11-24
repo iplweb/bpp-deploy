@@ -3,6 +3,11 @@
 
 all: run
 
+# Polecenie Compose w recepcie `up`. Nadpisywane wylacznie przez testy na
+# Windows: natywny make uruchamia tam docker.exe z system32 z pominieciem PATH,
+# wiec atrapa dockera z tests/test_makefile.sh bylaby niewidoczna.
+DOCKER_COMPOSE ?= docker compose
+
 validate-env-quotes:
 	@bash scripts/validate-env-quotes.sh
 
@@ -33,7 +38,12 @@ build:
 	docker compose build
 
 up: validate-env-quotes ask-missing-config ensure-config-files update-configs
-	docker compose up -d --wait --force-recreate --remove-orphans
+	@# NAJPIERW konsumenci bazy/redisa (appserver, workery, ...), POTEM up.
+	@# --force-recreate odtwarza dbserver/redis/pgbouncer pod dzialajacymi
+	@# workerami -> seria falszywych bledow polaczen w Sentry przy kazdym
+	@# deployu. Fail-open, nie usuwac: docs/rozwoj/pulapki-wdrozenia.md
+	@bash scripts/stop-db-consumers.sh
+	$(DOCKER_COMPOSE) up -d --wait --force-recreate --remove-orphans
 	@bash scripts/create-monitoring-user.sh --soft
 	@# Stack jest UP i healthy (--wait powyzej; przy bledzie make juz by stanal).
 	@# Sprzatamy nieuzywane obrazy/kontenery/sieci/cache Dockera. BEZ --volumes,

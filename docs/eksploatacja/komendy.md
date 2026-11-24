@@ -33,6 +33,17 @@ make disable-site-down-warning             # awaryjne odblokowanie strony
 Pełny opis (fazy, zachowanie przy błędzie, multi-host, zabezpieczenie na wypadek
 padniętej sesji): [Przerwa techniczna z ostrzeżeniem](przerwa-techniczna.md).
 
+!!! note "Najpierw zatrzymanie aplikacji, potem odtworzenie"
+    Zanim `make up` (a więc `make run`, auto-update i `make run-with-warning`)
+    odtworzy kontenery, **zatrzymuje usługi korzystające z bazy i Redisa**:
+    `appserver`, `authserver`, workery Celery, `denorm-queue`, `celerybeat`,
+    `flower` i `ofelia`. Dzięki temu baza i Redis nie znikają spod działającej
+    aplikacji, a do Sentry/GlitchTip/Rollbara nie trafia przy każdym wdrożeniu seria
+    fałszywych błędów połączenia. Nginx działa dalej i w tym czasie pokazuje stronę
+    serwisową. Czas na łagodne zamknięcie (m.in. dokończenie krótkich zadań Celery)
+    to 30 s, zmienny przez `BPP_DEPLOY_STOP_TIMEOUT` w `.env`. `make up-quick` tego
+    kroku nie robi. Szczegóły: [Pułapki wdrożenia](../rozwoj/pulapki-wdrozenia.md#kolejnosc-restartu).
+
 !!! note "Sprzątanie Dockera po `make up` / `make run`"
     Po **udanym** starcie (`--wait` — wszystkie usługi zdrowe) `make up` (a więc i
     `make run`) uruchamia `docker system prune -af` i wypisuje tylko ile miejsca
