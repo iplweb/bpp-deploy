@@ -306,6 +306,11 @@ run_cycle() {
         *)
             mkdir -p "$work/cfgsrc/rclone"
             printf 'DJANGO_BPP_FIELD_ENCRYPTION_KEY=klucz\n' > "$work/cfgsrc/.env"
+            # BACKUP_ENABLED_FILE: linia dopisywana do .env (wylacznik nocnego
+            # cyklu czytany z pliku). Nieustawione = brak zmiennej w .env.
+            if [ -n "${BACKUP_ENABLED_FILE+x}" ]; then
+                printf '%s\n' "$BACKUP_ENABLED_FILE" >> "$work/cfgsrc/.env"
+            fi
             printf '[backup_enc]\n' > "$work/cfgsrc/rclone/rclone.conf"
             if [ "${CONFIG_SRC_MODE:-ok}" = unreadable ]; then
                 printf 'x\n' > "$work/cfgsrc/zablokowany"
@@ -322,8 +327,20 @@ run_cycle() {
     done
     CYCLE_WORK="$work"
     CYCLE_LOG="$work/cycle.log"
+    # Wylacznik nocnego cyklu w SRODOWISKU (migawka env_file z `make up`)
+    # i flaga recznego wywolania. Domyslnie obie zdjete - nawet gdyby
+    # wolajaca powloka je miala, test ma byc deterministyczny.
+    unset_opt+=(-u DJANGO_BPP_BACKUP_ENABLED -u BPP_BACKUP_CYCLE_FORCE)
+    local extra_env=()
+    if [ -n "${BACKUP_ENABLED_ENV+x}" ]; then
+        extra_env+=("DJANGO_BPP_BACKUP_ENABLED=$BACKUP_ENABLED_ENV")
+    fi
+    if [ -n "${FORCE_ENV+x}" ]; then
+        extra_env+=("BPP_BACKUP_CYCLE_FORCE=$FORCE_ENV")
+    fi
     set +e
     env ${unset_opt[@]+"${unset_opt[@]}"} PATH="$BIN:$PATH" \
+        ${extra_env[@]+"${extra_env[@]}"} \
         MOCK_RECORD="$RECORD" \
         MOCK_YM="${MOCK_YM:-2026-08}" \
         MOCK_LSF_DIRS="${MOCK_LSF_DIRS:-}" \
@@ -1144,6 +1161,93 @@ assert_not_contains "$rec" "unknown-backup" "multi-host: zadnej kontroli unknown
 # Brak sieci przy nieudanym kroku: kod wyjscia kroku zostaje (trap nie klobrowany).
 MOCK_YM=2026-08 HC_KEY_ENV="kluczTEST" MOCK_FAIL_ON=wget MOCK_FAIL_ON_STEP=pg_dump run_cycle
 assert_eq "1" "$CYCLE_RC" "MUTACYJNY: padniety ping /fail nie klobruje kodu wyjscia pg_dump (1)"
+
+# ==========================================================================
+# 11. Wylacznik nocnego cyklu (DJANGO_BPP_BACKUP_ENABLED)
+# ==========================================================================
+# Kontrakt: wylaczony cykl konczy sie exit 0 PRZED czymkolwiek - zero
+# pg_dump, rclone, docker exec (Rollbar/GlitchTip idzie przez appservera)
+# i wget (Healthchecks). Brak zmiennej = wlaczony (stare .env bez zmian),
+# literowka = ostrzezenie + wlaczony. Wszystkie notyfikacje sa tu WLACZONE
+# (token, DSN, ping key), zeby "zero wywolan" znaczylo cos wiecej niz
+# "notify i tak bylby no-opem".
+echo
+echo "11. wylacznik nocnego backupu (DJANGO_BPP_BACKUP_ENABLED)"
+
+# Brak zmiennej (stare .env) - cykl idzie normalnie, z notyfikacjami.
+MOCK_YM=2026-08 ROLLBAR_TOKEN_ENV=1 SENTRY_DSN_ENV="https://k@example.invalid/1" \
+    HC_KEY_ENV="kluczTEST" run_cycle
+rec="$(cat "$RECORD")"
+assert_eq "0" "$CYCLE_RC" "brak zmiennej: cykl konczy sie sukcesem"
+assert_contains "$rec" "pg_dump" "brak zmiennej: pg_dump wykonany (backwards-compat)"
+assert_contains "$rec" "copy " "brak zmiennej: rclone copy wykonany"
+assert_not_contains "$(cat "$CYCLE_LOG")" "DJANGO_BPP_BACKUP_ENABLED" \
+    "brak zmiennej: zadnego komunikatu o wylaczniku"
+
+for wartosc in 0 nie NIE false No off; do
+    MOCK_YM=2026-08 ROLLBAR_TOKEN_ENV=1 SENTRY_DSN_ENV="https://k@example.invalid/1" \
+        HC_KEY_ENV="kluczTEST" BACKUP_ENABLED_FILE="DJANGO_BPP_BACKUP_ENABLED=$wartosc" run_cycle
+    assert_eq "0" "$CYCLE_RC" "=$wartosc: exit 0"
+    assert_eq "" "$(cat "$RECORD")" \
+        "MUTACYJNY =$wartosc: zero wywolan (pg_dump/rclone/docker exec/wget)"
+done
+assert_eq "1" "$(wc -l < "$CYCLE_LOG" | tr -d ' ')" "wylaczony: dokladnie jedna linia na wyjsciu"
+assert_contains "$(cat "$CYCLE_LOG")" "backup wylaczony przez DJANGO_BPP_BACKUP_ENABLED=off - pomijam cykl" \
+    "wylaczony: linia z nazwa zmiennej i wartoscia"
+assert_contains "$(cat "$CYCLE_WORK/backup-cycle.log")" "pomijam cykl" \
+    "wylaczony: ta sama linia w pliku logu cyklu"
+if [ -z "$(ls -A "$CYCLE_WORK/backup")" ]; then
+    pass "wylaczony: zadnego pliku w katalogu backupow"
+else
+    fail "wylaczony: w katalogu backupow cos powstalo: $(ls -A "$CYCLE_WORK/backup")"
+fi
+
+# Formy, ktore operator moze wpisac do .env (cudzyslowy, CRLF z Windows).
+for linia in 'DJANGO_BPP_BACKUP_ENABLED="nie"' "DJANGO_BPP_BACKUP_ENABLED='0'" \
+        $'DJANGO_BPP_BACKUP_ENABLED=nie\r'; do
+    MOCK_YM=2026-08 BACKUP_ENABLED_FILE="$linia" run_cycle
+    assert_eq "" "$(cat "$RECORD")" "wylaczony przez $(printf '%q' "$linia")"
+done
+
+# Ostatnie wystapienie wygrywa (jak w dotenv Compose).
+MOCK_YM=2026-08 BACKUP_ENABLED_FILE=$'DJANGO_BPP_BACKUP_ENABLED=nie\nDJANGO_BPP_BACKUP_ENABLED=tak' run_cycle
+assert_contains "$(cat "$RECORD")" "pg_dump" "dwa wpisy: ostatni (tak) wygrywa"
+
+# Wlaczony jawnie - bez ostrzezen.
+for wartosc in tak 1 TRUE yes on ""; do
+    MOCK_YM=2026-08 BACKUP_ENABLED_FILE="DJANGO_BPP_BACKUP_ENABLED=$wartosc" run_cycle
+    assert_eq "0" "$CYCLE_RC" "='$wartosc': cykl idzie"
+    assert_not_contains "$(cat "$CYCLE_LOG")" "nieznana wartosc" "='$wartosc': bez ostrzezenia"
+done
+
+# Smieci: ostrzezenie, ale backup idzie (literowka nie wylacza backupu).
+MOCK_YM=2026-08 BACKUP_ENABLED_FILE="DJANGO_BPP_BACKUP_ENABLED=wylacz" run_cycle
+assert_eq "0" "$CYCLE_RC" "smieci: cykl konczy sie sukcesem"
+assert_contains "$(cat "$RECORD")" "pg_dump" "MUTACYJNY smieci: backup idzie (bezpieczny default)"
+assert_contains "$(cat "$CYCLE_LOG")" "nieznana wartosc DJANGO_BPP_BACKUP_ENABLED=wylacz" \
+    "smieci: ostrzezenie w logu"
+assert_contains "$(cat "$CYCLE_WORK/backup-cycle.log")" "nieznana wartosc" \
+    "smieci: ostrzezenie trafia tez do pliku logu (nie ginie przy jego zerowaniu)"
+
+# Reczne `make backup-cycle` (BPP_BACKUP_CYCLE_FORCE=1) omija wylacznik.
+MOCK_YM=2026-08 FORCE_ENV=1 BACKUP_ENABLED_FILE="DJANGO_BPP_BACKUP_ENABLED=nie" run_cycle
+assert_eq "0" "$CYCLE_RC" "FORCE: cykl konczy sie sukcesem"
+assert_contains "$(cat "$RECORD")" "pg_dump" "MUTACYJNY FORCE: reczne wywolanie robi backup mimo wylacznika"
+assert_contains "$(cat "$CYCLE_LOG")" "wywolanie reczne" "FORCE: odnotowane w logu"
+
+# Kontener bez mountu /configs (sprzed `make up`): wartosc z srodowiska.
+MOCK_YM=2026-08 CONFIG_SRC_MODE=missing BACKUP_ENABLED_ENV=0 run_cycle
+assert_eq "0" "$CYCLE_RC" "bez /configs: exit 0"
+assert_eq "" "$(cat "$RECORD")" "bez /configs: wylacznik czytany ze srodowiska"
+
+# Plik wygrywa ze srodowiskiem: srodowisko to migawka env_file z ostatniego
+# `make up`. Operator, ktory usunal wylacznik z .env (wlaczyl backup z
+# powrotem), nie moze dalej miec backupu wylaczonego do nastepnego deployu.
+MOCK_YM=2026-08 BACKUP_ENABLED_ENV=0 run_cycle
+assert_contains "$(cat "$RECORD")" "pg_dump" \
+    "MUTACYJNY: .env bez wylacznika wygrywa ze stara migawka env (=0)"
+MOCK_YM=2026-08 BACKUP_ENABLED_ENV=tak BACKUP_ENABLED_FILE="DJANGO_BPP_BACKUP_ENABLED=nie" run_cycle
+assert_eq "" "$(cat "$RECORD")" "wylaczenie w .env dziala bez make up (env kontenera jeszcze =tak)"
 
 echo
 echo "=================================="

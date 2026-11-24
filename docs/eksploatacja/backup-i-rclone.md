@@ -61,6 +61,49 @@ nazwie — nazwy generuje compose.
 
 `make backup-cycle` uruchamia ten sam cykl ręcznie.
 
+## Wyłączenie nocnego backupu — `DJANGO_BPP_BACKUP_ENABLED` {#wylaczenie-backupu}
+
+Na instalacji, na której backup nie jest potrzebny (np. testowej, bez skonfigurowanego
+rclone'a), nocny cykl kończyłby się co noc błędem `rclone-config-missing` i zgłoszeniem
+do Rollbara/GlitchTipa. Żeby go wyłączyć, wpisz w `$BPP_CONFIGS_DIR/.env` (albo
+`make configure` → *Backup*):
+
+```bash
+DJANGO_BPP_BACKUP_ENABLED=nie
+```
+
+| Wartość | Nocny cykl |
+|---|---|
+| brak zmiennej, pusta, `tak` (także `1`, `true`, `yes`, `on`) | **włączony** — jak dotąd |
+| `nie` (także `0`, `false`, `no`, `off`; wielkość liter bez znaczenia) | **pomijany** |
+| cokolwiek innego (literówka) | **włączony** + ostrzeżenie w logu cyklu |
+
+Wyłączony cykl o 01:45 zapisuje w logu jedną linię
+(`backup wylaczony przez DJANGO_BPP_BACKUP_ENABLED=nie - pomijam cykl`) i kończy się
+sukcesem **przed** jakimkolwiek krokiem: nie robi zrzutu bazy ani archiwów, niczego nie
+wysyła rclone'em, nie rusza retencji (lokalnej ani zdalnej) i **nie wysyła żadnej
+notyfikacji** — ani do Rollbara/GlitchTipa, ani pingu do Healthchecks.io.
+
+**Ręczne backupy działają zawsze**, niezależnie od zmiennej — operator świadomie o nie
+prosi: `make backup`, `make db-backup`, `make media-backup`, `make config-backup`,
+`make rclone-sync`, a także `make backup-cycle` (i punkt 5 w `make doctor`), który omija
+wyłącznik i odnotowuje to w logu.
+
+!!! warning "Healthchecks.io: wstrzymaj albo usuń kontrolę `<hostname>-backup`"
+    Wyłączony cykl nie wysyła **żadnego** pingu, więc jeśli instalacja ma
+    [heartbeat](#monitoring-backupu-healthchecksio), Healthchecks po upływie *grace*
+    zaalarmuje o brakującym backupie. Przy wyłączaniu backupu wstrzymaj (*Pause*) albo
+    usuń tę kontrolę w panelu. Po ponownym włączeniu kontrola wznowi się sama przy
+    pierwszym pingu.
+
+**Czy potrzebny `make up`?** Zwykle nie: cykl czyta zmienną **z pliku**
+`$BPP_CONFIGS_DIR/.env` zamontowanego w `backup-runnerze` (`/configs`), więc zmiana
+działa od najbliższego cyklu — także ponowne włączenie. Środowisko kontenera
+(`env_file`) jest tylko migawką z ostatniego `make up` i służy wyłącznie jako zapas,
+gdy kontener nie ma mountu `/configs` (utworzony przed wprowadzeniem
+[backupu konfiguracji](#backup-konfiguracji-env)) — wtedy zrób `git pull && make up`
+jeden raz.
+
 ## Monitoring backupu — Healthchecks.io
 
 Rollbar dostaje komunikat tylko z cyklu, który **się wykonał** — i tylko wtedy, gdy

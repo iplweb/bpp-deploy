@@ -23,6 +23,10 @@
 #                                   Dowolna wartosc niebedaca dodatnia liczba
 #                                   calkowita (0, puste, smieci) = wylaczone.
 #   PARALLEL_JOBS                 - pg_dump -j, default 4
+#   DJANGO_BPP_BACKUP_ENABLED     - wylacznik NOCNEGO cyklu (krok 0 nizej):
+#                                   nie/0/false/no/off = pomin cykl (exit 0,
+#                                   zero notyfikacji); brak/pusta/inna = wlaczony
+#   BPP_BACKUP_CYCLE_FORCE        - 1 = omin wylacznik (`make backup-cycle`)
 #
 # Exit codes:
 #   0 - pelny sukces
@@ -113,6 +117,59 @@ MEDIA_DIR="${BPP_MEDIA_DIR:-/mediaroot}"
 CONFIG_SRC_DIR="${BPP_CONFIG_SRC_DIR:-/configs}"
 RCLONE_CONFIG="${BPP_RCLONE_CONFIG:-/config/rclone/rclone.conf}"
 LOG="${BPP_BACKUP_LOG:-/tmp/backup-cycle.log}"
+
+# --- 0. Wylacznik nocnego backupu (DJANGO_BPP_BACKUP_ENABLED) ---
+#
+# Instalacja, na ktorej backup nie jest potrzebny (np. testowa bez
+# rclone.conf), inaczej co noc konczylaby cykl FAIL-em i zgloszeniem do
+# Rollbara/GlitchTipa. Kontrakt:
+#   - sprawdzenie stoi PRZED wszystkim: trapem EXIT, logiem, /start do
+#     Healthchecks i jakimkolwiek krokiem - wylaczony cykl konczy sie
+#     `exit 0` BEZ zadnej notyfikacji ani pingu;
+#   - brak zmiennej / pusta / tak/1/true/yes/on = wlaczony (backwards-compat:
+#     stare .env dzialaja jak dotad); nie/0/false/no/off (dowolna wielkosc
+#     liter) = wylaczony; inna wartosc = ostrzezenie + WLACZONY (literowka nie
+#     moze po cichu wylaczyc backupu);
+#   - BPP_BACKUP_CYCLE_FORCE=1 (ustawia `make backup-cycle`) omija wylacznik:
+#     reczne wywolanie to swiadoma prosba operatora.
+#
+# Zrodlo wartosci: najpierw ${CONFIG_SRC_DIR}/.env (ten sam plik, ktory jest
+# env_file orkiestratora, zamontowany :ro do kroku 2b), dopiero bez niego
+# srodowisko kontenera. Kolejnosc jest celowa: env_file czyta sie przy
+# TWORZENIU kontenera, wiec srodowisko to migawka z ostatniego `make up` -
+# bez odczytu pliku wylaczenie (i, co gorsze, ponowne WLACZENIE) backupu
+# wymagaloby `make up`, a cykl po cichu robilby to, co bylo w .env wtedy.
+backup_enabled_raw() {
+    _be_env="$CONFIG_SRC_DIR/.env"
+    if [ -r "$_be_env" ]; then
+        # `|| true`: brak dopasowania w grep pod pipefail to nie blad.
+        _be_line="$(grep -E '^[[:space:]]*(export[[:space:]]+)?DJANGO_BPP_BACKUP_ENABLED=' "$_be_env" | tail -n 1 || true)"
+        _be_val="${_be_line#*=}"
+        # CR (plik z Windows), cudzyslowy i spacje - jak dotenv Compose.
+        printf '%s' "$_be_val" | tr -d '\r"'"'"' '
+        return 0
+    fi
+    printf '%s' "${DJANGO_BPP_BACKUP_ENABLED:-}"
+}
+BACKUP_ENABLED_RAW="$(backup_enabled_raw)"
+BACKUP_ENABLED_WARN=""
+case "$(printf '%s' "$BACKUP_ENABLED_RAW" | tr '[:upper:]' '[:lower:]')" in
+    ""|1|tak|true|yes|on) ;;
+    0|nie|false|no|off)
+        if [ "${BPP_BACKUP_CYCLE_FORCE:-0}" = 1 ]; then
+            BACKUP_ENABLED_WARN="backup wylaczony przez DJANGO_BPP_BACKUP_ENABLED=$BACKUP_ENABLED_RAW, ale wywolanie reczne (BPP_BACKUP_CYCLE_FORCE=1) - wykonuje cykl"
+        else
+            _be_msg="[$(date -u +%H:%M:%SZ)] backup wylaczony przez DJANGO_BPP_BACKUP_ENABLED=$BACKUP_ENABLED_RAW - pomijam cykl"
+            printf '%s\n' "$_be_msg"
+            # Nadpisujemy log poprzedniego cyklu, zeby nie udawal dzisiejszego.
+            printf '%s\n' "$_be_msg" > "$LOG" 2>/dev/null || true
+            exit 0
+        fi
+        ;;
+    *)
+        BACKUP_ENABLED_WARN="UWAGA: nieznana wartosc DJANGO_BPP_BACKUP_ENABLED=$BACKUP_ENABLED_RAW (dozwolone: tak/nie) - traktuje jako WLACZONY"
+        ;;
+esac
 
 TIMESTAMP="$(date +%Y%m%d-%H%M%S)"
 START_TS=$(date +%s)
@@ -327,6 +384,8 @@ trap on_exit EXIT
 # i bez notyfikacji. Zignorowanie sygnalu zamienia to w zwykly blad zapisu,
 # ktory `set -e` skieruje do on_exit.
 trap '' PIPE
+
+if [ -n "$BACKUP_ENABLED_WARN" ]; then log "$BACKUP_ENABLED_WARN"; fi
 
 # Start cyklu: Healthchecks mierzy czas trwania i alarmuje, gdy po /start nie
 # przyjdzie sukces ani /fail (cykl zawieszony albo zabity w polowie).

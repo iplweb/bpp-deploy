@@ -417,6 +417,14 @@ Tripwire'y, każdy nośny:
   ping nie zmienia wyniku backupu (asercje w §9–10 `scripts/test-rclone.sh`). Adresu
   pingu nie loguj (zawiera klucz). Slug `<hostname>-backup` + `?create=1` = kontrola
   zakłada się sama; zmiana sluga osieroci istniejące kontrole u operatorów.
+- **Wyłącznik `DJANGO_BPP_BACKUP_ENABLED` (`nie`/`0`/`false`/`no`/`off` = pomiń
+  nocny cykl) stoi na samym początku `backup-cycle.sh` — przed trapem EXIT, logiem
+  i `/start` — i kończy `exit 0` z ZEROWĄ liczbą notyfikacji i pingów.** Brak/pusta
+  = włączony (stare `.env`), literówka = ostrzeżenie + włączony. Wartość czytana
+  **najpierw z `/configs/.env`**, env kontenera tylko jako zapas — env to migawka
+  z `make up`, więc „env first" zostawiałby backup wyłączony po jego ponownym
+  włączeniu w `.env`. `make backup-cycle` przekazuje `BPP_BACKUP_CYCLE_FORCE=1`
+  (ręczny cykl omija wyłącznik — nie zdejmuj tego). Testy: §11 `test-rclone.sh`. Detail: `docs/eksploatacja/backup-i-rclone.md#wylaczenie-backupu`.
 - **Nie dodawaj `user:` do orkiestratora** — `docker:cli` działa jako uid 0
   i tylko dlatego czyta socket `root:root`.
 - **Wdrożeniowo orkiestrator + notyfikacja przez appservera to JEDNA jednostka**

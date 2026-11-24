@@ -29,6 +29,7 @@ SENTRY_DSN	Powiadomienia	sekret		nie	tak	DSN GlitchTip/Sentry (bledy aplikacji +
 DJANGO_BPP_HEALTHCHECKS_PING_KEY	Powiadomienia	sekret		tak	tak	Ping key projektu Healthchecks.io - heartbeat nocnego backupu (pusta = bez heartbeatu)
 DJANGO_BPP_GOOGLE_ANALYTICS_PROPERTY_ID	Google	tekst		tak	tak	Google Analytics Property ID (pusta = bez GA)
 DJANGO_BPP_GOOGLE_VERIFICATION_CODE	Google	tekst		tak	tak	Google Search Console verification code (pusta = brak)
+DJANGO_BPP_BACKUP_ENABLED	Backup	wybor:tak/nie	tak	nie	nie	Nocny cykl backupu (Ofelia 01:45): nie = pomijany bez zadnych powiadomien; reczne make backup / backup-cycle dzialaja zawsze
 DJANGO_BPP_HOST_BACKUP_DIR	Backup	sciezka	${BPP_DOMYSLNY_KATALOG_BACKUPOW}	tak	nie	Katalog backupow na hoscie (sciezka bezwzgledna)
 DJANGO_BPP_BACKUP_KEEP_LAST	Backup	liczba	7	nie	nie	Ile ostatnich kopii kazdego typu trzymac lokalnie
 DJANGO_BPP_RCLONE_REMOTE	Backup	tekst	backup_enc:	nie	nie	Remote rclone dla kopii zdalnych (nazwa z rclone.conf zakonczona dwukropkiem)
