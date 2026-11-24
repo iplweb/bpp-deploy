@@ -2184,7 +2184,7 @@ test_rclone_service_declared() {
         fail "backup-cycle nie celuje w backup-runner (orkiestrator cyklu)"
     fi
     # Reczne `make backup-cycle` (tez `make doctor` pkt 5) ma dzialac mimo
-    # DJANGO_BPP_BACKUP_ENABLED=nie - wylacznik dotyczy tylko nocnego cyklu
+    # DJANGO_BPP_BACKUP_ENABLED=0 - wylacznik dotyczy tylko nocnego cyklu
     # z Ofelii. Sama obsluga flagi jest testowana e2e w scripts/test-rclone.sh.
     if recipe_of backup-cycle "$mk" | grep -q -- '-e BPP_BACKUP_CYCLE_FORCE=1'; then
         pass "backup-cycle omija wylacznik nocnego backupu (BPP_BACKUP_CYCLE_FORCE=1)"
@@ -2394,6 +2394,25 @@ test_configure_registry() {
     ' _ "$REPO_DIR" 2>&1)"
     if [ -z "$out" ]; then pass "rejestr: spojny (kolumny, typy, domyslne, kolejnosc odwolan)"; else fail "rejestr: $out"; fi
 
+    # --- typ `flaga`: kanonicznie 1/0 (jak ZGLOS_CAPTCHA_ENABLED), ale musi
+    #     przyjac to samo, co czytelnik flagi w backup-cycle.sh — inaczej
+    #     config-check/doctor krzyczalby na `tak`/`nie` wpisane przed zmiana.
+    out="$(bash -c '
+        . "$1/scripts/lib-config-registry.sh"
+        for v in 1 0 true false TRUE False tak nie NIE yes no on off; do
+            rej_waliduj flaga nie "$v" >/dev/null || echo "odrzucone: $v"
+        done
+        for v in 2 wylacz "1 " -1; do
+            rej_waliduj flaga nie "$v" >/dev/null && echo "przepuszczone: [$v]"
+        done
+        awk -F"\t" "\$1 == \"DJANGO_BPP_BACKUP_ENABLED\" { print \"typ=\" \$3 \" dom=\" \$4 }" "$REJ_PLIK"
+    ' _ "$REPO_DIR" 2>&1)"
+    if [ "$out" = "typ=flaga dom=1" ]; then
+        pass "rejestr: flaga 1/0 (+ true/false, tak/nie); DJANGO_BPP_BACKUP_ENABLED = flaga, domyslnie 1"
+    else
+        fail "rejestr: typ flaga / DJANGO_BPP_BACKUP_ENABLED: $out"
+    fi
+
     # --- make up na starej instalacji: brakuje tylko Freshdeska, Enter x3 -> decyzja zapisana
     cfg="$(mktemp -d)"
     printf 'DJANGO_BPP_ADMIN_EMAIL=a@b.pl\nDJANGO_BPP_SLACK_WEBHOOK=\nROLLBAR_ACCESS_TOKEN=\nDJANGO_BPP_HEALTHCHECKS_PING_KEY=\nDJANGO_BPP_GOOGLE_ANALYTICS_PROPERTY_ID=\nDJANGO_BPP_GOOGLE_VERIFICATION_CODE=\nDJANGO_BPP_HOST_BACKUP_DIR=/srv/b' > "$cfg/.env"
@@ -2493,6 +2512,20 @@ test_configure_registry() {
     _diag_ma "rejestr: --init zapisuje odpowiedz" '^DJANGO_BPP_ADMIN_EMAIL=x@y.pl$' "$env"
     _diag_ma "rejestr: LETSENCRYPT_EMAIL = niezapisany jeszcze ADMIN_EMAIL" '^DJANGO_BPP_LETSENCRYPT_EMAIL=x@y.pl$' "$env"
     _diag_ma "rejestr: --init dopisuje PYTAJ=nie z domyslna" '^DJANGO_BPP_SSL_MODE=manual$' "$env"
+    _diag_ma "rejestr: --init: swieza instalacja dostaje DJANGO_BPP_BACKUP_ENABLED=1" '^DJANGO_BPP_BACKUP_ENABLED=1$' "$env"
+    # Wartosc wpisana przed przejsciem na 1/0 (`nie`) nadal przechodzi config-check.
+    sed -i.bak 's/^DJANGO_BPP_BACKUP_ENABLED=.*/DJANGO_BPP_BACKUP_ENABLED=nie/' "$cfg/.env"
+    if BPP_CONFIGS_DIR="$cfg" bash "$sc" --check >/dev/null 2>&1; then
+        pass "rejestr: config-check akceptuje DJANGO_BPP_BACKUP_ENABLED=nie (stary zapis)"
+    else
+        fail "rejestr: config-check odrzuca DJANGO_BPP_BACKUP_ENABLED=nie"
+    fi
+    sed -i.bak 's/^DJANGO_BPP_BACKUP_ENABLED=.*/DJANGO_BPP_BACKUP_ENABLED=wylacz/' "$cfg/.env"
+    if out="$(BPP_CONFIGS_DIR="$cfg" bash "$sc" --check 2>&1)"; then
+        fail "rejestr: config-check przepuscil DJANGO_BPP_BACKUP_ENABLED=wylacz"
+    else
+        _diag_ma "rejestr: config-check wskazuje zla flage" 'DJANGO_BPP_BACKUP_ENABLED=wylacz' "$out"
+    fi
     _diag_ma "rejestr: katalog backupow obok katalogu konfiguracyjnego" "^DJANGO_BPP_HOST_BACKUP_DIR=$(dirname "$cfg")/backups\$" "$env"
     rm -rf "$cfg"
 

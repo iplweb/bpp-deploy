@@ -160,6 +160,13 @@ rej_waliduj() {
 			esac ;;
 		tekst)
 			case "$v" in [[:space:]]*|*[[:space:]]) echo "bez spacji na poczatku i koncu"; return 1 ;; esac ;;
+		flaga)
+			# Ten sam slownik co czytelnik flagi (backup-cycle.sh): kanonicznie
+			# 1/0, ale tak/nie & co. z wczesniejszych wpisow tez sa poprawne.
+			case "$(printf '%s' "$v" | tr '[:upper:]' '[:lower:]')" in
+				1|0|true|false|tak|nie|yes|no|on|off) ;;
+				*) echo "podaj 1 (wlaczone) albo 0 (wylaczone)"; return 1 ;;
+			esac ;;
 		*)
 			echo "nieznany typ w rejestrze: $typ"; return 1 ;;
 	esac
@@ -183,7 +190,7 @@ rej_docs() {
 		else if ($4 == "${BPP_DOMYSLNY_KATALOG_BACKUPOW}") d = "`backups/` obok katalogu konfiguracyjnego"
 		else if ($4 ~ /^\$\{[A-Z_0-9]+\}$/) { d = $4; gsub(/[${}]/, "", d); d = "= `" d "`" }
 		else d = "`" $4 "`"
-		typ = $3; sub(/^wybor:/, "jedno z: ", typ)
+		typ = $3; sub(/^wybor:/, "jedno z: ", typ); sub(/^flaga$/, "flaga 1/0", typ)
 		print "| `" $1 "` | " md(typ) " | " md(d) " | " $5 " | " $6 " | " md($7) " |"
 	}'
 }

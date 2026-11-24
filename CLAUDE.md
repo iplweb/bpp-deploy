@@ -417,7 +417,7 @@ Tripwire'y, każdy nośny:
   ping nie zmienia wyniku backupu (asercje w §9–10 `scripts/test-rclone.sh`). Adresu
   pingu nie loguj (zawiera klucz). Slug `<hostname>-backup` + `?create=1` = kontrola
   zakłada się sama; zmiana sluga osieroci istniejące kontrole u operatorów.
-- **Wyłącznik `DJANGO_BPP_BACKUP_ENABLED` (`nie`/`0`/`false`/`no`/`off` = pomiń
+- **Wyłącznik `DJANGO_BPP_BACKUP_ENABLED` (kanonicznie `0`; też `false`/`nie`/`no`/`off` = pomiń
   nocny cykl) stoi na samym początku `backup-cycle.sh` — przed trapem EXIT, logiem
   i `/start` — i kończy `exit 0` z ZEROWĄ liczbą notyfikacji i pingów.** Brak/pusta
   = włączony (stare `.env`), literówka = ostrzeżenie + włączony. Wartość czytana

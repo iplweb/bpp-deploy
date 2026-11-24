@@ -24,7 +24,7 @@
 #                                   calkowita (0, puste, smieci) = wylaczone.
 #   PARALLEL_JOBS                 - pg_dump -j, default 4
 #   DJANGO_BPP_BACKUP_ENABLED     - wylacznik NOCNEGO cyklu (krok 0 nizej):
-#                                   nie/0/false/no/off = pomin cykl (exit 0,
+#                                   0 (tez false/nie/no/off) = pomin cykl (exit 0,
 #                                   zero notyfikacji); brak/pusta/inna = wlaczony
 #   BPP_BACKUP_CYCLE_FORCE        - 1 = omin wylacznik (`make backup-cycle`)
 #
@@ -126,8 +126,8 @@ LOG="${BPP_BACKUP_LOG:-/tmp/backup-cycle.log}"
 #   - sprawdzenie stoi PRZED wszystkim: trapem EXIT, logiem, /start do
 #     Healthchecks i jakimkolwiek krokiem - wylaczony cykl konczy sie
 #     `exit 0` BEZ zadnej notyfikacji ani pingu;
-#   - brak zmiennej / pusta / tak/1/true/yes/on = wlaczony (backwards-compat:
-#     stare .env dzialaja jak dotad); nie/0/false/no/off (dowolna wielkosc
+#   - brak zmiennej / pusta / 1/true/tak/yes/on = wlaczony (backwards-compat:
+#     stare .env dzialaja jak dotad); 0/false/nie/no/off (dowolna wielkosc
 #     liter) = wylaczony; inna wartosc = ostrzezenie + WLACZONY (literowka nie
 #     moze po cichu wylaczyc backupu);
 #   - BPP_BACKUP_CYCLE_FORCE=1 (ustawia `make backup-cycle`) omija wylacznik:
@@ -167,7 +167,7 @@ case "$(printf '%s' "$BACKUP_ENABLED_RAW" | tr '[:upper:]' '[:lower:]')" in
         fi
         ;;
     *)
-        BACKUP_ENABLED_WARN="UWAGA: nieznana wartosc DJANGO_BPP_BACKUP_ENABLED=$BACKUP_ENABLED_RAW (dozwolone: tak/nie) - traktuje jako WLACZONY"
+        BACKUP_ENABLED_WARN="UWAGA: nieznana wartosc DJANGO_BPP_BACKUP_ENABLED=$BACKUP_ENABLED_RAW (dozwolone: 1/0) - traktuje jako WLACZONY"
         ;;
 esac
 
