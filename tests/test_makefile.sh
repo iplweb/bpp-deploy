@@ -3370,9 +3370,15 @@ DJANGO_BPP_DB_PASSWORD=$sekret
 DJANGO_BPP_HOST_BACKUP_DIR=$w/backups
 EOF
     # make -n drukuje receptury tak, jak poszlyby do /bin/sh -c (= argv na hoscie).
+    # `timeout` to tylko bezpiecznik (make -n nic nie uruchamia); macOS go nie
+    # ma (coreutils daje `gtimeout`), wiec bez niego idziemy golym make.
+    # ${tmo[@]+...}: pusta tablica pod `set -u` w bashu 3.2 (macOS) to blad.
+    local tmo=()
+    if command -v timeout >/dev/null 2>&1; then tmo=(timeout 10)
+    elif command -v gtimeout >/dev/null 2>&1; then tmo=(gtimeout 10); fi
     for t in db-backup dbshell-psql ps-dbserver denorm-count-forever \
              restore-db-remove-db-rebuild-db-rm-backup; do
-        out="$(timeout 10 make -n -C "$w" "$t" YES=1 2>&1 || true)"
+        out="$(${tmo[@]+"${tmo[@]}"} make -n -C "$w" "$t" YES=1 2>&1 || true)"
         if ! grep -q 'dbserver' <<<"$out"; then
             fail "make $t: brak receptury do sprawdzenia ($out)"
         elif grep -qF -- "$sekret" <<<"$out"; then
