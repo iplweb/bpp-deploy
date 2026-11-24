@@ -3516,6 +3516,10 @@ case "$1 ${2:-}" in
         [ "${3:-}" = "-q" ] && [ -n "${MOCK_IDS:-}" ] && printf '%s\n' $MOCK_IDS
         exit 0 ;;
     "compose stop") exit "${MOCK_STOP_RC:-0}" ;;
+    "compose config")
+        [ -n "${MOCK_CONFIG_RC:-}" ] && exit "$MOCK_CONFIG_RC"
+        [ "${3:-}" = "--services" ] && printf '%s\n' ${MOCK_SERVICES:-}
+        exit 0 ;;
 esac
 if [ "$1" = "inspect" ]; then
     [ -n "${MOCK_INSPECT_RC:-}" ] && exit "$MOCK_INSPECT_RC"
@@ -3618,15 +3622,16 @@ test_up_stops_consumers_first() {
     # Prerekwizyty (walidacja .env, pytania, rendering configow) maja wlasne testy;
     # tu liczy sie sama recepta `up`.
     PATH="$WORK_DIR/bin:$PATH" MOCK_IDS="a b" MOCK_GRAPH="$STOP_CONSUMERS_GRAPH" \
+        MOCK_SERVICES="dbserver redis pgbouncer appserver webserver workerserver" \
         BPP_SKIP_HEALTH_GATE=1 BPP_NO_CONFIG_PROMPT=1 \
         make -C "$REPO_COPY" -o validate-env-quotes -o ask-missing-config \
             -o ensure-config-files -o update-configs ${override:+"$override"} up > "$WORK_DIR/up.out" 2>&1 || up_rc=$?
 
     local stop_ln up_ln
     stop_ln="$(grep -n "^compose stop " "$MOCK_LOG" | head -1 | cut -d: -f1 || true)"
-    up_ln="$(grep -n "^compose up .*--force-recreate" "$MOCK_LOG" | head -1 | cut -d: -f1 || true)"
+    up_ln="$(grep -n "^compose up " "$MOCK_LOG" | head -1 | cut -d: -f1 || true)"
     if [ -n "$stop_ln" ] && [ -n "$up_ln" ] && [ "$stop_ln" -lt "$up_ln" ]; then
-        pass "make up: 'compose stop' (linia $stop_ln) przed 'compose up --force-recreate' (linia $up_ln)"
+        pass "make up: 'compose stop' (linia $stop_ln) przed pierwszym 'compose up' (linia $up_ln)"
     else
         fail "make up: brak stopu konsumentow przed up (stop='$stop_ln', up='$up_ln'): $(tr '\n' ';' < "$MOCK_LOG") | make rc=$up_rc: $(tr '\n' ';' < "$WORK_DIR/up.out")"
     fi
@@ -3636,8 +3641,107 @@ test_up_stops_consumers_first() {
         fail "make up: zla lista zatrzymywanych: $(grep '^compose stop' "$MOCK_LOG" || true)"
     fi
 
+    # Stanowa infrastruktura BEZ --force-recreate (Compose odtwarza ja sam przy
+    # zmianie obrazu/konfiguracji/sumy plikow startowych), reszta NA SILE.
+    local infra_up rest_up
+    infra_up="$(grep -E '^compose up .*dbserver' "$MOCK_LOG" | head -1 || true)"
+    rest_up="$(grep -E '^compose up .*--force-recreate' "$MOCK_LOG" | head -1 || true)"
+    if [ -n "$infra_up" ] && ! printf '%s' "$infra_up" | grep -q -- '--force-recreate' \
+        && printf '%s' "$infra_up" | grep -q redis && printf '%s' "$infra_up" | grep -q pgbouncer; then
+        pass "make up: dbserver/redis/pgbouncer bez --force-recreate ($infra_up)"
+    else
+        fail "make up: infrastruktura odtwarzana na sile albo pominieta ('$infra_up')"
+    fi
+    if printf '%s' "$rest_up" | grep -qE ' appserver( |$)' && printf '%s' "$rest_up" | grep -qE ' webserver( |$)' \
+        && ! printf '%s' "$rest_up" | grep -qE ' (dbserver|redis|pgbouncer)( |$)'; then
+        pass "make up: --force-recreate dla reszty, bez dbserver/redis/pgbouncer"
+    else
+        fail "make up: zla lista --force-recreate ('$rest_up')"
+    fi
+
+    # Blad `docker compose config` -> pusta lista -> stare zachowanie: recreate WSZYSTKIEGO.
+    : > "$MOCK_LOG"
+    PATH="$WORK_DIR/bin:$PATH" MOCK_IDS="" MOCK_CONFIG_RC=1 \
+        BPP_SKIP_HEALTH_GATE=1 BPP_NO_CONFIG_PROMPT=1 \
+        make -C "$REPO_COPY" -o validate-env-quotes -o ask-missing-config \
+            -o ensure-config-files -o update-configs ${override:+"$override"} up > "$WORK_DIR/up2.out" 2>&1 || true
+    if grep -qxE 'compose up -d --wait --force-recreate --remove-orphans *' "$MOCK_LOG"; then
+        pass "make up: blad 'compose config' -> recreate calego stacka (stare zachowanie)"
+    else
+        fail "make up: fallback przy bledzie 'compose config': $(grep '^compose up' "$MOCK_LOG" | tr '\n' ';')"
+    fi
+
     unset MOCK_LOG
     cleanup_temp
+}
+
+# scripts/infra-files-hash.sh: suma plikow startowych dbserver/pgbouncer w .env
+# + label w compose. Bez niej zmiana autotune/entrypointu pgbouncera po `git pull`
+# nie dotarlaby do kontenera (make up nie odtwarza ich na sile).
+test_infra_files_hash() {
+    yellow "=== Test: infra-files-hash.sh — suma plikow startowych dbserver/pgbouncer ==="
+    local t r env h1 h2
+    t=$(mktemp -d)
+    r="$t/repo"
+    mkdir -p "$r/scripts" "$r/dbserver" "$r/pgbouncer" "$t/cfg"
+    cp "$REPO_DIR/scripts/infra-files-hash.sh" "$r/scripts/"
+    cp "$REPO_DIR/dbserver/"*.sh "$r/dbserver/"
+    cp "$REPO_DIR/pgbouncer/entrypoint.sh" "$r/pgbouncer/"
+    env="$t/cfg/.env"
+    printf 'A=1\nB=2' > "$env"   # bez konca linii: wpis nie moze sie skleic
+
+    BPP_CONFIGS_DIR="$t/cfg" bash "$r/scripts/infra-files-hash.sh" --zapisz >/dev/null 2>&1
+    h1="$(grep -E '^BPP_INFRA_FILES_HASH=[0-9]+$' "$env" | cut -d= -f2 || true)"
+    if [ -n "$h1" ] && grep -qx 'B=2' "$env"; then
+        pass "zapisuje BPP_INFRA_FILES_HASH (cyfry), nie skleja z ostatnia linia"
+    else
+        fail "brak/zla suma w .env: $(cat "$env")"
+    fi
+
+    BPP_CONFIGS_DIR="$t/cfg" bash "$r/scripts/infra-files-hash.sh" --zapisz >/dev/null 2>&1
+    if [ "$(grep -c '^BPP_INFRA_FILES_HASH=' "$env")" -eq 1 ]; then
+        pass "idempotentny (jedna linia po dwoch wywolaniach)"
+    else
+        fail "zduplikowany wpis: $(grep '^BPP_INFRA_FILES_HASH=' "$env" | tr '\n' ';')"
+    fi
+
+    local f
+    for f in dbserver/autotune.sh dbserver/docker-entrypoint-autotune.sh pgbouncer/entrypoint.sh; do
+        echo "# zmiana" >> "$r/$f"
+        BPP_CONFIGS_DIR="$t/cfg" bash "$r/scripts/infra-files-hash.sh" --zapisz >/dev/null 2>&1
+        h2="$(grep '^BPP_INFRA_FILES_HASH=' "$env" | cut -d= -f2)"
+        if [ "$h2" != "$h1" ] && [ "$(grep -c '^BPP_INFRA_FILES_HASH=' "$env")" -eq 1 ]; then
+            pass "zmiana $f zmienia sume"
+        else
+            fail "zmiana $f NIE zmienia sumy ($h1)"
+        fi
+        h1="$h2"
+    done
+
+    local rc
+    BPP_CONFIGS_DIR="$t/brak" bash "$r/scripts/infra-files-hash.sh" --zapisz >/dev/null 2>&1; rc=$?
+    if [ "$rc" -eq 0 ]; then pass "fail-open bez .env"; else fail "fail-open bez .env (exit $rc)"; fi
+    rm -f "$r/pgbouncer/entrypoint.sh"
+    cp "$env" "$t/env.przed"
+    BPP_CONFIGS_DIR="$t/cfg" bash "$r/scripts/infra-files-hash.sh" --zapisz >/dev/null 2>&1; rc=$?
+    if [ "$rc" -eq 0 ] && cmp -s "$env" "$t/env.przed"; then
+        pass "fail-open przy brakujacym pliku, .env nietkniety"
+    else
+        fail "brakujacy plik: exit $rc albo zmieniony .env"
+    fi
+    rm -rf "$t"
+
+    # Label w obu uslugach (to on, nie env, jest kontraktem wymuszajacym recreate).
+    # shellcheck disable=SC2016  # wzorzec doslowny
+    assert_svc_contains "dbserver: label z BPP_INFRA_FILES_HASH" \
+        'pl.iplweb.bpp.pliki-startowe: "${BPP_INFRA_FILES_HASH:-}"' \
+        "$(svc_block dbserver "$REPO_DIR/docker-compose.database.yml")"
+    # shellcheck disable=SC2016  # wzorzec doslowny
+    assert_svc_contains "pgbouncer: label z BPP_INFRA_FILES_HASH" \
+        'pl.iplweb.bpp.pliki-startowe: "${BPP_INFRA_FILES_HASH:-}"' \
+        "$(svc_block pgbouncer "$REPO_DIR/docker-compose.pgbouncer.yml")"
+    assert_file_contains "ensure-config-files liczy sume (prerekwizyt make up)" \
+        'scripts/infra-files-hash.sh --zapisz' "$REPO_DIR/mk/configs.mk"
 }
 
 test_first_run_setup
@@ -3695,6 +3799,7 @@ test_db_autotune_external
 test_db_budget
 test_stop_db_consumers
 test_up_stops_consumers_first
+test_infra_files_hash
 
 echo ""
 echo "========================================"
