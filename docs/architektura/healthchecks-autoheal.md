@@ -70,6 +70,8 @@ restartuje (a nocny `kill 1` o 05:20 i tak go cyklicznie odświeża).
     `denorm-queue` **nie** ma labela `autoheal=true`: jego healthcheck na poziomie
     Compose jest zakomentowany, więc kontener nie raportuje statusu zdrowia, na który
     autoheal mógłby zareagować. Odzyskiwanie opiera się na nocnym, rozłożonym w czasie
-    restarcie (`kill 1` przez Ofelię o 05:25). Jeśli most PG `LISTEN` → Celery
+    restarcie (`kill -INT 1` przez Ofelię o 05:25 — SIGINT, bo na SIGTERM ten
+    proces jako PID 1 nie reaguje; szczegóły w
+    [Zadaniach Ofelii](zadania-ofelia.md#mechanizm)). Jeśli most PG `LISTEN` → Celery
     utknie w ciągu dnia, denormalizacja stoi do najbliższego nocnego restartu —
     warto to mieć na uwadze przy diagnostyce opóźnień w przeliczaniu.

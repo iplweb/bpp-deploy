@@ -41,6 +41,29 @@ memory leak, nie burst. Staggered restart **05:00–05:25** (po backupie 01:45 i
 `docker.sock` (ro), PID 1 dostaje SIGTERM, graceful shutdown, `restart: always`
 wskrzesza. Żadnych nowych serwisów, socket zostaje read-only.
 
+**Wyjątek: `denorm-queue` dostaje `kill -INT 1` (SIGINT).** PID 1 w kontenerze
+ignoruje każdy sygnał, dla którego proces nie zainstalował handlera, a PID 1 w
+`denorm-queue` to goły `python src/manage.py denorm_queue` — obsługuje tylko SIGINT
+(Pythonowy `KeyboardInterrupt`). Zwykły `kill 1` był więc no-opem: kontener nigdy się
+nie restartował (`StartedAt` bez zmian dzień po dniu). Z SIGINT proces kończy się
+czysto w < 1 s, a `restart: always` go podnosi. Ten sam powód stoi za
+`stop_signal: SIGINT` tego serwisu (szybkie `docker stop`).
+
+Pozostałe serwisy obsługują SIGTERM (sprawdzone maską `SigCgt` w `/proc/1/status`
+i żywym `docker exec … kill 1`), więc zostają przy `kill 1`:
+
+| Serwis | PID 1 | SIGTERM |
+|---|---|---|
+| appserver | `gunicorn` (entrypoint robi `exec`) | graceful shutdown workerów |
+| workerserver | `celery worker` | warm shutdown |
+| celerybeat | `celery beat` | zapis harmonogramu i wyjście |
+| flower | `celery flower` | wyjście |
+| denorm-queue | `python manage.py denorm_queue` | **ignorowany** → `kill -INT 1` |
+
+!!! tip "Jak sprawdzić, czy nocny restart naprawdę zaszedł"
+    `docker inspect -f '{{.State.StartedAt}}' <kontener>` — po 05:25 czasu
+    `BPP_CRON_TZ` każdy z pięciu kontenerów powinien mieć dzisiejszą datę startu.
+
 !!! note "Wyłączenie dla serwisu"
     Zakomentuj labele `ofelia.job-exec.restart_self.*` w odpowiednim pliku Compose.
     Brak przełącznika env-var — restart jest gwarancją, nie opcją.
