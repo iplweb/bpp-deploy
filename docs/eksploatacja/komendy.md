@@ -156,7 +156,7 @@ Deploy (`make run`) **nie** wysyła już automatycznie testowych maili ani nie t
 Rollbara — diagnostykę uruchamiasz na żądanie. Najprościej przez interaktywne menu:
 
 ```bash
-make doctor           # menu: mail / ntfy / rollbar / health / backup / wszystko
+make doctor           # menu: mail / ntfy / rollbar / sentry / health / backup / wszystko
 ```
 
 Pojedyncze testy (każdy robi dokładnie jedną rzecz) można też wywołać wprost:
@@ -169,7 +169,7 @@ make test-ntfy        # Wyślij testowy push na ntfy (wymaga NTFY_TOPIC)
 make ntfy-test        # Deprecated alias dla test-ntfy
 ```
 
-W menu pozycja **wszystko** = mail + ntfy + rollbar po kolei (dawne zachowanie
+W menu pozycja **wszystko** = mail + ntfy + rollbar + sentry (GlitchTip) po kolei (dawne zachowanie
 po deployu, ale na żądanie). `health` i `backup` (pełny cykl: pg_dump + media +
 rclone + powiadomienie Rollbar) to osobne pozycje menu.
 

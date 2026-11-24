@@ -48,7 +48,7 @@ make celery-status    # status workerów
 make health           # healthcheck wszystkich usług
 make ps               # lista kontenerów
 make test-ntfy        # test pushu na ntfy (alias: make ntfy-test)
-make doctor           # menu diagnostyczne: mail/ntfy/rollbar/health/backup
+make doctor           # menu diagnostyczne: mail/ntfy/rollbar/sentry/health/backup
 make test-sentry      # testowe zdarzenie do GlitchTip/Sentry (patrz Zgłaszanie błędów)
 ```
 
