@@ -69,17 +69,22 @@ do Rollbara/GlitchTipa. Żeby go wyłączyć, wpisz w `$BPP_CONFIGS_DIR/.env` (a
 `make configure` → *Backup*):
 
 ```bash
-DJANGO_BPP_BACKUP_ENABLED=nie
+DJANGO_BPP_BACKUP_ENABLED=0
 ```
+
+To flaga `1`/`0`, jak inne flagi BPP (np. `ZGLOS_CAPTCHA_ENABLED`). Świeża instalacja
+dostaje `DJANGO_BPP_BACKUP_ENABLED=1`. Dla wygody działają też `false`/`true` i
+`nie`/`tak` (oraz `no`/`yes`, `off`/`on`; wielkość liter bez znaczenia) — wpisane już
+wcześniej `tak`/`nie` nie wymagają zmiany.
 
 | Wartość | Nocny cykl |
 |---|---|
-| brak zmiennej, pusta, `tak` (także `1`, `true`, `yes`, `on`) | **włączony** — jak dotąd |
-| `nie` (także `0`, `false`, `no`, `off`; wielkość liter bez znaczenia) | **pomijany** |
+| brak zmiennej, pusta, `1` (także `true`, `tak`, `yes`, `on`) | **włączony** — jak dotąd |
+| `0` (także `false`, `nie`, `no`, `off`) | **pomijany** |
 | cokolwiek innego (literówka) | **włączony** + ostrzeżenie w logu cyklu |
 
 Wyłączony cykl o 01:45 zapisuje w logu jedną linię
-(`backup wylaczony przez DJANGO_BPP_BACKUP_ENABLED=nie - pomijam cykl`) i kończy się
+(`backup wylaczony przez DJANGO_BPP_BACKUP_ENABLED=0 - pomijam cykl`) i kończy się
 sukcesem **przed** jakimkolwiek krokiem: nie robi zrzutu bazy ani archiwów, niczego nie
 wysyła rclone'em, nie rusza retencji (lokalnej ani zdalnej) i **nie wysyła żadnej
 notyfikacji** — ani do Rollbara/GlitchTipa, ani pingu do Healthchecks.io.
