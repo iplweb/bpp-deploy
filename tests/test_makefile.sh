@@ -3349,6 +3349,64 @@ test_db_autotune_external() {
         'db-autotune-external.sh "$(or $(RAM),$(BPP_DB_RAM))" "$(or $(CPU),$(BPP_DB_CPUS))"' "$REPO_DIR/mk/database.mk"
 }
 
+test_db_password_not_in_argv() {
+    yellow "=== Test: haslo do bazy nie trafia do argv na hoscie (widoczne w ps) ==="
+    # Symptom: w trakcie `make db-backup` kazdy lokalny uzytkownik widzial w `ps`
+    # `docker compose exec -T -e PGPASSWORD=<haslo> ...`. Haslo ma byc czytane
+    # WEWNATRZ kontenera (env_file dbservera) albo przekazywane przez srodowisko
+    # procesu docker (`-e VAR` bez wartosci), nigdy jako wartosc w argv.
+    local w sekret='SekretArgv-7Qz9' t out
+    w=$(mktemp -d)
+    cp "$REPO_DIR/Makefile" "$w/Makefile"
+    cp -R "$REPO_DIR/mk" "$w/mk"
+    mkdir -p "$w/cfg" "$w/backups"
+    printf 'BPP_CONFIGS_DIR=%s\n' "$w/cfg" > "$w/.env"
+    cat > "$w/cfg/.env" <<EOF
+DJANGO_BPP_DB_HOST=dbserver
+DJANGO_BPP_DB_PORT=5432
+DJANGO_BPP_DB_USER=bpp
+DJANGO_BPP_DB_NAME=bpp
+DJANGO_BPP_DB_PASSWORD=$sekret
+DJANGO_BPP_HOST_BACKUP_DIR=$w/backups
+EOF
+    # make -n drukuje receptury tak, jak poszlyby do /bin/sh -c (= argv na hoscie).
+    # `timeout` to tylko bezpiecznik (make -n nic nie uruchamia); macOS go nie
+    # ma (coreutils daje `gtimeout`), wiec bez niego idziemy golym make.
+    # ${tmo[@]+...}: pusta tablica pod `set -u` w bashu 3.2 (macOS) to blad.
+    local tmo=()
+    if command -v timeout >/dev/null 2>&1; then tmo=(timeout 10)
+    elif command -v gtimeout >/dev/null 2>&1; then tmo=(gtimeout 10); fi
+    for t in db-backup dbshell-psql ps-dbserver denorm-count-forever \
+             restore-db-remove-db-rebuild-db-rm-backup; do
+        out="$(${tmo[@]+"${tmo[@]}"} make -n -C "$w" "$t" YES=1 2>&1 || true)"
+        if ! grep -q 'dbserver' <<<"$out"; then
+            fail "make $t: brak receptury do sprawdzenia ($out)"
+        elif grep -qF -- "$sekret" <<<"$out"; then
+            fail "make $t: haslo bazy w argv hosta"
+        else
+            pass "make $t: haslo bazy poza argv hosta"
+        fi
+    done
+    rm -rf "$w"
+
+    # Skrypty: statycznie, bo uruchomienie kazdego wymaga zywej bazy. Wzorzec
+    # `-e PGPASSWORD=<wartosc>` / `-e "POSTGRES_PASSWORD=..."` = haslo w argv.
+    # Dozwolone: `-e PGPASSWORD` bez wartosci (docker bierze je ze srodowiska).
+    # scripts/test-*.sh to testy z atrapami haslami — poza test-upgrade.sh,
+    # ktory dziala na produkcji z prawdziwym haslem bazy.
+    local pliki=("$REPO_DIR"/Makefile "$REPO_DIR"/mk/*.mk "$REPO_DIR"/scripts/test-upgrade.sh) f
+    for f in "$REPO_DIR"/scripts/*.sh; do
+        case "$(basename "$f")" in test-*) ;; *) pliki+=("$f") ;; esac
+    done
+    out="$(grep -nE -- '-e +"?[A-Z_]*PASSWORD[A-Z_]*=[^ ]' "${pliki[@]}" || true)"
+    if [ -z "$out" ]; then
+        pass "Makefile/mk/scripts: brak hasla przekazywanego jako wartosc -e"
+    else
+        fail "Makefile/mk/scripts: haslo jako wartosc -e (widoczne w ps):
+$out"
+    fi
+}
+
 test_db_budget() {
     yellow "=== Test: budzet polaczen (scripts/db-budget.sh -> pgbouncer, nginx) ==="
     local tmp out rc
@@ -3797,6 +3855,7 @@ test_restore_config_first_run
 test_backup_runner_mounts_configs
 test_db_autotune_external
 test_db_budget
+test_db_password_not_in_argv
 test_stop_db_consumers
 test_up_stops_consumers_first
 test_infra_files_hash

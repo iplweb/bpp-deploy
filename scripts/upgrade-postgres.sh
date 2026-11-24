@@ -269,7 +269,12 @@ fi
 
 # Aplikacyjne zmienne - ladujemy tylko to, czego skrypt faktycznie uzywa. NIE
 # sourcujemy calego .env (patrz komentarz przy get_env_var powyzej).
-DJANGO_BPP_DB_PASSWORD="$(get_env_var DJANGO_BPP_DB_PASSWORD "$APP_ENV")"
+# Haslo do bazy czytane WEWNATRZ kontenera dbserver (oba warianty serwisu maja
+# service-level env_file z DJANGO_BPP_DB_PASSWORD). Nie jako wartosc `-e PGPASSWORD`:
+# wartosc trafilaby do argv `docker compose`, widocznego w `ps` dla kazdego
+# uzytkownika hosta. Uzycie: dc exec -T dbserver "${PG_HASLO_Z_KONTENERA[@]}" psql ...
+# shellcheck disable=SC2016  # $DJANGO_BPP_DB_PASSWORD rozwija sh w kontenerze
+PG_HASLO_Z_KONTENERA=(sh -c 'PGPASSWORD="$DJANGO_BPP_DB_PASSWORD" exec "$@"' sh)
 DJANGO_BPP_DB_HOST="$(get_env_var DJANGO_BPP_DB_HOST "$APP_ENV")"
 DJANGO_BPP_DB_PORT="$(get_env_var DJANGO_BPP_DB_PORT "$APP_ENV")"
 DJANGO_BPP_DB_USER="$(get_env_var DJANGO_BPP_DB_USER "$APP_ENV")"
@@ -915,8 +920,7 @@ if [ "$FROM_STEP" -le 9 ] && ! step_is_skipped 9; then
     # Tarball jest juz w /backup (bind-mount) - rozpakuj wewnatrz kontenera.
     run docker compose exec -T dbserver tar xzf "/backup/$TARBALL_NAME" -C /backup
     run docker compose exec -T \
-        -e "PGPASSWORD=$DJANGO_BPP_DB_PASSWORD" \
-        dbserver \
+        dbserver "${PG_HASLO_Z_KONTENERA[@]}" \
         pg_restore \
             -Fd \
             -j "${PARALLEL_JOBS:-4}" \

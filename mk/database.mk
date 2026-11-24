@@ -23,6 +23,17 @@ DJANGO_BPP_HOST_BACKUP_DIR ?= $(abspath $(BPP_CONFIGS_DIR)/..)/backups
 # z fallbacku powyzej, jak i deploymentow uzywajacych computed default.
 export DJANGO_BPP_HOST_BACKUP_DIR
 
+# Prefiks komend klienta Postgresa w kontenerze dbserver:
+#   docker compose exec [-T] dbserver $(PG_HASLO_Z_KONTENERA) pg_dump ...
+# Haslo czytane WEWNATRZ kontenera z DJANGO_BPP_DB_PASSWORD — oba warianty
+# serwisu (lokalna baza i sentinel bazy zewnetrznej) maja service-level
+# env_file z $(BPP_CONFIGS_DIR)/.env. NIGDY nie podawaj hasla jako wartosci `-e`:
+# wartosc ląduje wtedy w argv `sh -c` i `docker compose` na hoscie, czyli
+# kazdy lokalny uzytkownik widzi haslo w `ps` (test_db_password_not_in_argv).
+# `$$` - make zamienia na `$`, a pojedyncze cudzyslowy chronia je przed
+# powloka hosta, wiec rozwija je dopiero `sh` w kontenerze.
+PG_HASLO_Z_KONTENERA = sh -c 'PGPASSWORD="$$DJANGO_BPP_DB_PASSWORD" exec "$$@"' sh
+
 BACKUP_TIMESTAMP := $(shell date +%Y%m%d-%H%M%S)
 BACKUP_DIRNAME := db-backup-$(BACKUP_TIMESTAMP)
 BACKUP_TAR := $(BACKUP_DIRNAME).tar.gz
@@ -50,7 +61,7 @@ backup: db-backup media-backup config-backup
 db-backup:
 	@mkdir -p $(DJANGO_BPP_HOST_BACKUP_DIR)
 	@echo "Creating parallel database backup ($(PARALLEL_JOBS) jobs)..."
-	@docker compose exec -T -e PGPASSWORD=$(DJANGO_BPP_DB_PASSWORD) dbserver pg_dump \
+	@docker compose exec -T dbserver $(PG_HASLO_Z_KONTENERA) pg_dump \
 		-Fd \
 		-j $(PARALLEL_JOBS) \
 		-h $(DJANGO_BPP_DB_HOST) \
@@ -139,7 +150,7 @@ dbshell:
 	docker compose exec appserver python src/manage.py dbshell
 
 dbshell-psql:
-	@docker compose exec -e PGPASSWORD=$(DJANGO_BPP_DB_PASSWORD) dbserver \
+	@docker compose exec dbserver $(PG_HASLO_Z_KONTENERA) \
 		psql -h $(DJANGO_BPP_DB_HOST) -p $(DJANGO_BPP_DB_PORT) \
 		     -U $(DJANGO_BPP_DB_USER) $(DJANGO_BPP_DB_NAME)
 
@@ -152,7 +163,7 @@ db-autotune-external:
 	@bash scripts/db-autotune-external.sh "$(or $(RAM),$(BPP_DB_RAM))" "$(or $(CPU),$(BPP_DB_CPUS))"
 
 ps-dbserver:
-	@docker compose exec -e PGPASSWORD=$(DJANGO_BPP_DB_PASSWORD) dbserver \
+	@docker compose exec dbserver $(PG_HASLO_Z_KONTENERA) \
 		psql -P pager=off -h $(DJANGO_BPP_DB_HOST) -p $(DJANGO_BPP_DB_PORT) \
 		     -U $(DJANGO_BPP_DB_USER) template1 \
 		     -c 'select pid as process_id, usename as username, datname as database_name, client_addr as client_address, application_name, backend_start, state, state_change, query from pg_stat_activity;'
@@ -173,14 +184,14 @@ restore-db-remove-db-rebuild-db-rm-backup:
 		read ans; \
 		[ "$$ans" = "yes" ] || { echo "Przerwano — baza nietknieta."; exit 1; }; \
 	fi
-	@docker compose exec -e PGPASSWORD=$(DJANGO_BPP_DB_PASSWORD) dbserver \
+	@docker compose exec dbserver $(PG_HASLO_Z_KONTENERA) \
 		dropdb --force -h $(DJANGO_BPP_DB_HOST) -p $(DJANGO_BPP_DB_PORT) \
 		       -U $(DJANGO_BPP_DB_USER) $(DJANGO_BPP_DB_NAME)
-	@docker compose exec -e PGPASSWORD=$(DJANGO_BPP_DB_PASSWORD) dbserver \
+	@docker compose exec dbserver $(PG_HASLO_Z_KONTENERA) \
 		createdb -h $(DJANGO_BPP_DB_HOST) -p $(DJANGO_BPP_DB_PORT) \
 		         -U $(DJANGO_BPP_DB_USER) $(DJANGO_BPP_DB_NAME)
 	docker compose exec dbserver gzip -d /local.pgdump.gz
-	@docker compose exec -e PGPASSWORD=$(DJANGO_BPP_DB_PASSWORD) dbserver \
+	@docker compose exec dbserver $(PG_HASLO_Z_KONTENERA) \
 		psql -h $(DJANGO_BPP_DB_HOST) -p $(DJANGO_BPP_DB_PORT) \
 		     -U $(DJANGO_BPP_DB_USER) $(DJANGO_BPP_DB_NAME) -f /local.pgdump
 	docker compose exec dbserver rm /local.pgdump

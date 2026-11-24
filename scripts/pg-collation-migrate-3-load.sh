@@ -90,16 +90,16 @@ if printf '%s' "$IMG" | grep -qi 'bpp_dbserver'; then
     exit 1
 fi
 
-PSQL=(dc exec -T -e "PGPASSWORD=${DJANGO_BPP_DB_PASSWORD}" dbserver psql \
+PSQL=(dc exec -T dbserver "${PG_HASLO_Z_KONTENERA[@]}" psql \
       -h "${DJANGO_BPP_DB_HOST}" -p "${DJANGO_BPP_DB_PORT}" -U "${DJANGO_BPP_DB_USER}")
 
 echo ">> dropdb --force + createdb ${DJANGO_BPP_DB_NAME} (dziedziczy kolacje ICU pl-PL z clustra)" >&2
 confirm "Skasowac i odtworzyc baze '${DJANGO_BPP_DB_NAME}' na ${IMG}?" \
     || { echo "Przerwano." >&2; exit 1; }
-dc exec -T -e "PGPASSWORD=${DJANGO_BPP_DB_PASSWORD}" dbserver \
+dc exec -T dbserver "${PG_HASLO_Z_KONTENERA[@]}" \
     dropdb --force --if-exists -h "${DJANGO_BPP_DB_HOST}" -p "${DJANGO_BPP_DB_PORT}" \
         -U "${DJANGO_BPP_DB_USER}" "${DJANGO_BPP_DB_NAME}"
-dc exec -T -e "PGPASSWORD=${DJANGO_BPP_DB_PASSWORD}" dbserver \
+dc exec -T dbserver "${PG_HASLO_Z_KONTENERA[@]}" \
     createdb -h "${DJANGO_BPP_DB_HOST}" -p "${DJANGO_BPP_DB_PORT}" \
         -U "${DJANGO_BPP_DB_USER}" "${DJANGO_BPP_DB_NAME}"
 

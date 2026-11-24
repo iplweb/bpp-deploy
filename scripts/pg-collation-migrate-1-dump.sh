@@ -119,7 +119,7 @@ file_size() { stat -c%s "$1" 2>/dev/null || stat -f%z "$1" 2>/dev/null; }
 PROGRESS=(cat)
 DB_BYTES=0
 if [ -t 2 ] && command -v pv >/dev/null 2>&1; then
-    DB_BYTES="$(dc exec -T -e "PGPASSWORD=${DJANGO_BPP_DB_PASSWORD}" dbserver psql \
+    DB_BYTES="$(dc exec -T dbserver "${PG_HASLO_Z_KONTENERA[@]}" psql \
         -h "${DJANGO_BPP_DB_HOST}" -p "${DJANGO_BPP_DB_PORT}" \
         -U "${DJANGO_BPP_DB_USER}" -d "${DJANGO_BPP_DB_NAME}" \
         -tAc "SELECT pg_database_size('${DJANGO_BPP_DB_NAME}')" 2>/dev/null \
@@ -152,7 +152,7 @@ fi
 # pseudo-TTY, wiec strumien nie jest psuty translacja CR/LF. pipefail (z set -o)
 # wylapie blad pg_dump mimo pv po prawej stronie potoku.
 echo ">> pg_dump -Fp --no-owner --no-privileges (zrodlo: stary cluster) -> ${OUT_PATH}" >&2
-dc exec -T -e "PGPASSWORD=${DJANGO_BPP_DB_PASSWORD}" dbserver pg_dump \
+dc exec -T dbserver "${PG_HASLO_Z_KONTENERA[@]}" pg_dump \
     -Fp --no-owner --no-privileges \
     -h "${DJANGO_BPP_DB_HOST}" -p "${DJANGO_BPP_DB_PORT}" \
     -U "${DJANGO_BPP_DB_USER}" "${DJANGO_BPP_DB_NAME}" \

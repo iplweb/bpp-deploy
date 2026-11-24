@@ -336,11 +336,13 @@ docker volume create "$SHADOW_VOL" >/dev/null
 # do podkatalogu wersji), kolacja ICU pl-PL przy initdb, knoby POSTGRESQL_*
 # z .env. POSTGRESQL_RAM_THIS_MUCH_GB zerujemy: wartosc dobrana pod produkcje
 # przekroczylaby przyciety limit shadow-bazy - autotune ma czytac jej cgroup.
-docker run -d --name "$SHADOW_DB" --network "$SHADOW_NET" \
+# POSTGRES_PASSWORD przez srodowisko procesu docker (`-e VAR` bez wartosci),
+# nie jako wartosc w argv - ta widac w `ps` dla kazdego uzytkownika hosta.
+POSTGRES_PASSWORD="$DB_PASSWORD" docker run -d --name "$SHADOW_DB" --network "$SHADOW_NET" \
     --env-file "$ENV_FILE" \
     -e POSTGRES_DB="$DB_NAME" \
     -e POSTGRES_USER="$DB_USER" \
-    -e POSTGRES_PASSWORD="$DB_PASSWORD" \
+    -e POSTGRES_PASSWORD \
     -e PGDATA=/var/lib/postgresql/data \
     -e POSTGRES_INITDB_ARGS="--locale-provider=icu --icu-locale=pl-PL" \
     -e POSTGRESQL_RAM_THIS_MUCH_GB= \
