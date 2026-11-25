@@ -1,4 +1,4 @@
-.PHONY: clean wait debug-show-current-settings test-docker-versions test-config-path test-grafana-datasources test-rclone test-winget-ids test-waf test-alloy test-nginx-limits test-pgbouncer
+.PHONY: clean wait debug-show-current-settings test-docker-versions test-config-path test-grafana-datasources test-rclone test-images test-winget-ids test-waf test-alloy test-nginx-limits test-pgbouncer
 
 clean:
 	-find . -name '*~' -o -name '\#*' -o -name '.*~' | xargs rm -f
@@ -29,6 +29,9 @@ test-grafana-datasources:
 # atrapami w PATH, bo grep po zrodle tego nie widzi. Bez sieci, dockera i .env.
 test-rclone:
 	@bash scripts/test-rclone.sh
+
+test-images:
+	@bash scripts/test-images.sh
 
 # Czy identyfikatory pakietow winget z instrukcji dla Windows nadal istnieja
 # w microsoft/winget-pkgs. WYMAGA SIECI, wiec swiadomie nie wchodzi do `make

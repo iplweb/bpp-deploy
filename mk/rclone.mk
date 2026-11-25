@@ -1,4 +1,4 @@
-.PHONY: rclone-sync rclone-config rclone-check backup-cycle
+.PHONY: rclone-sync rclone-config rclone-check backup-cycle images-save
 
 # Polecenia rclone (sync/config/check) dzialaja wewnatrz zadeklarowanego
 # serwisu compose `rclone` (obraz rclone/rclone, patrz docker-compose.backup.yml).
@@ -37,3 +37,18 @@ rclone-check:
 # (DJANGO_BPP_BACKUP_ENABLED=0) - operator swiadomie prosi o backup.
 backup-cycle:
 	docker compose exec -e BPP_BACKUP_CYCLE_FORCE=1 backup-runner /scripts/backup-cycle.sh
+
+# Archiwum obrazow Dockera + git bundle repo (odtworzenie bez Docker Huba
+# i GitHuba). Ten sam skrypt co krok 2c nocnego cyklu, w tym samym kontenerze
+# (docker:cli ma docker CLI, socket, git i gzip), wiec zapis do /backup jako
+# root dziala identycznie. Reczne wywolanie ignoruje wylacznik
+# DJANGO_BPP_BACKUP_IMAGES_ENABLED.
+#   make images-save              # nowy zestaw tylko, gdy obrazy sie zmienily
+#   make images-save FORCE=1      # wymus nowy zestaw
+#   make images-save MONITORING=1 # dolacz netdata/loki/grafana/alloy/dozzle/flower
+# Odtworzenie: make images-load FILE=... (Makefile, przed ifdef FIRST_RUN).
+images-save:
+	docker compose exec -T \
+		-e DJANGO_BPP_BACKUP_IMAGES_KEEP_LAST=$(DJANGO_BPP_BACKUP_IMAGES_KEEP_LAST) \
+		-e DJANGO_BPP_BACKUP_IMAGES_MONITORING=$(if $(MONITORING),1,$(DJANGO_BPP_BACKUP_IMAGES_MONITORING)) \
+		backup-runner /scripts/images-archive.sh save $(if $(FORCE),--force)

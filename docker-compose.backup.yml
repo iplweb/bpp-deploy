@@ -15,6 +15,9 @@ services:
   #                              nie przechodzi przez -e)
   #   2. tar dumpu, mediow i  -> lokalnie (busybox tar; /backup, media
   #      konfiguracji            i ${BPP_CONFIGS_DIR} zamontowane tez tutaj)
+  #   2c. archiwum obrazow    -> lokalnie (`docker save` przez socket, git
+  #       + git bundle repo        bundle z mountu /repo; tylko gdy obrazy
+  #                                sie zmienily - scripts/images-archive.sh)
   #   3. lokalna rotacja (KEEP_LAST)
   #   4. rclone copy/lsf/purge -> docker exec w serwisie rclone (patrz shim
   #                              `rclone()` w scripts/backup-cycle.sh)
@@ -61,6 +64,10 @@ services:
       # ostrzezenie, a backup bazy idzie normalnie.
       - ${BPP_CONFIGS_DIR}:/configs:ro
       - ./scripts:/scripts:ro
+      # Cale repo :ro - zrodlo `git bundle` w archiwum obrazow (krok 2c cyklu,
+      # scripts/images-archive.sh; git jest w docker:cli). Nie `./.git`: przy
+      # instalacji bez gita Docker zalozylby pusty katalog .git w repo.
+      - .:/repo:ro
     entrypoint: ["/bin/sh", "-c"]
     command: ["exec sleep infinity"]
     healthcheck:

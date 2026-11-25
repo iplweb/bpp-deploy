@@ -50,4 +50,14 @@ if [ ! -f "$RCLONE_CONFIG" ]; then
 fi
 
 echo "rclone copy $BACKUP_DIR/ -> $DEST"
-exec rclone copy "$BACKUP_DIR/" "$DEST" --config "$RCLONE_CONFIG" --progress
+# Zestawy obrazow (scripts/images-archive.sh) maja wlasny katalog zdalny,
+# REMOTE:obrazy/ - patrz krok 4b w backup-cycle.sh. Tylko `copy`, bez rotacji
+# (rotacje robi nocny cykl).
+rclone copy "$BACKUP_DIR/" "$DEST" --config "$RCLONE_CONFIG" --progress \
+    --exclude "/obrazy/**"
+if [ -d "$BACKUP_DIR/obrazy" ]; then
+    OBRAZY_DEST="$(rclone_base "$REMOTE")obrazy/"
+    echo "rclone copy $BACKUP_DIR/obrazy/ -> $OBRAZY_DEST"
+    rclone copy "$BACKUP_DIR/obrazy/" "$OBRAZY_DEST" --config "$RCLONE_CONFIG" --progress \
+        --exclude ".*/**" --exclude ".*"
+fi

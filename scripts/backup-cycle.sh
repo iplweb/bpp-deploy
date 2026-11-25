@@ -27,6 +27,13 @@
 #                                   0 (tez false/nie/no/off) = pomin cykl (exit 0,
 #                                   zero notyfikacji); brak/pusta/inna = wlaczony
 #   BPP_BACKUP_CYCLE_FORCE        - 1 = omin wylacznik (`make backup-cycle`)
+#   DJANGO_BPP_BACKUP_IMAGES_ENABLED - archiwum obrazow Dockera + git bundle
+#                                   (krok 2c): 0 (tez false/nie/no/off) = pomin;
+#                                   brak/pusta/inna = wlaczone. Rezerwa dysku
+#                                   (MIN_FREE_GB, MAX_USED_PCT) w images-archive.sh
+#   DJANGO_BPP_BACKUP_IMAGES_KEEP_LAST - ile zestawow obrazow lokalnie i na
+#                                   zdalnym, default 2
+#   DJANGO_BPP_BACKUP_IMAGES_MONITORING - 1 = archiwum obejmuje tez monitoring
 #
 # Exit codes:
 #   0 - pelny sukces
@@ -35,8 +42,8 @@
 #   2 - tar media failed
 #   3 - rclone copy failed (lokalne backupy zostaly utworzone)
 #
-# Backup konfiguracji (krok 2b) i retencja zdalna (krok 5) NIGDY nie zmieniaja
-# exit code'u. Konfiguracja: brak mountu /configs (kontener sprzed `make up`)
+# Backup konfiguracji (krok 2b), archiwum obrazow (krok 2c, wysylka 4b)
+# i retencja zdalna (krok 5) NIGDY nie zmieniaja exit code'u. Konfiguracja: brak mountu /configs (kontener sprzed `make up`)
 # albo blad tar to ostrzezenie w logu i `config=...` w komunikacie do
 # Rollbara - inaczej sam `git pull` (scripts/ to bind-mount) wywracalby kazdy
 # nocny backup bazy az do najblizszego `make up`.
@@ -139,18 +146,21 @@ LOG="${BPP_BACKUP_LOG:-/tmp/backup-cycle.log}"
 # TWORZENIU kontenera, wiec srodowisko to migawka z ostatniego `make up` -
 # bez odczytu pliku wylaczenie (i, co gorsze, ponowne WLACZENIE) backupu
 # wymagaloby `make up`, a cykl po cichu robilby to, co bylo w .env wtedy.
-backup_enabled_raw() {
+# config_var_raw <ZMIENNA> - ta sama regula dla wszystkich przelacznikow
+# czytanych co noc (wylacznik backupu, archiwum obrazow): plik, potem env.
+config_var_raw() {
     _be_env="$CONFIG_SRC_DIR/.env"
     if [ -r "$_be_env" ]; then
         # `|| true`: brak dopasowania w grep pod pipefail to nie blad.
-        _be_line="$(grep -E '^[[:space:]]*(export[[:space:]]+)?DJANGO_BPP_BACKUP_ENABLED=' "$_be_env" | tail -n 1 || true)"
+        _be_line="$(grep -E "^[[:space:]]*(export[[:space:]]+)?$1=" "$_be_env" | tail -n 1 || true)"
         _be_val="${_be_line#*=}"
         # CR (plik z Windows), cudzyslowy i spacje - jak dotenv Compose.
         printf '%s' "$_be_val" | tr -d '\r"'"'"' '
         return 0
     fi
-    printf '%s' "${DJANGO_BPP_BACKUP_ENABLED:-}"
+    eval "printf '%s' \"\${$1:-}\""
 }
+backup_enabled_raw() { config_var_raw DJANGO_BPP_BACKUP_ENABLED; }
 BACKUP_ENABLED_RAW="$(backup_enabled_raw)"
 BACKUP_ENABLED_WARN=""
 case "$(printf '%s' "$BACKUP_ENABLED_RAW" | tr '[:upper:]' '[:lower:]')" in
@@ -189,6 +199,9 @@ KEEP_MONTHS="${DJANGO_BPP_RCLONE_KEEP_MONTHS-12}"
 PARALLEL_JOBS="${PARALLEL_JOBS:-4}"
 RETENCJA_MSG="off"
 CONFIG_MSG="brak"
+IMAGES_MSG="off"
+IMAGES_ON=0
+REPO_SRC_DIR="${BPP_REPO_DIR:-/repo}"
 HC_PING_KEY="${DJANGO_BPP_HEALTHCHECKS_PING_KEY:-}"
 HC_URL="${DJANGO_BPP_HEALTHCHECKS_URL:-https://hc-ping.com}"
 HC_URL="${HC_URL%/}"
@@ -448,6 +461,60 @@ else
     fi
 fi
 
+# --- 2c. Archiwum obrazow Dockera + git bundle repo (praca bez Huba/GitHuba) ---
+#
+# Logika w scripts/images-archive.sh (wspolna z `make images-save`). Nowy
+# zestaw (~0,7-1,5 GB) powstaje TYLKO, gdy zmienily sie obrazy dzialajacych
+# kontenerow - w zwykla noc to porownanie manifestu i nic wiecej. Zestawy
+# leza w $BACKUP_DIR/obrazy/<TS>/ i jada na zdalny do WLASNEGO katalogu
+# REMOTE:obrazy/ (krok 4b), nie do miesiecznego - uzasadnienie przy kroku 4b.
+#
+# BPP_IMAGES_ARCHIVE_SCRIPT: wylacznie dla test-rclone.sh (atrapa exit 8).
+#
+# Jak krok 2b: blad NIE wywraca cyklu, tylko adnotacja `obrazy=...`. Brak
+# mountu /repo (kontener sprzed `make up`) = krok pominiety z adnotacja - bez
+# tego pierwszy zestaw powstalby bez bundla i nie zostal odtworzony az do
+# nastepnej zmiany obrazow.
+# Domyslnie wlaczone; przed zapelnieniem dysku chroni rezerwa w
+# images-archive.sh (exit 8 = REZERWA), nie wylacznik.
+case "$(config_var_raw DJANGO_BPP_BACKUP_IMAGES_ENABLED | tr '[:upper:]' '[:lower:]')" in
+    0|nie|false|no|off) IMAGES_MSG="wylaczone" ;;
+    *) IMAGES_ON=1 ;;
+esac
+IMAGES_KEEP="$(config_var_raw DJANGO_BPP_BACKUP_IMAGES_KEEP_LAST)"
+case "$IMAGES_KEEP" in ''|*[!0-9]*|0) IMAGES_KEEP=2 ;; esac
+if [ "$IMAGES_ON" = 1 ]; then
+    if [ ! -d "$REPO_SRC_DIR" ]; then
+        IMAGES_MSG="BRAK-MOUNTU(make up)"
+        log "UWAGA: brak $REPO_SRC_DIR - archiwum obrazow pominiete; wykonaj make up"
+    else
+        log "archiwum obrazow (krok 2c)..."
+        if IMAGES_OUT="$(BPP_BACKUP_DIR="$BACKUP_DIR" BPP_REPO_DIR="$REPO_SRC_DIR" \
+                DJANGO_BPP_BACKUP_IMAGES_KEEP_LAST="$IMAGES_KEEP" \
+                DJANGO_BPP_BACKUP_IMAGES_MONITORING="$(config_var_raw DJANGO_BPP_BACKUP_IMAGES_MONITORING)" \
+                DJANGO_BPP_BACKUP_IMAGES_MIN_FREE_GB="$(config_var_raw DJANGO_BPP_BACKUP_IMAGES_MIN_FREE_GB)" \
+                DJANGO_BPP_BACKUP_IMAGES_MAX_USED_PCT="$(config_var_raw DJANGO_BPP_BACKUP_IMAGES_MAX_USED_PCT)" \
+                sh "${BPP_IMAGES_ARCHIVE_SCRIPT:-$SCRIPT_DIR/images-archive.sh}" save | tail -n 1)"; then
+            case "$IMAGES_OUT" in
+                NOWE*) IMAGES_MSG="nowe($(fmt_size "${IMAGES_OUT##* }"))" ;;
+                BEZ-ZMIAN*) IMAGES_MSG="bez-zmian" ;;
+                *) IMAGES_MSG="?" ;;
+            esac
+            log "obrazy: $IMAGES_OUT"
+        else
+            images_rc=$?
+            case "$images_rc" in
+                6) IMAGES_MSG="BRAK-MIEJSCA" ;;
+                8) r="${IMAGES_OUT#REZERWA }"
+                   IMAGES_MSG="ZA-MALO-MIEJSCA($(printf '%s' "$r" | sed 's/=/ /g; s/ zajete/, zajete/'))"
+                   log "obrazy: pominiete - rezerwa dysku ($r); ruszy samo, gdy przybedzie miejsca" ;;
+                *) IMAGES_MSG="BLAD(exit=$images_rc)" ;;
+            esac
+            log "UWAGA: archiwum obrazow nieudane (exit=$images_rc) - kontynuuje cykl"
+        fi
+    fi
+fi
+
 # --- 3. Lokalna rotacja - zachowaj N najnowszych kopii kazdego typu ---
 prune_type() {
     local prefix="$1"
@@ -485,10 +552,56 @@ log "rclone copy $BACKUP_DIR/ -> $REMOTE_DIR"
 if [ ! -f "$RCLONE_CONFIG" ]; then
     fail "rclone-config-missing" 3
 fi
-if ! rclone copy "$BACKUP_DIR/" "$REMOTE_DIR" --config "$RCLONE_CONFIG"; then
+# `--exclude /obrazy/**`: zestawy obrazow maja wlasny katalog zdalny (4b).
+if ! rclone copy "$BACKUP_DIR/" "$REMOTE_DIR" --config "$RCLONE_CONFIG" \
+        --exclude "/obrazy/**"; then
     fail "rclone-copy" 3
 fi
 log "rclone copy ok"
+
+# --- 4b. Zestawy obrazow -> REMOTE:obrazy/ (osobny katalog, NIE miesieczny) ---
+#
+# Dlaczego nie katalog miesieczny: (1) `copy` co miesiac wysylalby te same
+# lokalne zestawy do NOWEGO katalogu miesiaca - 1,5-3 GB duplikatow miesiecznie,
+# 12x przy domyslnej retencji; (2) retencja miesieczna kasowalaby jedyny zestaw,
+# jesli obrazy nie zmienialy sie dluzej niz DJANGO_BPP_RCLONE_KEEP_MONTHS.
+# Nazwa `obrazy` nie pasuje do ^YYYY-MM$, wiec retencja z kroku 5 jej nie widzi.
+#
+# Tu tez wylacznie `copy` (nigdy `sync`): pusty lokalny katalog (nowy serwer
+# po awarii, zanim powstal pierwszy zestaw) skasowalby ze zdalnego jedyne
+# archiwum potrzebne do odtworzenia. Zdalna rotacja nizej: N najnowszych,
+# maksymalnie jeden zestaw na cykl, tylko po udanej wysylce.
+# Blad tego kroku to adnotacja, nie `fail`.
+upload_images() {
+    local base dest sets nadmiar najstarszy
+    [ "$IMAGES_ON" = 1 ] || return 0
+    [ -d "$BACKUP_DIR/obrazy" ] || return 0
+    base="$(rclone_base "$REMOTE")"
+    dest="${base}obrazy/"
+    log "rclone copy $BACKUP_DIR/obrazy/ -> $dest"
+    if ! rclone copy "$BACKUP_DIR/obrazy/" "$dest" --config "$RCLONE_CONFIG" \
+            --exclude ".*/**" --exclude ".*"; then
+        log "UWAGA: wysylka zestawow obrazow nieudana - sprobuje w kolejnym cyklu"
+        IMAGES_MSG="$IMAGES_MSG,wysylka=BLAD"
+        return 0
+    fi
+    if ! sets="$(rclone_list_image_sets "$dest" --config "$RCLONE_CONFIG")"; then
+        log "UWAGA: nie moge wylistowac $dest - pomijam rotacje zdalna obrazow"
+        return 0
+    fi
+    nadmiar="$(printf '%s\n' "$sets" | rclone_image_sets_to_purge "$IMAGES_KEEP")"
+    [ -n "$nadmiar" ] || return 0
+    najstarszy="$(printf '%s\n' "$nadmiar" | sed -n '1p')"
+    [ -n "$najstarszy" ] || return 0
+    log "rotacja zdalna obrazow: usuwam $dest$najstarszy (zostaje $IMAGES_KEEP)"
+    if rclone purge "$dest$najstarszy" --config "$RCLONE_CONFIG"; then
+        IMAGES_MSG="$IMAGES_MSG,usunieto-zdalnie=$najstarszy"
+    else
+        log "UWAGA: nie udalo sie usunac $dest$najstarszy - sprobuje w kolejnym cyklu"
+    fi
+    return 0
+}
+upload_images
 
 # --- 5. Retencja zdalna (domyslnie WLACZONA: 12 miesiecy) ---
 #
@@ -566,7 +679,7 @@ prune_remote_months
 # --- 6. Sukces - notify ---
 END_TS=$(date +%s)
 DURATION=$(( END_TS - START_TS ))
-MSG="Backup OK on ${BPP_HOST_ID:-unknown}: db=$(fmt_size "$DB_SIZE") media=$(fmt_size "$MEDIA_SIZE") config=$CONFIG_MSG remote=$REMOTE_DIR duration=${DURATION}s keep_last=$KEEP_LAST retencja_zdalna=$RETENCJA_MSG"
+MSG="Backup OK on ${BPP_HOST_ID:-unknown}: db=$(fmt_size "$DB_SIZE") media=$(fmt_size "$MEDIA_SIZE") config=$CONFIG_MSG obrazy=$IMAGES_MSG remote=$REMOTE_DIR duration=${DURATION}s keep_last=$KEEP_LAST retencja_zdalna=$RETENCJA_MSG"
 log "$MSG"
 notify_rollbar info "$MSG"
 notify_sentry info "$MSG" || true
