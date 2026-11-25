@@ -554,6 +554,12 @@ też bazę). **Klucz z `.env` musi pochodzić z tego samego okresu co baza** —
 
 #### Nowy serwer po awarii
 
+!!! tip "Kopie są tylko na zdalnym?"
+    Całość — wybór kompletu, pobranie, konfiguracja, obrazy, baza, media,
+    `make up` — robi `make restore-server`: patrz
+    [Odtworzenie serwera po awarii](odtworzenie-serwera.md). Poniżej wariant
+    ręczny, z backupów leżących już na dysku.
+
 Na świeżym hoście nie ma repo-lokalnego `.env`, więc `make` uruchomiłby
 `setup` → `init-configs`, który **wygenerowałby nowe sekrety, w tym nowy klucz
 szyfrowania**. Zamiast tego:

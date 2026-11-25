@@ -212,12 +212,14 @@ make restore-config FILE=...   # Odtworzenie konfiguracji (z potwierdzeniem i ko
 make backup-cycle     # Pełen cykl: pg_dump + tar mediów i konfiguracji + rclone copy + retencja zdalna
 make images-save      # Archiwum obrazów Dockera + git bundle (FORCE=1, MONITORING=1)
 make images-load FILE=...   # Wczytanie archiwum obrazów (działa bez .env), weryfikacja z manifestem
+make restore-server   # CZYSTA maszyna: cały serwer z kopii zdalnej (DATA=YYYYMMDD, RCLONE_CONF=...)
+make proba-odtworzenia      # Próba odtworzenia z kopii zdalnej w shadow stacku (produkcja nietknięta)
 make rclone-config    # Konfiguracja zdalnego backupu (Google Drive, S3, ...)
 make rclone-sync      # Wymuszona wysyłka do chmury (bez retencji — ta należy do cyklu nocnego)
 make rclone-check     # Sprawdzenie spójności kopii zdalnej
 ```
 
-Szczegóły: [Backup i rclone](backup-i-rclone.md).
+Szczegóły: [Backup i rclone](backup-i-rclone.md), [Odtworzenie serwera po awarii](odtworzenie-serwera.md).
 
 ## Konserwacja
 

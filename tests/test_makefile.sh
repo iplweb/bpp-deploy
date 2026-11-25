@@ -3399,6 +3399,34 @@ test_images_archive_wiring() {
         'backup-runner /scripts/images-archive.sh save' "$REPO_DIR/mk/rclone.mk"
 }
 
+test_restore_server_wiring() {
+    yellow "=== Test: make restore-server bez .env (swiezy host), proba-odtworzenia, testy w CI ==="
+    # Na swiezym hoscie FIRST_RUN definiuje tylko `setup` -> init-configs ->
+    # NOWY klucz szyfrowania. restore-server musi byc przed `ifdef FIRST_RUN`.
+    local w out
+    w=$(mktemp -d)
+    cp "$REPO_DIR/Makefile" "$w/Makefile"
+    cp -R "$REPO_DIR/mk" "$w/mk"
+    out="$(make -n -C "$w" restore-server DATA=20261124 2>&1 || true)"
+    if printf '%s' "$out" | grep -q 'scripts/restore-server.sh' && printf '%s' "$out" | grep -q 'DATA="20261124"'; then
+        pass "make restore-server dziala w trybie FIRST_RUN i przekazuje DATA"
+    else
+        fail "make restore-server dziala w trybie FIRST_RUN ($out)"
+    fi
+    if printf '%s' "$out" | grep -q 'init-configs'; then
+        fail "make restore-server nie wola init-configs"
+    else
+        pass "make restore-server nie wola init-configs"
+    fi
+    rm -rf "$w"
+    assert_file_contains "proba-odtworzenia wola restore-server.sh --proba" \
+        'restore-server.sh --proba' "$REPO_DIR/mk/deployment.mk"
+    assert_file_contains "test-upgrade korzysta ze wspolnej lib-shadow.sh" \
+        'lib-shadow.sh' "$REPO_DIR/scripts/test-upgrade.sh"
+    assert_file_contains "make test wola test-restore-server.sh" 'test-restore-server.sh' "$REPO_DIR/Makefile"
+    assert_file_contains "CI wola test-restore-server.sh" 'test-restore-server.sh' "$REPO_DIR/.github/workflows/ci.yml"
+}
+
 test_backup_runner_mounts_configs() {
     yellow "=== Test: backup-runner montuje katalog konfiguracyjny :ro ==="
     local runner
@@ -4061,6 +4089,7 @@ test_restore_config
 test_restore_config_first_run
 test_backup_runner_mounts_configs
 test_images_archive_wiring
+test_restore_server_wiring
 test_db_autotune_external
 test_db_budget
 test_db_password_not_in_argv

@@ -18,9 +18,10 @@ make backup
 Archiwa lądują w `$DJANGO_BPP_HOST_BACKUP_DIR` z jednym timestampem.
 
 !!! tip "Nie masz już starej maszyny?"
-    Gdy serwer padł i zostały tylko backupy (lokalne albo zdalne), katalog
-    konfiguracyjny odtwarzasz z `config-backup-<TS>.tar.gz` — patrz
-    [Nowy serwer po awarii](backup-i-rclone.md#nowy-serwer-po-awarii).
+    Gdy serwer padł i zostały tylko kopie na zdalnym, cały serwer (konfiguracja,
+    obrazy, baza, media) stawia jedno polecenie — patrz
+    [Odtworzenie serwera po awarii](odtworzenie-serwera.md). Z samych lokalnych
+    backupów: [Nowy serwer po awarii](backup-i-rclone.md#nowy-serwer-po-awarii).
 
 ### 2. Skopiuj trzy katalogi
 

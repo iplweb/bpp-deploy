@@ -505,6 +505,26 @@ zmienił kod wyjścia cyklu (adnotacja `obrazy=...`, jak 2b). Mount `.:/repo:ro`
 w `backup-runner` (nie `./.git` — bez gita Docker założyłby pusty `.git`)
 wymaga `make up`. Operator doc: `docs/eksploatacja/backup-i-rclone.md#archiwum-obrazow`.
 
+### `make restore-server` / `make proba-odtworzenia` (`scripts/restore-server.sh`)
+
+Cały serwer z kopii ZDALNEJ: najnowszy komplet db+media+config z jednym `TS` →
+`restore-config.sh` → obrazy (`images-load`, bez archiwum `docker pull`
+`repo@digest` z manifestu) → `restore.sh` → `make up` → `/health/` + `/`.
+Próba = ten sam kod w shadow stacku (`scripts/lib-shadow.sh`, wspólnym z
+`test-upgrade` — **jedna blokada, te same nazwy `bpp-shadow-*`**). Testy:
+`make test-restore-server` (mocki) + `scripts/test-docker-versions.sh` (shadow).
+**Anti-fixes — do NOT:** (1) wywołać jakiekolwiek `make` przed
+`restore-config.sh` — świeży host bez repo `.env` wchodzi w FIRST_RUN →
+`init-configs` → NOWY klucz szyfrowania (pilnuje test kolejności); target musi
+zostać przed `ifdef FIRST_RUN`; (2) zrobić z próby `restore-server PROBA=1` —
+literówka w zmiennej = destrukcyjne odtworzenie na produkcji; (3) `docker load`
+w próbie — przepiąłby produkcyjne tagi (`latest`) na obrazy z archiwum, a
+następny `make up` wdrożyłby starą wersję; próba tylko sprawdza sumę, manifest
+i bundle; (4) podawać hasło crypt w argv (`rclone obscure <hasło>`, `-e VAR=…`) —
+`rclone obscure -` ze stdin, potem `-e VAR` bez wartości; (5) brać do
+odtworzenia najnowszy zestaw obrazów zamiast najnowszego **nie nowszego niż
+kopia**. Operator doc: `docs/eksploatacja/odtworzenie-serwera.md`.
+
 ### Backup konfiguracji (`.env` z kluczem szyfrowania)
 
 `$BPP_CONFIGS_DIR` (`.env` z `DJANGO_BPP_FIELD_ENCRYPTION_KEY`, `rclone.conf`, `ssl/`…) is archived **like the DB**: step 2b of `backup-cycle.sh` writes `config-backup-<TS>.tar.gz` (same `TIMESTAMP`, mode 0600, owner = backup dir owner) next to the dumps — same `prune_type` rotation, same `rclone copy`. Single source: `scripts/config-backup.sh` (POSIX, busybox-tested in `test-rclone.sh` §6), also behind `make config-backup` (ephemeral container on `BPP_HELPER_IMAGE` = the `backup-runner` image, so `make up`'s `prune -af` never removes it — don't switch these `docker run --rm` helpers back to `alpine`; like `media-backup`) and `make backup`. Source mount `${BPP_CONFIGS_DIR}:/configs:ro` on `backup-runner` → needs `make up`. **Anti-fixes — do NOT:** (1) let the config step change the cycle's exit code — `scripts/` rides the bind-mount, so after a bare `git pull` the old container has no `/configs`; a fatal step would fail every nightly DB backup until `make up` (missing mount = exit 4 → `config=BRAK-MOUNTU(make up)`, tar error → `config=BLAD(...)`, both annotations only); (2) put `.env` inside the DB tarball; (3) `chmod` after creating instead of `umask 077` before (world-readable window). `make restore-config FILE=…` (`scripts/restore-config.sh`) is defined **before** `ifdef FIRST_RUN` — on a fresh host `make` → `setup` → `init-configs` would mint a NEW encryption key; it requires typing `tak` (EOF/no TTY = abort), shows var NAMES only, saves `.env.przed-restore-<TS>`, extracts from the archive with `p` (never from the 0700 mktemp stage — that would chmod the config dir 0700 and lock out non-root containers). Tests: `test_config_backup_script`, `test_restore_config*` in `tests/test_makefile.sh`, §3b in `scripts/test-rclone.sh`. Operator doc: `docs/eksploatacja/backup-i-rclone.md#backup-konfiguracji-env`.

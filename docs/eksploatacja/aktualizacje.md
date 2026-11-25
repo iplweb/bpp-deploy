@@ -144,7 +144,9 @@ Różnice względem uruchomienia z terminala:
   całego Dockera, więc drugi przebieg (np. cron i ręczny naraz) kończy się
   kodem `2`, zamiast zniszczyć pierwszemu bazę w trakcie restore. Blokada po
   procesie, który zginął (SIGKILL, restart hosta), jest przejmowana
-  automatycznie.
+  automatycznie. Tę samą blokadę i ten sam shadow stack bierze
+  [`make proba-odtworzenia`](odtworzenie-serwera.md#proba-kwartalna) — obie
+  próby naraz się nie uruchomią.
 
 ### Baza zewnętrzna
 

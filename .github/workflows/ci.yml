@@ -55,6 +55,12 @@ jobs:
       - name: Archiwum obrazow images-save/images-load (mocki)
         run: ./scripts/test-images.sh
 
+      - name: Odtworzenie serwera z kopii zdalnej (mocki)
+        run: ./scripts/test-restore-server.sh
+
+      - name: Shadow stack test-upgrade (mocki, wspolna lib-shadow.sh)
+        run: ./scripts/test-docker-versions.sh
+
   pre-commit:
     name: Pre-commit hooks
     runs-on: ubuntu-latest

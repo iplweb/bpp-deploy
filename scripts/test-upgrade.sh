@@ -34,30 +34,11 @@ REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 # shellcheck source=scripts/lib-docker-versions.sh
 . "$REPO_DIR/scripts/lib-docker-versions.sh"
 
-SHADOW_NET="bpp-shadow"
-SHADOW_DB="bpp-shadow-dbserver"
-SHADOW_REDIS="bpp-shadow-redis"
-SHADOW_APP="bpp-shadow-appserver"
-SHADOW_VOL="bpp-shadow-pgdata"
-SHADOW_STATIC_VOL="bpp-shadow-staticfiles"
-SHADOW_MEDIA_VOL="bpp-shadow-media"
+# shellcheck source=scripts/lib-shadow.sh
+. "$REPO_DIR/scripts/lib-shadow.sh"
 PARALLEL_JOBS="${PARALLEL_JOBS:-4}"
-# Limity zasobow shadow stacka - przyciete, zeby nie zaglodzic produkcji.
-SHADOW_DB_MEM="${SHADOW_DB_MEM:-1g}"
-SHADOW_DB_CPUS="${SHADOW_DB_CPUS:-1.0}"
-SHADOW_REDIS_MEM="${SHADOW_REDIS_MEM:-256m}"
-SHADOW_MIGRATE_MEM="${SHADOW_MIGRATE_MEM:-2g}"
-SHADOW_APP_MEM="${SHADOW_APP_MEM:-2g}"
-# Ile sekund czekamy, az kandydat odpowie na /health/ (Phase 1 entrypointu
-# robi jeszcze raz baseline_load+migrate - po kroku 6 to no-op, ale import
-# Django pod przycietym CPU potrafi trwac).
-SHADOW_APP_TIMEOUT="${SHADOW_APP_TIMEOUT:-600}"
-
-cleanup_shadow() {
-    docker rm -f "$SHADOW_APP" "$SHADOW_DB" "$SHADOW_REDIS" >/dev/null 2>&1 || true
-    docker volume rm -f "$SHADOW_VOL" "$SHADOW_STATIC_VOL" "$SHADOW_MEDIA_VOL" >/dev/null 2>&1 || true
-    docker network rm "$SHADOW_NET" >/dev/null 2>&1 || true
-}
+# Nazwa historyczna - wolana tez z on_exit nizej.
+cleanup_shadow() { shadow_cleanup; }
 
 if [ "${1:-}" = "--clean" ]; then
     echo "Sprzatam shadow stack ($SHADOW_APP, $SHADOW_DB, $SHADOW_REDIS, wolumeny bpp-shadow-*, $SHADOW_NET)..."
@@ -72,24 +53,9 @@ fi
 
 # --- Blokada: jedna proba na hosta ---
 # Nazwy shadow-kontenerow sa globalne dla demona Dockera, wiec drugi przebieg
-# (cron + reczny) zaczalby od cleanup_shadow i ubil pierwszemu baze w polowie
-# restore. mkdir jest atomowy; martwy wlasciciel (SIGKILL, reboot) = przejecie.
-LOCK_DIR="${TEST_UPGRADE_LOCK_DIR:-${TMPDIR:-/tmp}/bpp-test-upgrade.lock}"
-if ! mkdir "$LOCK_DIR" 2>/dev/null; then
-    owner="$(cat "$LOCK_DIR/pid" 2>/dev/null || true)"
-    if [ -n "$owner" ] && kill -0 "$owner" 2>/dev/null; then
-        echo "BLAD: inna proba test-upgrade trwa na tym hoscie (pid $owner, blokada $LOCK_DIR)." >&2
-        exit 2
-    fi
-    echo "Przejmuje osierocona blokade $LOCK_DIR (pid ${owner:-?} nie zyje)."
-    rm -f "$LOCK_DIR/pid"
-    rmdir "$LOCK_DIR" 2>/dev/null || true
-    if ! mkdir "$LOCK_DIR" 2>/dev/null; then
-        echo "BLAD: nie moge przejac blokady $LOCK_DIR." >&2
-        exit 2
-    fi
-fi
-echo "$$" > "$LOCK_DIR/pid"
+# (cron + reczny, albo proba odtworzenia) zaczalby od cleanup_shadow i ubil
+# pierwszemu baze w polowie restore. Wspolna blokada w lib-shadow.sh.
+shadow_lock_acquire
 
 SHADOW_STARTED=0
 # shellcheck disable=SC2317,SC2329  # wywolywane przez trap EXIT
@@ -107,8 +73,7 @@ on_exit() {
             cleanup_shadow
         fi
     fi
-    rm -f "$LOCK_DIR/pid" 2>/dev/null || true
-    rmdir "$LOCK_DIR" 2>/dev/null || true
+    shadow_lock_release
     return "$rc"
 }
 trap on_exit EXIT
@@ -329,57 +294,15 @@ echo "Dump: $BACKUP_TAR_PATH"
 echo "=== [4/7] Stawiam shadow stack (siec $SHADOW_NET) ==="
 cleanup_shadow   # zombie z poprzedniego przebiegu
 SHADOW_STARTED=1
-docker network create "$SHADOW_NET" >/dev/null
-docker volume create "$SHADOW_VOL" >/dev/null
-# Lustro serwisu dbserver z docker-compose.database.yml: ten sam obraz, ten sam
-# autotune (bind-mount z repo), PGDATA przypiety (postgres:18+ domyslnie pisze
-# do podkatalogu wersji), kolacja ICU pl-PL przy initdb, knoby POSTGRESQL_*
-# z .env. POSTGRESQL_RAM_THIS_MUCH_GB zerujemy: wartosc dobrana pod produkcje
-# przekroczylaby przyciety limit shadow-bazy - autotune ma czytac jej cgroup.
-# POSTGRES_PASSWORD przez srodowisko procesu docker (`-e VAR` bez wartosci),
-# nie jako wartosc w argv - ta widac w `ps` dla kazdego uzytkownika hosta.
-POSTGRES_PASSWORD="$DB_PASSWORD" docker run -d --name "$SHADOW_DB" --network "$SHADOW_NET" \
-    --env-file "$ENV_FILE" \
-    -e POSTGRES_DB="$DB_NAME" \
-    -e POSTGRES_USER="$DB_USER" \
-    -e POSTGRES_PASSWORD \
-    -e PGDATA=/var/lib/postgresql/data \
-    -e POSTGRES_INITDB_ARGS="--locale-provider=icu --icu-locale=pl-PL" \
-    -e POSTGRESQL_RAM_THIS_MUCH_GB= \
-    -v "$REPO_DIR/dbserver/docker-entrypoint-autotune.sh":/usr/local/bin/docker-entrypoint-autotune.sh:ro \
-    -v "$REPO_DIR/dbserver/autotune.sh":/autotune.sh:ro \
-    -v "$SHADOW_VOL":/var/lib/postgresql/data \
-    -v "$BACKUP_DIR":/backup:ro \
-    --memory "$SHADOW_DB_MEM" --cpus "$SHADOW_DB_CPUS" \
-    --entrypoint bash \
-    "$DB_IMAGE" /usr/local/bin/docker-entrypoint-autotune.sh postgres >/dev/null
-docker run -d --name "$SHADOW_REDIS" --network "$SHADOW_NET" \
-    --memory "$SHADOW_REDIS_MEM" \
-    "$REDIS_IMAGE" >/dev/null
-
-echo "Czekam na gotowosc shadow-postgresa..."
-for i in $(seq 1 60); do
-    if docker exec "$SHADOW_DB" pg_isready -U "$DB_USER" -d "$DB_NAME" >/dev/null 2>&1; then
-        break
-    fi
-    if [ "$i" -eq 60 ]; then
-        echo "BLAD: shadow-postgres nie wstal w 120 s" >&2
-        exit 1
-    fi
-    sleep 2
-done
+# Lustro serwisu dbserver (lib-shadow.sh): ten sam obraz, autotune z repo,
+# PGDATA przypiety, ICU pl-PL, haslo przez srodowisko procesu docker.
+shadow_start_db "$DB_IMAGE" "$ENV_FILE" "$BACKUP_DIR" "$DB_NAME" "$DB_USER" "$DB_PASSWORD"
+shadow_start_redis "$REDIS_IMAGE"
+shadow_wait_db "$DB_USER" "$DB_NAME" || exit 1
 
 # --- [5/7] Restore dumpa do shadow-bazy ---
 echo "=== [5/7] Restore dumpa do shadow-bazy (pg_restore -j $PARALLEL_JOBS) ==="
-docker exec "$SHADOW_DB" mkdir -p /tmp/restore
-docker exec "$SHADOW_DB" tar xzf "/backup/$BACKUP_TAR" -C /tmp/restore
-# --no-owner + --no-privileges: shadow ma tylko jedna role (DJANGO_BPP_DB_USER).
-# GRANT-y dla rol, ktorych tu nie ma (uzytkownik monitoringu z
-# create-monitoring-user.sh, role zarzadzanej bazy zewnetrznej), konczylyby
-# pg_restore bledem i - pod set -e - cala probe, choc z migracjami nie maja
-# nic wspolnego.
-docker exec "$SHADOW_DB" pg_restore -Fd -j "$PARALLEL_JOBS" --no-owner --no-privileges \
-    -U "$DB_USER" -d "$DB_NAME" "/tmp/restore/$BACKUP_DIRNAME"
+shadow_restore_db "$BACKUP_TAR" "$BACKUP_DIRNAME" "$DB_USER" "$DB_NAME" "$PARALLEL_JOBS"
 
 # --- [6/7] Migracja obrazem-kandydatem ---
 echo "=== [6/7] manage.py migrate obrazem ${APPSERVER_REPO}:${CANDIDATE} ==="
@@ -412,55 +335,16 @@ echo "=== [7/7] Start kandydata na kopii bazy (gunicorn, bez nginx/workerow/moni
 # no-op po kroku 6, seed staticow, gunicorn). Wlasne puste wolumeny na static
 # i media - produkcyjnych nie dotykamy. Kanaly powiadomien wyzerowane, zeby
 # ewentualny blad kandydata nie trafil do produkcyjnego Rollbara/GlitchTipa/Slacka.
-docker volume create "$SHADOW_STATIC_VOL" >/dev/null
-docker volume create "$SHADOW_MEDIA_VOL" >/dev/null
-docker run -d --name "$SHADOW_APP" --network "$SHADOW_NET" \
-    --env-file "$ENV_FILE" \
-    -e DJANGO_BPP_DB_HOST="$SHADOW_DB" \
-    -e DJANGO_BPP_DB_PORT=5432 \
-    -e DJANGO_BPP_REDIS_HOST="$SHADOW_REDIS" \
-    -e STATIC_ROOT=/staticroot/ \
-    -e DJANGO_BPP_MEDIA_ROOT=/mediaroot \
-    -e ROLLBAR_ACCESS_TOKEN= \
-    -e SENTRY_DSN= \
-    -e DJANGO_BPP_SLACK_WEBHOOK= \
-    -v "$SHADOW_STATIC_VOL":/staticroot \
-    -v "$SHADOW_MEDIA_VOL":/mediaroot \
-    --memory "$SHADOW_APP_MEM" \
-    "${APPSERVER_REPO}:${CANDIDATE}" >/dev/null
+shadow_start_app "${APPSERVER_REPO}:${CANDIDATE}" "$ENV_FILE"
 
 fail_app() {
     echo "" >&2
     echo "=== BLAD: kandydat ${CANDIDATE} $1 ===" >&2
-    echo "Ostatnie linie logu kandydata:" >&2
-    docker logs --tail 60 "$SHADOW_APP" 2>&1 | sed 's/^/  /' >&2 || true
+    shadow_app_logs
     exit 1
 }
 
-echo "Czekam, az kandydat odpowie na /health/ (do ${SHADOW_APP_TIMEOUT} s)..."
-waited=0
-until docker exec "$SHADOW_APP" curl -fsS -o /dev/null http://127.0.0.1:8000/health/ >/dev/null 2>&1; do
-    if [ "$(docker inspect --format '{{.State.Running}}' "$SHADOW_APP" 2>/dev/null)" != "true" ]; then
-        fail_app "zakonczyl dzialanie przy starcie (exit=$(docker inspect --format '{{.State.ExitCode}}' "$SHADOW_APP" 2>/dev/null))"
-    fi
-    if [ "$waited" -ge "$SHADOW_APP_TIMEOUT" ]; then
-        fail_app "nie odpowiedzial na /health/ w ${SHADOW_APP_TIMEOUT} s"
-    fi
-    sleep 5
-    waited=$(( waited + 5 ))
-done
-echo "/health/ OK po ~${waited} s."
-
-# Strona glowna: Host z konfiguracji (ALLOWED_HOSTS) i X-Forwarded-Proto
-# jak zza nginx. Akceptujemy 2xx/3xx - przekierowanie to tez poprawna odpowiedz
-# strony; 4xx/5xx albo brak odpowiedzi = kandydat nie dziala.
-ROOT_CODE="$(docker exec "$SHADOW_APP" curl -s -o /dev/null -w '%{http_code}' --max-time 60 \
-    -H "Host: $APP_HOSTNAME" -H "X-Forwarded-Proto: https" \
-    http://127.0.0.1:8000/ 2>/dev/null || true)"
-case "$ROOT_CODE" in
-    2??|3??) echo "Strona glowna (Host: $APP_HOSTNAME): HTTP $ROOT_CODE." ;;
-    *)       fail_app "nie odpowiada poprawnie na / (Host: $APP_HOSTNAME, HTTP ${ROOT_CODE:-brak})" ;;
-esac
+shadow_check_app "$APP_HOSTNAME" || fail_app "$SHADOW_APP_ERROR"
 
 echo ""
 echo "=== OK: migracje ${CANDIDATE} przechodza na kopii produkcyjnej bazy, kandydat wstaje i odpowiada ==="
