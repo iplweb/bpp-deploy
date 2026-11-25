@@ -77,7 +77,10 @@ Przebieg:
    `make images-load`. Bez archiwum robi `docker pull` dokładnie wersji
    z manifestu (`repo@digest`), a bez manifestu wersji z `.env`
    (`DOCKER_VERSION`). `OBRAZY=archiwum` wymusza archiwum, `OBRAZY=pull`
-   wymusza pobranie z Huba.
+   wymusza pobranie z Huba. Archiwum może nie istnieć, jeśli serwer miał za
+   mało miejsca na dysku ([rezerwa](backup-i-rclone.md#archiwum-obrazow):
+   adnotacja `obrazy=ZA-MALO-MIEJSCA` w raporcie nocnym) albo je wyłączono —
+   wtedy odtworzenie wymaga działającego Docker Huba.
 6. **Zrzut bazy** sprawdza `pg_restore --list` w obrazie `dbserver`.
 7. **Baza i media** wracają przez `make restore` (bez kopii bezpieczeństwa,
    bo na czystej maszynie nie ma czego zabezpieczać), potem uruchamia się

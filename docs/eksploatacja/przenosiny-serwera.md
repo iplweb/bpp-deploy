@@ -4,6 +4,11 @@ Procedura przeniesienia działającej instancji BPP na nowy host (wymiana sprzę
 migracja do innego data center, klonowanie produkcji na zapasowe środowisko). Sprowadza
 się do **trzech katalogów + dwóch komend**.
 
+!!! tip "Stara maszyna nie działa?"
+    Ta procedura zakłada, że stara maszyna żyje i da się z niej skopiować
+    katalogi. Po awarii (dysk, ransomware, utrata VM) serwer stawia się z kopii
+    zdalnej jednym poleceniem — zob. [Odtworzenie serwera po awarii](odtworzenie-serwera.md).
+
 ## Na starej maszynie
 
 ### 1. Świeży backup pary baza + media
