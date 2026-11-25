@@ -38,6 +38,7 @@ test:
 	@bash scripts/test-grafana-datasources.sh
 	@bash scripts/test-ssl-chain.sh
 	@bash scripts/test-rclone.sh
+	@bash scripts/test-images.sh
 	@./scripts/test-alloy.sh
 	@bash tests/test_makefile.sh
 	@./scripts/test-nginx-limits.sh
@@ -56,6 +57,16 @@ test:
 restore-config:
 	@FILE="$(FILE)" ONLY_ENV="$(ONLY_ENV)" BPP_CONFIGS_DIR="$(BPP_CONFIGS_DIR)" \
 		bash scripts/restore-config.sh
+
+# --- Wczytanie archiwum obrazow: dziala w OBU trybach ---
+#
+# Swiezy host po awarii, Docker Hub niedostepny: obrazy z zestawu
+# scripts/images-archive.sh (make images-save / nocny cykl). Przed `ifdef
+# FIRST_RUN` z tego samego powodu co restore-config - na hoscie bez .env
+# istnieje tylko `setup`. Logika i weryfikacja w scripts/images-load.sh.
+.PHONY: images-load
+images-load:
+	@FILE="$(FILE)" bash scripts/images-load.sh
 
 ifdef FIRST_RUN
 
@@ -172,6 +183,8 @@ help:
 	@echo "    backup-cycle         - Full cycle: backup + rclone sync + Rollbar notify"
 	@echo "    db-backup            - Create parallel database backup (tar.gz)"
 	@echo "    media-backup         - Create media files backup (tar.gz)"
+	@echo "    images-save          - Archiwum obrazow Dockera + git bundle (FORCE=1, MONITORING=1)"
+	@echo "    images-load          - Wczytaj archiwum obrazow i sprawdz z manifestem (FILE=...)"
 	@echo "    restore              - Restore db+media from tar.gz pair (newest by default)"
 	@echo "                           Flags: PICK=1 TIMESTAMP=... DB_ONLY=1 MEDIA_ONLY=1 NO_SAFETY=1 YES=1"
 	@echo "    dbshell              - Django database shell"
@@ -233,6 +246,7 @@ help:
 	@echo "    test-config-path     - Unit-testy sciezki katalogu konfiguracyjnego (Windows C:\\..., no network)"
 	@echo "    test-grafana-datasources - Render datasources.yaml bez gettexta (no network)"
 	@echo "    test-rclone          - Uklad zdalnego backupu + retencja: copy-nie-sync (no network)"
+	@echo "    test-images          - Archiwum obrazow: images-save/images-load (mock docker, no network)"
 	@echo "    test-winget-ids      - Czy ID pakietow winget z instrukcji Windows nadal istnieja (siec)"
 	@echo ""
 	@echo "  Host management:"

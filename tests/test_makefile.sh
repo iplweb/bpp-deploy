@@ -3374,6 +3374,31 @@ test_restore_config_first_run() {
     rm -rf "$w"
 }
 
+test_images_archive_wiring() {
+    yellow "=== Test: archiwum obrazow - make images-load bez .env, mount repo, testy w CI ==="
+    # images-load musi dzialac na swiezym hoscie (bez repo .env) - jak
+    # restore-config: w trybie FIRST_RUN istnieje tylko `setup`.
+    local w out runner
+    w=$(mktemp -d)
+    cp "$REPO_DIR/Makefile" "$w/Makefile"
+    cp -R "$REPO_DIR/mk" "$w/mk"
+    out="$(make -n -C "$w" images-load FILE=/x 2>&1 || true)"
+    if printf '%s' "$out" | grep -q 'scripts/images-load.sh'; then
+        pass "make images-load dziala w trybie FIRST_RUN"
+    else
+        fail "make images-load dziala w trybie FIRST_RUN ($out)"
+    fi
+    rm -rf "$w"
+    # git bundle w kroku 2c potrzebuje repo w orkiestratorze. Bez mountu krok
+    # jest pomijany (BRAK-MOUNTU), czyli DR bez GitHuba po cichu nie dziala.
+    runner="$(svc_block backup-runner "$REPO_DIR/docker-compose.backup.yml")"
+    assert_svc_contains "backup-runner montuje repo :ro (git bundle)" '.:/repo:ro' "$runner"
+    assert_file_contains "make test wola test-images.sh" 'test-images.sh' "$REPO_DIR/Makefile"
+    assert_file_contains "CI wola test-images.sh" 'test-images.sh' "$REPO_DIR/.github/workflows/ci.yml"
+    assert_file_contains "make images-save idzie przez backup-runnera (ten sam kod co cykl)" \
+        'backup-runner /scripts/images-archive.sh save' "$REPO_DIR/mk/rclone.mk"
+}
+
 test_backup_runner_mounts_configs() {
     yellow "=== Test: backup-runner montuje katalog konfiguracyjny :ro ==="
     local runner
@@ -3934,6 +3959,7 @@ test_config_backup_script
 test_restore_config
 test_restore_config_first_run
 test_backup_runner_mounts_configs
+test_images_archive_wiring
 test_db_autotune_external
 test_db_budget
 test_db_password_not_in_argv

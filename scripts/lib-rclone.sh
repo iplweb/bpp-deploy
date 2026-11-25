@@ -14,6 +14,8 @@
 #
 # Uklad zdalnego: JEDEN katalog na miesiac, REMOTE:YYYY-MM/, plikami sa
 # db-backup-*.tar.gz i media-backup-*.tar.gz z timestampem w nazwie.
+# Wyjatek: zestawy archiwum obrazow w REMOTE:obrazy/<YYYYMMDD-HHMMSS>/
+# (uzasadnienie przy kroku 4b w backup-cycle.sh).
 #
 # CRITICAL: do katalogu miesiecznego wolno wysylac WYLACZNIE `rclone copy`.
 # Historycznie bylo `rclone sync /backup/ REMOTE:YYYY-MM/DD/` — do swiezego,
@@ -113,6 +115,31 @@ rclone_list_month_dirs() {
         | sed 's:/$::' \
         | { grep -E '^[0-9]{4}-[0-9]{2}$' || true; } \
         | sort
+}
+
+# rclone_list_image_sets <katalog zdalny obrazy/> [argumenty rclone...]
+#   Wypisuje zestawy archiwum obrazow (scripts/images-archive.sh) pasujace
+#   DOKLADNIE do YYYYMMDD-HHMMSS, posortowane rosnaco. Wszystko inne
+#   w REMOTE:obrazy/ jest niewidoczne dla rotacji. Blad rclone != brak zestawow
+#   (ta sama zasada co rclone_list_month_dirs).
+rclone_list_image_sets() {
+    local base="$1"; shift
+    local raw
+    raw="$(rclone lsf "$base" --dirs-only "$@")" || return 1
+    printf '%s\n' "$raw" \
+        | sed 's:/$::' \
+        | { grep -E '^[0-9]{8}-[0-9]{6}$' || true; } \
+        | sort
+}
+
+# rclone_image_sets_to_purge <keep>
+#   Czyta liste zestawow ze stdin, wypisuje nadmiarowe (najstarsze pierwsze),
+#   zostawiajac <keep> najnowszych. Niepoprawne <keep> (puste, 0, smieci) =
+#   nic do usuniecia - nigdy kasowanie na chybil trafil.
+rclone_image_sets_to_purge() {
+    local keep="$1"
+    rclone_keep_months_valid "$keep" || return 0
+    { grep -E '^[0-9]{8}-[0-9]{6}$' || true; } | sort -r | awk -v n="$keep" 'NR > n' | sort
 }
 
 # rclone_fix_config_owner <sciezka do rclone.conf>

@@ -136,6 +136,11 @@ esac
 case "${MOCK_FAIL_ON:-}" in
     "$sub") exit 7 ;;
 esac
+# MOCK_FAIL_COPY_DEST=<cel> -> pada tylko `copy` do tego celu (wysylka zestawow
+# obrazow pada, a wysylka do katalogu miesiaca nie).
+if [ "$sub" = copy ] && [ -n "${MOCK_FAIL_COPY_DEST:-}" ] && [ "${3:-}" = "$MOCK_FAIL_COPY_DEST" ]; then
+    exit 7
+fi
 exit 0
 MOCK
 
@@ -311,6 +316,10 @@ run_cycle() {
             if [ -n "${BACKUP_ENABLED_FILE+x}" ]; then
                 printf '%s\n' "$BACKUP_ENABLED_FILE" >> "$work/cfgsrc/.env"
             fi
+            # IMAGES_FILE: linie dopisywane do .env (archiwum obrazow, krok 2c).
+            if [ -n "${IMAGES_FILE+x}" ]; then
+                printf '%s\n' "$IMAGES_FILE" >> "$work/cfgsrc/.env"
+            fi
             printf '[backup_enc]\n' > "$work/cfgsrc/rclone/rclone.conf"
             if [ "${CONFIG_SRC_MODE:-ok}" = unreadable ]; then
                 printf 'x\n' > "$work/cfgsrc/zablokowany"
@@ -324,6 +333,12 @@ run_cycle() {
     while [ "$i" -le "${PRE_CONFIG_BACKUPS:-0}" ]; do
         : > "$work/backup/config-backup-2020010$i-000000.tar.gz"
         i=$((i + 1))
+    done
+    # Gotowe zestawy archiwum obrazow (krok 4b): PRE_IMAGE_SETS="TS1 TS2 ...".
+    local s
+    for s in ${PRE_IMAGE_SETS:-}; do
+        mkdir -p "$work/backup/obrazy/$s"
+        : > "$work/backup/obrazy/$s/manifest.txt"
     done
     CYCLE_WORK="$work"
     CYCLE_LOG="$work/cycle.log"
@@ -346,6 +361,8 @@ run_cycle() {
         MOCK_LSF_DIRS="${MOCK_LSF_DIRS:-}" \
         MOCK_FAIL_ON="${MOCK_FAIL_ON:-}" \
         MOCK_FAIL_ON_STEP="${MOCK_FAIL_ON_STEP:-}" \
+        MOCK_FAIL_COPY_DEST="${MOCK_FAIL_COPY_DEST:-}" \
+        BPP_REPO_DIR="${REPO_DIR_ENV:-$TEST_ROOT/brak-repo}" \
         BPP_BACKUP_DIR="$work/backup" \
         BPP_MEDIA_DIR="$work/mediaroot" \
         BPP_CONFIG_SRC_DIR="$work/cfgsrc" \
@@ -1248,6 +1265,71 @@ assert_contains "$(cat "$RECORD")" "pg_dump" \
     "MUTACYJNY: .env bez wylacznika wygrywa ze stara migawka env (=0)"
 MOCK_YM=2026-08 BACKUP_ENABLED_ENV=tak BACKUP_ENABLED_FILE="DJANGO_BPP_BACKUP_ENABLED=nie" run_cycle
 assert_eq "" "$(cat "$RECORD")" "wylaczenie w .env dziala bez make up (env kontenera jeszcze =tak)"
+
+# ==========================================================================
+# 12. Archiwum obrazow (krok 2c) i jego wysylka (krok 4b)
+# ==========================================================================
+# Kontrakty: (a) blad archiwum NIGDY nie zmienia kodu wyjscia cyklu - tylko
+# adnotacja `obrazy=...`; (b) zestawy jada do WLASNEGO katalogu REMOTE:obrazy/,
+# a z miesiecznej wysylki sa wykluczone (inaczej 1-1,5 GB duplikatu w kazdym
+# miesiacu i kasowanie jedynego zestawu przez retencje miesieczna); (c) tylko
+# `copy`, nigdy `sync`; (d) rotacja zdalna: N najnowszych, jeden zestaw na
+# cykl, tylko po udanej wysylce; (e) wylacznik w .env dziala bez `make up`.
+echo
+echo "12. archiwum obrazow (krok 2c) i wysylka REMOTE:obrazy/ (krok 4b)"
+
+# Kontener sprzed `make up` (brak /repo): krok pominiety, cykl OK.
+MOCK_YM=2026-08 run_cycle
+assert_eq "0" "$CYCLE_RC" "brak /repo: cykl konczy sie sukcesem"
+assert_contains "$(cat "$CYCLE_LOG")" "obrazy=BRAK-MOUNTU(make up)" "brak /repo: adnotacja BRAK-MOUNTU"
+assert_contains "$(grep -E '^copy ' "$RECORD" | head -1)" '--exclude /obrazy/**' \
+    "MUTACYJNY: wysylka miesieczna wyklucza obrazy/"
+
+# Archiwum pada (atrapa dockera nie umie `docker inspect`) - exit 0, adnotacja.
+MOCK_YM=2026-08 REPO_DIR_ENV="$TEST_ROOT" run_cycle
+assert_eq "0" "$CYCLE_RC" "MUTACYJNY: blad archiwum obrazow nie zmienia kodu wyjscia"
+assert_contains "$(cat "$CYCLE_LOG")" "obrazy=BLAD(exit=" "blad archiwum: adnotacja BLAD"
+
+# Gotowe zestawy -> copy do REMOTE:obrazy/, rotacja zdalna do 2, jeden na cykl.
+MOCK_YM=2026-08 PRE_IMAGE_SETS="20261101-014500" \
+    MOCK_LSF_DIRS=$'20261001-014500/\n20261015-014500/\n20261101-014500/\n20261102-014500/\nobce/' \
+    run_cycle
+rec="$(cat "$RECORD")"
+assert_eq "0" "$CYCLE_RC" "zestawy: cykl OK"
+assert_contains "$rec" "copy $CYCLE_WORK/backup/obrazy/ backup_enc:obrazy/" \
+    "MUTACYJNY: zestawy ida do backup_enc:obrazy/ (nie do katalogu miesiaca)"
+assert_not_contains "$rec" "sync " "MUTACYJNY: zadnego sync"
+assert_contains "$rec" "purge backup_enc:obrazy/20261001-014500" \
+    "rotacja zdalna: najstarszy zestaw usuniety"
+assert_eq "1" "$(grep -c '^purge backup_enc:obrazy/' <<< "$rec" || true)" \
+    "MUTACYJNY: maksymalnie jeden zestaw na cykl (nadmiar: 2)"
+assert_not_contains "$rec" "purge backup_enc:obrazy/obce" "obce katalogi nietykalne"
+assert_contains "$(cat "$CYCLE_LOG")" "usunieto-zdalnie=20261001-014500" "adnotacja o usunieciu"
+
+# Wysylka zestawow pada: brak rotacji, exit 0.
+MOCK_YM=2026-08 PRE_IMAGE_SETS="20261101-014500" MOCK_FAIL_COPY_DEST="backup_enc:obrazy/" \
+    MOCK_LSF_DIRS=$'20261001-014500/\n20261015-014500/\n20261101-014500/' run_cycle
+assert_eq "0" "$CYCLE_RC" "MUTACYJNY: nieudana wysylka obrazow nie zmienia kodu wyjscia"
+assert_not_contains "$(cat "$RECORD")" "purge backup_enc:obrazy/" "nieudana wysylka: zero kasowania"
+assert_contains "$(cat "$CYCLE_LOG")" "wysylka=BLAD" "nieudana wysylka: adnotacja"
+
+# Wylacznik w .env: ani archiwum, ani wysylki zestawow.
+MOCK_YM=2026-08 PRE_IMAGE_SETS="20261101-014500" REPO_DIR_ENV="$TEST_ROOT" \
+    IMAGES_FILE="DJANGO_BPP_BACKUP_IMAGES_ENABLED=0" run_cycle
+assert_eq "0" "$CYCLE_RC" "wylaczone: cykl OK"
+assert_not_contains "$(cat "$RECORD")" "backup_enc:obrazy/" "wylaczone: zero wysylki zestawow"
+assert_contains "$(cat "$CYCLE_LOG")" "obrazy=wylaczone" "wylaczone: adnotacja"
+
+# KEEP_LAST z .env: 3 -> przy 3 zestawach nic do usuniecia.
+MOCK_YM=2026-08 PRE_IMAGE_SETS="20261101-014500" IMAGES_FILE="DJANGO_BPP_BACKUP_IMAGES_KEEP_LAST=3" \
+    MOCK_LSF_DIRS=$'20261001-014500/\n20261015-014500/\n20261101-014500/' run_cycle
+assert_not_contains "$(cat "$RECORD")" "purge backup_enc:obrazy/" "KEEP_LAST=3 z .env: nic do usuniecia"
+
+# Jednostkowo: filtr zestawow i niepoprawne keep.
+out="$(printf '%s\n' 20260101-000000 smieci 20260102-000000 2026-08 | rclone_image_sets_to_purge 1)"
+assert_eq "20260101-000000" "$out" "image_sets_to_purge: tylko wzorzec YYYYMMDD-HHMMSS, zostaje najnowszy"
+out="$(printf '%s\n' 20260101-000000 20260102-000000 | rclone_image_sets_to_purge 0)"
+assert_eq "" "$out" "image_sets_to_purge: keep=0 -> nic (nigdy kasowanie wszystkiego)"
 
 echo
 echo "=================================="

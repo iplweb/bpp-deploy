@@ -52,6 +52,9 @@ jobs:
       - name: Uklad zdalnego backupu + retencja (mocki)
         run: ./scripts/test-rclone.sh
 
+      - name: Archiwum obrazow images-save/images-load (mocki)
+        run: ./scripts/test-images.sh
+
   pre-commit:
     name: Pre-commit hooks
     runs-on: ubuntu-latest

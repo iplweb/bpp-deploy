@@ -10,6 +10,8 @@ make backup-cycle     # Pełen cykl: pg_dump + tar mediów i konfiguracji + rclo
 make rclone-config    # Konfiguracja zdalnego backupu (Google Drive, S3, ...)
 make rclone-sync      # Wymuszona wysyłka do chmury (ten sam układ co cykl nocny)
 make rclone-check     # Sprawdzenie spójności kopii zdalnej
+make images-save      # Archiwum obrazów Dockera + git bundle repo (praca bez Docker Huba/GitHuba)
+make images-load FILE=...      # Wczytanie archiwum obrazów i weryfikacja z manifestem
 ```
 
 ## Codzienny backup
@@ -25,11 +27,13 @@ do kontenerów, które i tak istnieją i mają właściwe narzędzia:
 2. tar dumpu, mediów i [katalogu konfiguracyjnego](#backup-konfiguracji-env) —
    lokalnie (busybox `tar`; `/backup`, wolumen `media` i `$BPP_CONFIGS_DIR` są
    zamontowane także w orkiestratorze),
-3. rotacja lokalna (`DJANGO_BPP_BACKUP_KEEP_LAST`),
-4. `rclone copy` + retencja zdalna — w serwisie `rclone` (patrz niżej),
-5. notyfikacja do Rollbara i/lub [GlitchTipa](../monitoring/bledy-aplikacji.md#notyfikacje-nocnego-backupu)
+3. [archiwum obrazów Dockera i repozytorium](#archiwum-obrazow) — tylko gdy
+   zmieniły się obrazy działających kontenerów (`docker save` przez socket),
+4. rotacja lokalna (`DJANGO_BPP_BACKUP_KEEP_LAST`),
+5. `rclone copy` + retencja zdalna — w serwisie `rclone` (patrz niżej),
+6. notyfikacja do Rollbara i/lub [GlitchTipa](../monitoring/bledy-aplikacji.md#notyfikacje-nocnego-backupu)
    — `docker exec appserver python` (bez `curl`/`jq`); każdy kanał tylko, gdy skonfigurowany.
-6. heartbeat do [Healthchecks.io](#monitoring-backupu-healthchecksio) — busyboxowy
+7. heartbeat do [Healthchecks.io](#monitoring-backupu-healthchecksio) — busyboxowy
    `wget` z samego orkiestratora (opcjonalnie, `DJANGO_BPP_HEALTHCHECKS_PING_KEY`).
 
 Kontenery są adresowane po labelach compose (`com.docker.compose.service`), nigdy po
@@ -200,6 +204,11 @@ backup_enc:
     ...                                  (3 pliki na dzień)
   2026-08/
     ...
+  obrazy/                                (archiwum obrazów — osobno, patrz niżej)
+    20261103-014500/
+      obrazy.tar.gz
+      manifest.txt
+      bpp-deploy.bundle
 ```
 
 Wysyłka to `rclone copy` całego lokalnego katalogu backupów. Ponieważ nazwy
@@ -276,6 +285,122 @@ Bezpieczniki, każdy celowy:
 
 Retencja **lokalna** (`DJANGO_BPP_BACKUP_KEEP_LAST`, domyślnie 7 kopii) jest od
 niej niezależna i działa jak dotąd.
+
+## Archiwum obrazów i repozytorium — praca bez Docker Huba i GitHuba {#archiwum-obrazow}
+
+Backup bazy, mediów i konfiguracji nie wystarcza do postawienia serwera, jeśli
+akurat **Docker Hub albo GitHub nie działa** (albo obrazu w danej wersji już
+tam nie ma). Dlatego nocny cykl trzyma też **archiwum obrazów, na których
+naprawdę działa serwer**, oraz `git bundle` repozytorium `bpp-deploy`.
+
+Jeden zestaw to katalog `obrazy/<YYYYMMDD-HHMMSS>/` w katalogu backupów:
+
+| Plik | Zawartość |
+|---|---|
+| `obrazy.tar.gz` (`.tar.zst`, gdy obraz pomocniczy ma `zstd`) | `docker save` wszystkich obrazów naraz — obrazy `iplweb/bpp_*` dzielą warstwy, więc w archiwum są raz |
+| `manifest.txt` | obraz → ID → digest → wersja → usługi, data, wersja i commit `bpp-deploy`, suma sha256 archiwum |
+| `bpp-deploy.bundle` | `git bundle` repozytorium (bieżący commit, gałąź, tagi) |
+
+**Które obrazy:** dokładnie te, na których chodzą kontenery projektu — ID obrazu
+brane z kontenera, nie z lokalnego tagu `latest` (po `make pull` bez `make up`
+tag wskazuje już nowszy obraz niż produkcja). W archiwum są obrazy BPP,
+`postgres` (`dbserver`), `owasp/modsecurity-crs` (`webserver`), `redis`,
+`pgbouncer`, `ofelia`, `autoheal`, `docker:cli` orkiestratora, `rclone` i
+wszystko inne, co chodzi w projekcie (np. `html2docx`). **Monitoring jest
+domyślnie pomijany** (`netdata`, `loki`, `grafana`, `alloy`, `dozzle`, `flower`
+— ok. 1 GB, a BPP działa bez niego); dołącza go
+`DJANGO_BPP_BACKUP_IMAGES_MONITORING=1` albo `make images-save MONITORING=1`.
+
+**Kiedy powstaje:** co noc cykl porównuje zestaw obrazów (`ref` + ID) z
+manifestem ostatniego zestawu. **Nowe archiwum powstaje tylko wtedy, gdy coś się
+zmieniło** — czyli zwykle raz po każdej aktualizacji; w pozostałe noce krok
+trwa sekundę. Zmiana samego repozytorium (commit bez nowych obrazów) nowego
+zestawu nie tworzy — wymusza go `make images-save FORCE=1`.
+
+**Rozmiar:** zmierzony dla zestawu bez monitoringu ok. **650–700 MB** (gzip -1;
+tyle samo na klasycznym `overlay2` i na store containerd Dockera 29), więcej przy
+dołączonym monitoringu. Przed zapisem cykl sprawdza wolne miejsce (sumą rozmiarów
+obrazów, czyli z zapasem) — przy braku miejsca pomija krok z adnotacją
+`obrazy=BRAK-MIEJSCA`.
+
+**Na zdalnym zestawy leżą w osobnym katalogu `REMOTE:obrazy/`**, nie w katalogu
+miesięcznym:
+
+- katalog miesięczny dostaje co noc całe lokalne okno kopii — zestawy obrazów
+  lądowałyby w każdym nowym miesiącu od nowa (1,5–3 GB duplikatu miesięcznie);
+- [retencja miesięczna](#retencja-zdalna-django_bpp_rclone_keep_months)
+  skasowałaby jedyny zestaw, gdyby obrazy nie zmieniały się dłużej niż
+  `DJANGO_BPP_RCLONE_KEEP_MONTHS`.
+
+Wysyłka to tak samo wyłącznie `rclone copy` (nigdy `sync` — pusty lokalny
+katalog na świeżym serwerze skasowałby ze zdalnego archiwum potrzebne do
+odtworzenia). Zdalnie zostaje `DJANGO_BPP_BACKUP_IMAGES_KEEP_LAST` najnowszych
+zestawów; nadmiar jest usuwany **po jednym na cykl** i tylko po udanej wysyłce.
+
+Zmienne w `$BPP_CONFIGS_DIR/.env` (czytane co noc z pliku — zmiana działa bez
+`make up`; żadna nie jest wymagana):
+
+```bash
+DJANGO_BPP_BACKUP_IMAGES_ENABLED=0     # wyłącz archiwum obrazów (domyślnie włączone)
+DJANGO_BPP_BACKUP_IMAGES_KEEP_LAST=3   # ile zestawów lokalnie i zdalnie (domyślnie 2)
+DJANGO_BPP_BACKUP_IMAGES_MONITORING=1  # dołącz monitoring
+```
+
+!!! warning "Limit miejsca na zdalnym"
+    Dwa zestawy to ok. 1,5 GB dodatkowego miejsca na zdalnym (więcej z
+    monitoringiem). Jeśli udział ma twardy limit, policz go przed włączeniem
+    albo ustaw `DJANGO_BPP_BACKUP_IMAGES_ENABLED=0`. Archiwum nie zawiera
+    sekretów (publiczne obrazy i publiczne repozytorium), ale i tak jedzie
+    przez ten sam (szyfrowany) remote co reszta kopii.
+
+Błąd tego kroku — `docker save`, brak miejsca, nieudana wysyłka — **nigdy nie
+zmienia wyniku cyklu**: to adnotacja `obrazy=...` w komunikacie
+(`nowe(650.2MiB)`, `bez-zmian`, `wylaczone`, `BRAK-MIEJSCA`, `BLAD(exit=N)`,
+`BRAK-MOUNTU(make up)`, `wysylka=BLAD`). Krok wymaga mountu repozytorium w
+`backup-runner` (`.:/repo:ro`), więc po `git pull` potrzebny jest **`make up`** —
+do tego czasu adnotacja `BRAK-MOUNTU(make up)` i backup bazy idzie normalnie.
+
+### Ręcznie — `make images-save`
+
+```bash
+make images-save              # nowy zestaw tylko, gdy obrazy się zmieniły
+make images-save FORCE=1      # wymuś nowy zestaw (np. po commicie bez nowych obrazów)
+make images-save MONITORING=1 # z monitoringiem
+```
+
+Działa w kontenerze `backup-runner` — ten sam kod co krok nocny. Wymaga
+działającego stacka (archiwizuje obrazy działających kontenerów); bez
+`appserver` albo `dbserver` odmawia (exit 5).
+
+### Wczytanie — `make images-load`
+
+```bash
+make images-load FILE=~/backups/obrazy/20261103-014500
+```
+
+Działa na świeżym hoście bez `.env` (jak `restore-config`). Kolejno: sprawdza
+sumę sha256 archiwum z manifestem (uszkodzone pobranie nie trafia do Dockera),
+`docker load`, potem dla **każdego** obrazu z manifestu weryfikuje zgodność —
+po ID albo, gdy nowy host ma inny magazyn obrazów (klasyczny `overlay2` kontra
+containerd liczą ID inaczej), po odcisku warstw. Na końcu przypina nazwy z
+compose (np. `iplweb/bpp_appserver:latest`) do wczytanych obrazów i dodaje tag
+wersji CalVer obrazom BPP. Po tym **`make up`** (nie `make run` — ten zaczyna od
+`docker pull`) startuje wszystko z lokalnych obrazów.
+
+Repozytorium bez GitHuba:
+
+```bash
+git clone ~/backups/obrazy/20261103-014500/bpp-deploy.bundle ~/bpp-deploy
+```
+
+Skąd wziąć pliki na nowym serwerze, gdy Docker Hub nie działa: obraz
+`rclone/rclone` też jest na Docker Hubie, więc do pobrania kopii użyj
+**`rclone` zainstalowanego na hoście** (pakiet dystrybucji albo binarka z
+rclone.org) i tego samego `rclone.conf` (hasło remote'a `crypt` musisz znać):
+
+```bash
+rclone copy backup_enc:obrazy/20261103-014500/ ~/backups/obrazy/20261103-014500/
+```
 
 ## Konfiguracja zdalnego — `make rclone-config`
 
