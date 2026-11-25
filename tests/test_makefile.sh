@@ -3816,6 +3816,90 @@ test_up_stops_consumers_first() {
 # scripts/infra-files-hash.sh: suma plikow startowych dbserver/pgbouncer w .env
 # + label w compose. Bez niej zmiana autotune/entrypointu pgbouncera po `git pull`
 # nie dotarlaby do kontenera (make up nie odtwarza ich na sile).
+test_env_perms() {
+    yellow "=== Test: ensure-config-files — .env i kopie .env.* bez praw grupy/innych ==="
+    # Prawdziwy skrypt na tymczasowym katalogu konfiguracyjnym. Tryb czytamy
+    # przez `ls -l` (kolumna praw), bo stat nie jest przenosny Linux/macOS.
+    local cfg out rc tryb
+    _env_perms_tryb() { ls -ld -- "$1" | cut -c1-10; }
+    cfg=$(mktemp -d)
+    printf 'BPP_CONFIGS_DIR=%s\nDJANGO_BPP_DB_PASSWORD=tajne\n' "$cfg" > "$cfg/.env"
+    printf 'X=1\n' > "$cfg/.env.przed-restore-20260101"
+    printf 'X=2\n' > "$cfg/.env.bak.123"
+    printf 'nie-sekret\n' > "$cfg/inny.conf"
+    chmod 664 "$cfg/.env" "$cfg/.env.bak.123" "$cfg/inny.conf"
+    chmod 644 "$cfg/.env.przed-restore-20260101"
+
+    rc=0
+    out=$(BPP_CONFIGS_DIR="$cfg" bash "$REPO_DIR/scripts/ensure-config-files.sh" 2>&1) || rc=$?
+    if [ "$rc" -eq 0 ]; then pass "ensure-config-files konczy sie zerem"; else fail "ensure-config-files exit $rc: $out"; fi
+    tryb="$(_env_perms_tryb "$cfg/.env")"
+    if [ "$tryb" = "-rw-------" ]; then pass ".env 0664 -> 0600"; else fail ".env ma tryb $tryb (oczekiwano -rw-------)"; fi
+    for f in .env.przed-restore-20260101 .env.bak.123; do
+        tryb="$(_env_perms_tryb "$cfg/$f")"
+        if [ "$tryb" = "-rw-------" ]; then pass "$f -> 0600"; else fail "$f ma tryb $tryb"; fi
+    done
+    tryb="$(_env_perms_tryb "$cfg/inny.conf")"
+    if [ "$tryb" = "-rw-rw-r--" ]; then pass "inne pliki nietkniete"; else fail "inny.conf zmieniony na $tryb"; fi
+    if [ "$(printf '%s\n' "$out" | grep -c 'ograniczono prawa')" -eq 3 ]; then
+        pass "po jednej linii informacji na zmieniony plik"
+    else
+        fail "oczekiwano 3 linii 'ograniczono prawa', jest: $(printf '%s\n' "$out" | grep 'ograniczono prawa' | tr '\n' ';')"
+    fi
+
+    # Drugi przebieg: wszystko juz 0600 -> zero komunikatow.
+    out=$(BPP_CONFIGS_DIR="$cfg" bash "$REPO_DIR/scripts/ensure-config-files.sh" 2>&1) || true
+    if printf '%s\n' "$out" | grep -q 'ograniczono prawa'; then
+        fail "plik juz 0600, a skrypt dalej raportuje zmiane"
+    else
+        pass "plik juz 0600 -> bez komunikatu"
+    fi
+
+    # Self-heal _ensure_var (tmp + mv) nie moze przywrocic szerokiego trybu:
+    # pusta zmienna wymusza sciezke z mv.
+    chmod 664 "$cfg/.env"
+    printf 'NTFY_TOPIC=\n' >> "$cfg/.env"
+    (umask 002; BPP_CONFIGS_DIR="$cfg" bash "$REPO_DIR/scripts/ensure-config-files.sh" >/dev/null 2>&1) || true
+    tryb="$(_env_perms_tryb "$cfg/.env")"
+    if [ "$tryb" = "-rw-------" ] && grep -qE '^NTFY_TOPIC=.+' "$cfg/.env"; then
+        pass "po self-healu przez mv .env dalej 0600"
+    else
+        fail "po self-healu .env ma tryb $tryb"
+    fi
+
+    # Fail-open: chmod, ktory nic nie zmienia (jak na Windows/Git Bash), nie
+    # moze dac bledu ani komunikatu o zmianie.
+    local bin="$cfg/fakebin"
+    mkdir -p "$bin"
+    printf '#!/bin/sh\nexit 0\n' > "$bin/chmod"; chmod +x "$bin/chmod"
+    chmod 664 "$cfg/.env"
+    rc=0
+    out=$(PATH="$bin:$PATH" BPP_CONFIGS_DIR="$cfg" bash -c '. "$1/scripts/lib-env-perms.sh"; set -euo pipefail; env_perms_harden "$2"' _ "$REPO_DIR" "$cfg" 2>&1) || rc=$?
+    if [ "$rc" -eq 0 ] && ! printf '%s\n' "$out" | grep -q 'ograniczono prawa'; then
+        pass "chmod no-op (Windows) -> exit 0, bez komunikatu"
+    else
+        fail "chmod no-op: exit $rc, wyjscie: $out"
+    fi
+    # Nieudany chmod -> ostrzezenie, ale exit 0.
+    printf '#!/bin/sh\nexit 1\n' > "$bin/chmod"
+    rc=0
+    out=$(PATH="$bin:$PATH" bash -c '. "$1/scripts/lib-env-perms.sh"; set -euo pipefail; env_perms_harden "$2"' _ "$REPO_DIR" "$cfg" 2>&1) || rc=$?
+    if [ "$rc" -eq 0 ] && printf '%s\n' "$out" | grep -q 'OSTRZEZENIE'; then
+        pass "chmod pada -> ostrzezenie, exit 0"
+    else
+        fail "chmod pada: exit $rc, wyjscie: $out"
+    fi
+
+    # Swiezy .env z init-configs: tworzony od razu przez umask 077, nie chmod
+    # po fakcie (asercja na zrodle - pelny init-configs jest interaktywny).
+    if grep -q '( umask 077; : > "$ENV_FILE" )' "$REPO_DIR/scripts/init-configs.sh"; then
+        pass "init-configs zaklada .env z umask 077"
+    else
+        fail "init-configs tworzy .env bez umask 077"
+    fi
+    rm -rf "$cfg"
+}
+
 test_infra_files_hash() {
     yellow "=== Test: infra-files-hash.sh — suma plikow startowych dbserver/pgbouncer ==="
     local t r env h1 h2
@@ -3940,6 +4024,7 @@ test_db_password_not_in_argv
 test_stop_db_consumers
 test_up_stops_consumers_first
 test_infra_files_hash
+test_env_perms
 
 echo ""
 echo "========================================"

@@ -171,11 +171,12 @@ set_env_var() {
     if env_has_var "$var_name"; then
         # Nadpisz istniejącą linię (BSD/GNU sed compat przez plik tymczasowy).
         local tmp="$ENV_FILE.tmp.$$"
-        awk -v k="$var_name" -v v="$value" '
+        # umask 077: tymczasowy plik (po mv - nowy .env) tylko dla wlasciciela.
+        ( umask 077; awk -v k="$var_name" -v v="$value" '
             BEGIN { FS=OFS="=" }
             $1 == k { print k "=" v; next }
             { print }
-        ' "$ENV_FILE" > "$tmp" && mv "$tmp" "$ENV_FILE"
+        ' "$ENV_FILE" > "$tmp" ) && mv "$tmp" "$ENV_FILE"
         echo "  ~ zaktualizowano ${var_name}"
     else
         echo "" >> "$ENV_FILE"
@@ -291,6 +292,10 @@ if [ ! -f "$ENV_FILE" ]; then
         # compose w ogole nie czyta (derive nizej, tylko dla spojnosci).
     fi
 
+    # .env trzyma hasla i klucz szyfrowania pol: zakladamy go od razu jako 0600
+    # (umask 077 w podpowloce), a `cat >` ponizej zachowuje tryb istniejacego
+    # pliku. Nie chmod po fakcie - bylo by okno, w ktorym plik jest czytelny.
+    ( umask 077; : > "$ENV_FILE" )
     cat > "$ENV_FILE" <<EOF
 # BPP Application Configuration
 # BPP Deploy $(git describe --tags --abbrev=0 2>/dev/null || echo "dev")
