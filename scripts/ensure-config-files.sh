@@ -11,9 +11,10 @@
 #   - przez scripts/init-configs.sh jako podfragment pierwszej inicjalizacji.
 #
 # Non-interactive z zalozenia: nie pyta usera o nic, tylko dokopiowuje brakujace
-# pliki z defaults/ (copy_if_missing). Nie nadpisuje istniejacych, nie modyfikuje
-# .env. Zmiany w .env (nowe zmienne, migracje) to rola init-configs.sh, ktora
-# user musi swiadomie wywolac.
+# pliki z defaults/ (copy_if_missing). Nie nadpisuje istniejacych. W .env robi
+# tylko append-only self-heal (_ensure_var) i na koncu zdejmuje prawa grupy/innych
+# z .env i kopii .env.* (lib-env-perms.sh). Wieksze migracje .env to rola
+# init-configs.sh.
 
 set -euo pipefail
 
@@ -160,7 +161,9 @@ if [ -f "$_ENV" ]; then
         # zostawilibysmy duplikat klucza (VAR= oraz VAR=wartosc).
         if grep -qE "^${1}=$" "$_ENV" 2>/dev/null; then
             local _t="$_ENV.tmp.$$"
-            grep -vE "^${1}=$" "$_ENV" > "$_t" && mv "$_t" "$_ENV"
+            # umask 077: plik tymczasowy (a po mv - .env) nie moze byc
+            # czytelny dla innych, nawet przez chwile - sa w nim sekrety.
+            ( umask 077; grep -vE "^${1}=$" "$_ENV" > "$_t" ) && mv "$_t" "$_ENV"
         fi
         # Zapewnij trailing newline zanim dopiszemy - recznie edytowany .env
         # bez konca-linii inaczej sklei nowa zmienna z ostatnia linia.
@@ -268,8 +271,8 @@ if [ -f "$_ENV" ]; then
     # Niezrozumiala wartosc -> ostrzezenie, nie ruszamy (nie zgadujemy jednostek).
     _set_existing_var() {  # $1 = nazwa, $2 = nowa wartosc (zmienna musi istniec)
         local _t="$_ENV.tmp.$$"
-        awk -v k="$1" -v v="$2" 'BEGIN { FS=OFS="=" } $1 == k { print k "=" v; next } { print }' \
-            "$_ENV" > "$_t" && mv "$_t" "$_ENV"
+        ( umask 077; awk -v k="$1" -v v="$2" 'BEGIN { FS=OFS="=" } $1 == k { print k "=" v; next } { print }' \
+            "$_ENV" > "$_t" ) && mv "$_t" "$_ENV"
     }
     _mem_to_mb() {  # Docker: liczba + opcjonalnie b/k/m/g (+ 'b'); goła liczba = bajty
         printf '%s' "$1" | LC_ALL=C awk '
@@ -541,3 +544,10 @@ if [ -f "$DEFAULTS_DIR/loki/local-config.yaml.tpl" ]; then
         rm -f "$_lk_tmp"
     fi
 fi
+
+# Prawa do .env i kopii .env.* (sekrety): zdejmij grupe/innych, gdy sa.
+# Na koncu, po wszystkich zapisach do .env powyzej (`tmp + mv` dziedziczy
+# umask). Fail-open - nigdy nie konczy skryptu bledem. Patrz lib-env-perms.sh.
+# shellcheck source=lib-env-perms.sh
+. "$REPO_DIR/scripts/lib-env-perms.sh"
+env_perms_harden "$BPP_CONFIGS_DIR"

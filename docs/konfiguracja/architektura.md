@@ -34,6 +34,36 @@ Katalog `defaults/` repozytorium trzyma szablonowe configi kopiowane przez `init
 **bez nadpisywania istniejących** (`copy_if_missing`) — więc dostrojone przez użytkownika
 configi (`loki/`, `netdata/health.d/`, `netdata/go.d/`) przeżywają aktualizacje.
 
+### Prawa do `.env` — tylko właściciel (0600) {: #prawa-do-env }
+
+`${BPP_CONFIGS_DIR}/.env` trzyma hasło bazy, klucz szyfrowania pól
+(`DJANGO_BPP_FIELD_ENCRYPTION_KEY`), hasła SMTP i tokeny integracji, więc nie może być
+czytelny dla innych kont na serwerze. Pilnuje tego `scripts/ensure-config-files.sh`
+przy każdym `make up` / `refresh` / `run`: jeśli `.env` albo któraś z jego kopii
+`.env.*` w katalogu konfiguracyjnym (np. `.env.przed-restore-*`, `.env.bak.*`) ma
+jakiekolwiek prawa dla grupy lub innych, zdejmuje je (`chmod go-rwx`, typowo
+`0664` → `0600`) i wypisuje jedną linię:
+
+```
+  ~ ograniczono prawa do pliku z sekretami (teraz tylko wlasciciel): /sciezka/.env
+```
+
+Nowy `.env` z `make init-configs` od razu powstaje jako `0600`. Starsze instalacje
+naprawiają się same przy najbliższym `make up` — bez ręcznych kroków.
+
+Kto czyta `.env` (i dlaczego `0600` niczego nie psuje):
+
+- `docker compose` (`env_file:` i interpolacja `${VAR}`) oraz Makefile — uruchamiane
+  przez operatora, właściciela pliku. Do kontenerów trafiają wartości, nie plik.
+- `backup-runner` montuje cały katalog konfiguracyjny `:ro` (archiwum konfiguracji),
+  ale działa jako root.
+
+Pilnowanie jest *fail-open*: na Windows / Git Bash `chmod` bywa bez efektu — wtedy nie
+ma komunikatu ani błędu; gdy `chmod` się nie uda (np. plik należy do innego konta),
+pojawia się ostrzeżenie, a deploy idzie dalej. Jeśli `make` uruchamiasz z konta, które
+nie jest właścicielem `.env` (a tylko należy do jego grupy), przekaż plik właściwemu
+kontu (`chown`) — po zmianie tylko właściciel może go przeczytać.
+
 ## Pliki force-syncowane (nadpisywane przy każdym deploy)
 
 !!! warning "Wyjątek od `copy_if_missing`"
