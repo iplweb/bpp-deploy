@@ -26,7 +26,9 @@ To README pokazuje **jak zainstalować i uruchomić system BPP**. Wszystkie pozo
 |-------|---------|----------|
 | **RAM** | **12 GB** | **16 GB+** |
 | **CPU** | 2 rdzenie | 4+ rdzeni |
-| **Dysk** | 20 GB + miejsce na bazę i backupy | SSD |
+| **Dysk** | **40 GB** + baza i backupy | **60 GB+**, SSD |
+
+Na dysk składają się: system i obrazy Dockera (ok. 20 GB), 7 nocnych kopii bazy i mediów, archiwum obrazów do odtworzenia bez Docker Huba (ok. 1,5 GB — tworzone tylko, gdy po zapisie zostaje ≥ 10 GB wolnego i dysk jest zajęty najwyżej w 80%) oraz zapas na próbę aktualizacji `make test-upgrade` (2,5× rozmiar bazy). Szczegóły: [Archiwum obrazów](https://iplweb.github.io/bpp-deploy/eksploatacja/backup-i-rclone/#archiwum-obrazow).
 
 Przy 12 GB cały stack się mieści, ale ciasno (baza danych na minimum). Dopiero od 16 GB nadwyżka RAM realnie zasila bazę, aplikację i workery. Podczas pierwszego uruchomienia `make configure-resources` dobiera limity RAM/CPU per usługa pod wykryty host i ostrzega, jeśli host ma poniżej 12 GB. Szczegóły modelu limitów: [Limity zasobów](https://iplweb.github.io/bpp-deploy/konfiguracja/limity-zasobow/).
 

@@ -363,6 +363,7 @@ run_cycle() {
         MOCK_FAIL_ON_STEP="${MOCK_FAIL_ON_STEP:-}" \
         MOCK_FAIL_COPY_DEST="${MOCK_FAIL_COPY_DEST:-}" \
         BPP_REPO_DIR="${REPO_DIR_ENV:-$TEST_ROOT/brak-repo}" \
+        ${IMAGES_SCRIPT_ENV:+BPP_IMAGES_ARCHIVE_SCRIPT="$IMAGES_SCRIPT_ENV"} \
         BPP_BACKUP_DIR="$work/backup" \
         BPP_MEDIA_DIR="$work/mediaroot" \
         BPP_CONFIG_SRC_DIR="$work/cfgsrc" \
@@ -1275,19 +1276,23 @@ assert_eq "" "$(cat "$RECORD")" "wylaczenie w .env dziala bez make up (env konte
 # miesiacu i kasowanie jedynego zestawu przez retencje miesieczna); (c) tylko
 # `copy`, nigdy `sync`; (d) rotacja zdalna: N najnowszych, jeden zestaw na
 # cykl, tylko po udanej wysylce; (e) wylacznik w .env dziala bez `make up`;
-# (f) DOMYSLNIE WYLACZONE - bez zmiennej w .env zero archiwum i zero wysylki.
+# (f) domyslnie WLACZONE, a rezerwa dysku (exit 8) to adnotacja, nie blad.
 echo
 echo "12. archiwum obrazow (krok 2c) i wysylka REMOTE:obrazy/ (krok 4b)"
 
-# Brak zmiennej w .env = wylaczone (opt-in), nawet gdy mount /repo jest.
-MOCK_YM=2026-08 PRE_IMAGE_SETS="20261101-014500" REPO_DIR_ENV="$TEST_ROOT" run_cycle
-assert_eq "0" "$CYCLE_RC" "brak zmiennej: cykl OK"
-assert_contains "$(cat "$CYCLE_LOG")" "obrazy=wylaczone" "MUTACYJNY: brak zmiennej = archiwum wylaczone"
-assert_not_contains "$(cat "$RECORD")" "backup_enc:obrazy/" "MUTACYJNY: brak zmiennej = zero wysylki zestawow"
-
-# Literowka (nie 1/tak/true/yes/on) = tez wylaczone.
+# Brak zmiennej w .env = WLACZONE (przed zapchaniem dysku chroni rezerwa,
+# exit 8 z images-archive.sh), literowka tez = wlaczone.
+MOCK_YM=2026-08 REPO_DIR_ENV="$TEST_ROOT" run_cycle
+assert_not_contains "$(cat "$CYCLE_LOG")" "obrazy=wylaczone" "MUTACYJNY: brak zmiennej = archiwum wlaczone"
 MOCK_YM=2026-08 REPO_DIR_ENV="$TEST_ROOT" IMAGES_FILE="DJANGO_BPP_BACKUP_IMAGES_ENABLED=tk" run_cycle
-assert_contains "$(cat "$CYCLE_LOG")" "obrazy=wylaczone" "literowka: archiwum wylaczone"
+assert_not_contains "$(cat "$CYCLE_LOG")" "obrazy=wylaczone" "literowka: archiwum wlaczone"
+
+# Rezerwa dysku (exit 8): cykl OK, czytelna adnotacja z liczbami.
+STUB_IMG="$TEST_ROOT/images-archive-rezerwa.sh"
+printf '#!/bin/sh\necho "REZERWA wolne=13G zajete=78%%"\nexit 8\n' > "$STUB_IMG"
+MOCK_YM=2026-08 REPO_DIR_ENV="$TEST_ROOT" IMAGES_SCRIPT_ENV="$STUB_IMG" run_cycle
+assert_eq "0" "$CYCLE_RC" "MUTACYJNY: rezerwa dysku nie zmienia kodu wyjscia"
+assert_contains "$(cat "$CYCLE_LOG")" "obrazy=ZA-MALO-MIEJSCA(wolne 13G, zajete 78%)" "rezerwa: adnotacja z liczbami"
 
 # Kontener sprzed `make up` (brak /repo): krok pominiety, cykl OK.
 MOCK_YM=2026-08 IMAGES_FILE="DJANGO_BPP_BACKUP_IMAGES_ENABLED=1" run_cycle

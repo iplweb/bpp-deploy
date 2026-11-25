@@ -27,7 +27,7 @@ do kontenerów, które i tak istnieją i mają właściwe narzędzia:
 2. tar dumpu, mediów i [katalogu konfiguracyjnego](#backup-konfiguracji-env) —
    lokalnie (busybox `tar`; `/backup`, wolumen `media` i `$BPP_CONFIGS_DIR` są
    zamontowane także w orkiestratorze),
-3. [archiwum obrazów Dockera i repozytorium](#archiwum-obrazow) — opcjonalne (domyślnie wyłączone), tylko gdy
+3. [archiwum obrazów Dockera i repozytorium](#archiwum-obrazow) — tylko przy wolnym miejscu na dysku i gdy
    zmieniły się obrazy działających kontenerów (`docker save` przez socket),
 4. rotacja lokalna (`DJANGO_BPP_BACKUP_KEEP_LAST`),
 5. `rclone copy` + retencja zdalna — w serwisie `rclone` (patrz niżej),
@@ -290,15 +290,18 @@ niej niezależna i działa jak dotąd.
 
 Backup bazy, mediów i konfiguracji nie wystarcza do postawienia serwera, jeśli
 akurat **Docker Hub albo GitHub nie działa** (albo obrazu w danej wersji już
-tam nie ma). Dlatego nocny cykl może trzymać też **archiwum obrazów, na których
+tam nie ma). Dlatego nocny cykl trzyma też **archiwum obrazów, na których
 naprawdę działa serwer**, oraz `git bundle` repozytorium `bpp-deploy`.
 
-!!! note "Domyślnie wyłączone"
-    Archiwum zajmuje ok. 1,5 GB lokalnie i tyle samo na zdalnym (dwa zestawy),
-    więc włącza się je świadomie, po sprawdzeniu miejsca na dysku i na udziale
-    zdalnym — wpisem `DJANGO_BPP_BACKUP_IMAGES_ENABLED=1` w
-    `$BPP_CONFIGS_DIR/.env`. Bez archiwum `make restore-server` i tak działa:
-    pobiera z Docker Huba obrazy dokładnie w tej wersji, która działała.
+!!! note "Domyślnie włączone — z rezerwą dysku"
+    Archiwum zajmuje ok. 1,5 GB lokalnie i tyle samo na zdalnym (dwa zestawy).
+    Żeby nie zapchać dysku, na którym stoi baza, nowy zestaw powstaje tylko
+    wtedy, gdy **po jego zapisie zostanie co najmniej 10 GB wolnego i dysk
+    będzie zajęty najwyżej w 80%**. Poniżej progu krok jest co noc pomijany
+    z adnotacją `obrazy=ZA-MALO-MIEJSCA(wolne 13G, zajete 78%)` i **sam rusza,
+    gdy przybędzie miejsca** — bez zmian w `.env`. Bez archiwum
+    `make restore-server` i tak działa: pobiera z Docker Huba obrazy dokładnie
+    w tej wersji, która działała. Zob. [wymagania sprzętowe](../instalacja/index.md).
 
 Jeden zestaw to katalog `obrazy/<YYYYMMDD-HHMMSS>/` w katalogu backupów:
 
@@ -348,21 +351,24 @@ Zmienne w `$BPP_CONFIGS_DIR/.env` (czytane co noc z pliku — zmiana działa bez
 `make up`; żadna nie jest wymagana):
 
 ```bash
-DJANGO_BPP_BACKUP_IMAGES_ENABLED=1     # włącz archiwum obrazów (domyślnie wyłączone)
-DJANGO_BPP_BACKUP_IMAGES_KEEP_LAST=3   # ile zestawów lokalnie i zdalnie (domyślnie 2)
-DJANGO_BPP_BACKUP_IMAGES_MONITORING=1  # dołącz monitoring
+DJANGO_BPP_BACKUP_IMAGES_ENABLED=0      # wyłącz archiwum obrazów (domyślnie włączone)
+DJANGO_BPP_BACKUP_IMAGES_KEEP_LAST=3    # ile zestawów lokalnie i zdalnie (domyślnie 2)
+DJANGO_BPP_BACKUP_IMAGES_MONITORING=1   # dołącz monitoring
+DJANGO_BPP_BACKUP_IMAGES_MIN_FREE_GB=15 # rezerwa: tyle GB ma zostać wolne (domyślnie 10, 0 = bez)
+DJANGO_BPP_BACKUP_IMAGES_MAX_USED_PCT=85 # rezerwa: najwyżej tyle % zajęte (domyślnie 80, 0 = bez)
 ```
 
 !!! warning "Limit miejsca na zdalnym"
     Dwa zestawy to ok. 1,5 GB dodatkowego miejsca na zdalnym (więcej z
-    monitoringiem) i tyle samo lokalnie. Jeśli dysk albo udział ma mało
-    wolnego miejsca lub twardy limit, nie włączaj archiwum. Nie zawiera
+    monitoringiem). Rezerwa pilnuje tylko dysku **lokalnego** — jeśli udział
+    zdalny ma twardy limit, policz go albo ustaw
+    `DJANGO_BPP_BACKUP_IMAGES_ENABLED=0`. Archiwum nie zawiera
     sekretów (publiczne obrazy i publiczne repozytorium), ale i tak jedzie
     przez ten sam (szyfrowany) remote co reszta kopii.
 
 Błąd tego kroku — `docker save`, brak miejsca, nieudana wysyłka — **nigdy nie
 zmienia wyniku cyklu**: to adnotacja `obrazy=...` w komunikacie
-(`nowe(650.2MiB)`, `bez-zmian`, `wylaczone`, `BRAK-MIEJSCA`, `BLAD(exit=N)`,
+(`nowe(650.2MiB)`, `bez-zmian`, `wylaczone`, `ZA-MALO-MIEJSCA(...)`, `BRAK-MIEJSCA`, `BLAD(exit=N)`,
 `BRAK-MOUNTU(make up)`, `wysylka=BLAD`). Krok wymaga mountu repozytorium w
 `backup-runner` (`.:/repo:ro`), więc po `git pull` potrzebny jest **`make up`** —
 do tego czasu adnotacja `BRAK-MOUNTU(make up)` i backup bazy idzie normalnie.

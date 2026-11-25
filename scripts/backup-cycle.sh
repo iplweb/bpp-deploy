@@ -28,10 +28,9 @@
 #                                   zero notyfikacji); brak/pusta/inna = wlaczony
 #   BPP_BACKUP_CYCLE_FORCE        - 1 = omin wylacznik (`make backup-cycle`)
 #   DJANGO_BPP_BACKUP_IMAGES_ENABLED - archiwum obrazow Dockera + git bundle
-#                                   (krok 2c): DOMYSLNIE WYLACZONE; 1 (tez
-#                                   tak/true/yes/on) = wlacz; brak/pusta/inna =
-#                                   pomin (archiwum to do 1,5 GB lokalnie i
-#                                   zdalnie - operator wlacza swiadomie)
+#                                   (krok 2c): 0 (tez false/nie/no/off) = pomin;
+#                                   brak/pusta/inna = wlaczone. Rezerwa dysku
+#                                   (MIN_FREE_GB, MAX_USED_PCT) w images-archive.sh
 #   DJANGO_BPP_BACKUP_IMAGES_KEEP_LAST - ile zestawow obrazow lokalnie i na
 #                                   zdalnym, default 2
 #   DJANGO_BPP_BACKUP_IMAGES_MONITORING - 1 = archiwum obejmuje tez monitoring
@@ -470,15 +469,17 @@ fi
 # leza w $BACKUP_DIR/obrazy/<TS>/ i jada na zdalny do WLASNEGO katalogu
 # REMOTE:obrazy/ (krok 4b), nie do miesiecznego - uzasadnienie przy kroku 4b.
 #
+# BPP_IMAGES_ARCHIVE_SCRIPT: wylacznie dla test-rclone.sh (atrapa exit 8).
+#
 # Jak krok 2b: blad NIE wywraca cyklu, tylko adnotacja `obrazy=...`. Brak
 # mountu /repo (kontener sprzed `make up`) = krok pominiety z adnotacja - bez
 # tego pierwszy zestaw powstalby bez bundla i nie zostal odtworzony az do
 # nastepnej zmiany obrazow.
-# DOMYSLNIE WYLACZONE (opt-in): zestaw to ~0,7 GB, dwa trzymane lokalnie
-# i zdalnie, a czesc hostow ma malo wolnego dysku. Wlacza tylko jawne 1.
+# Domyslnie wlaczone; przed zapelnieniem dysku chroni rezerwa w
+# images-archive.sh (exit 8 = REZERWA), nie wylacznik.
 case "$(config_var_raw DJANGO_BPP_BACKUP_IMAGES_ENABLED | tr '[:upper:]' '[:lower:]')" in
-    1|tak|true|yes|on) IMAGES_ON=1 ;;
-    *) IMAGES_MSG="wylaczone" ;;
+    0|nie|false|no|off) IMAGES_MSG="wylaczone" ;;
+    *) IMAGES_ON=1 ;;
 esac
 IMAGES_KEEP="$(config_var_raw DJANGO_BPP_BACKUP_IMAGES_KEEP_LAST)"
 case "$IMAGES_KEEP" in ''|*[!0-9]*|0) IMAGES_KEEP=2 ;; esac
@@ -491,7 +492,9 @@ if [ "$IMAGES_ON" = 1 ]; then
         if IMAGES_OUT="$(BPP_BACKUP_DIR="$BACKUP_DIR" BPP_REPO_DIR="$REPO_SRC_DIR" \
                 DJANGO_BPP_BACKUP_IMAGES_KEEP_LAST="$IMAGES_KEEP" \
                 DJANGO_BPP_BACKUP_IMAGES_MONITORING="$(config_var_raw DJANGO_BPP_BACKUP_IMAGES_MONITORING)" \
-                sh "$SCRIPT_DIR/images-archive.sh" save | tail -n 1)"; then
+                DJANGO_BPP_BACKUP_IMAGES_MIN_FREE_GB="$(config_var_raw DJANGO_BPP_BACKUP_IMAGES_MIN_FREE_GB)" \
+                DJANGO_BPP_BACKUP_IMAGES_MAX_USED_PCT="$(config_var_raw DJANGO_BPP_BACKUP_IMAGES_MAX_USED_PCT)" \
+                sh "${BPP_IMAGES_ARCHIVE_SCRIPT:-$SCRIPT_DIR/images-archive.sh}" save | tail -n 1)"; then
             case "$IMAGES_OUT" in
                 NOWE*) IMAGES_MSG="nowe($(fmt_size "${IMAGES_OUT##* }"))" ;;
                 BEZ-ZMIAN*) IMAGES_MSG="bez-zmian" ;;
@@ -502,6 +505,9 @@ if [ "$IMAGES_ON" = 1 ]; then
             images_rc=$?
             case "$images_rc" in
                 6) IMAGES_MSG="BRAK-MIEJSCA" ;;
+                8) r="${IMAGES_OUT#REZERWA }"
+                   IMAGES_MSG="ZA-MALO-MIEJSCA($(printf '%s' "$r" | sed 's/=/ /g; s/ zajete/, zajete/'))"
+                   log "obrazy: pominiete - rezerwa dysku ($r); ruszy samo, gdy przybedzie miejsca" ;;
                 *) IMAGES_MSG="BLAD(exit=$images_rc)" ;;
             esac
             log "UWAGA: archiwum obrazow nieudane (exit=$images_rc) - kontynuuje cykl"

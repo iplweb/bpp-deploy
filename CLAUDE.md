@@ -471,9 +471,15 @@ bo grep po źródle nie widzi tego, co naprawdę poleci do rclone. Operator doc:
 ### Archiwum obrazów + `git bundle` (`scripts/images-archive.sh`, krok 2c)
 
 Cel: odtworzenie serwera, gdy Docker Hub/GitHub nie działa. **Domyślnie
-WYŁĄCZONE (opt-in `DJANGO_BPP_BACKUP_IMAGES_ENABLED=1`)** — ~1,5 GB lokalnie
-i zdalnie, a część hostów ma mało dysku; nie odwracaj domyślnej wartości
-(brak/pusta/literówka = wyłączone, §12 `test-rclone.sh`). Zestaw
+włączone, ale z rezerwą dysku** (`images-archive.sh` exit 8 → adnotacja
+`ZA-MALO-MIEJSCA(...)`): po zapisie ≥ `DJANGO_BPP_BACKUP_IMAGES_MIN_FREE_GB`
+(10) GB wolnego i ≤ `_MAX_USED_PCT` (80)% zajęte, liczone od sumy rozmiarów
+obrazów (górne oszacowanie). To rezerwa, a nie opt-in, pozwala włączyć archiwum
+wszędzie: host z małym dyskiem sam pomija krok i sam rusza po powiększeniu —
+**nie zamieniaj jej na wyłącznik w `.env` ani nie licz od rozmiaru po
+kompresji** (pierwszy zestaw nie ma poprzednika). Atrapa `df` w
+`test-images.sh` jest bezwarunkowa: prawdziwy `df` runnera CI zapaliłby
+rezerwę. Zestaw
 `$BACKUP_DIR/obrazy/<YYYYMMDD-HHMMSS>/` (`obrazy.tar.gz` z jednego `docker save`,
 `manifest.txt`, `bpp-deploy.bundle`) powstaje tylko, gdy zmienił się zestaw
 `ref|ID` działających kontenerów; wczytuje go `make images-load` (przed `ifdef

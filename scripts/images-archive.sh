@@ -31,6 +31,10 @@
 #   COMPOSE_PROJECT_NAME                 - wymagana (env orkiestratora)
 #   DJANGO_BPP_BACKUP_IMAGES_KEEP_LAST   - ile zestawow lokalnie, domyslnie 2
 #   DJANGO_BPP_BACKUP_IMAGES_MONITORING  - 1 = dolacz monitoring
+#   DJANGO_BPP_BACKUP_IMAGES_MIN_FREE_GB - rezerwa: po zapisie ma zostac
+#                                          tyle GB wolnego, domyslnie 10 (0 = bez)
+#   DJANGO_BPP_BACKUP_IMAGES_MAX_USED_PCT - rezerwa: po zapisie dysk zajety
+#                                          najwyzej w tylu %, domyslnie 80 (0 = bez)
 #   BPP_BACKUP_DIR                       - domyslnie /backup
 #   BPP_REPO_DIR                         - repo do bundla, domyslnie /repo
 #   BPP_IMAGES_COMPRESS                  - auto (domyslnie) | zstd | gzip
@@ -43,6 +47,8 @@
 #   5 - nie dzialaja appserver/dbserver - nie ma czego wiernie zarchiwizowac
 #   6 - za malo miejsca na dysku (nic nie zapisano)
 #   7 - inny zapis archiwum trwa
+#   8 - zapis zjadlby rezerwe dysku (nic nie zapisano); ostatnia linia stdout:
+#       REZERWA wolne=<GB>G zajete=<PCT>%
 #
 # POSIX sh: dziala pod busybox ash w docker:cli (orkiestrator ma docker CLI,
 # socket, git, gzip i sha256sum) i pod bashem na hoscie (testy).
@@ -203,12 +209,33 @@ for id in $ids; do
     sz="$(docker image inspect --format '{{.Size}}' "$id")" || die "nie ma obrazu $id"
     POTRZEBA_KB=$(( POTRZEBA_KB + sz / 1024 + 1 ))
 done
-WOLNE_KB="$(df -Pk "$OBRAZY_DIR" | awk 'NR == 2 { print $4 }')"
-case "$WOLNE_KB" in
+DF_LINIA="$(df -Pk "$OBRAZY_DIR" | awk 'NR == 2 { print $2, $4 }')" || DF_LINIA=""
+CALOSC_KB="${DF_LINIA%% *}"
+WOLNE_KB="${DF_LINIA##* }"
+case "$CALOSC_KB$WOLNE_KB" in
     ''|*[!0-9]*) log "UWAGA: nie umiem odczytac wolnego miejsca - pomijam kontrole" ;;
     *)
         if [ "$WOLNE_KB" -lt "$POTRZEBA_KB" ]; then
             die "za malo miejsca w $OBRAZY_DIR: wolne $((WOLNE_KB / 1024)) MiB, potrzeba do $((POTRZEBA_KB / 1024)) MiB" 6
+        fi
+        # Rezerwa: archiwum to dodatek do odtworzenia, nie moze zapchac dysku,
+        # na ktorym stoi baza. Liczone od gornego oszacowania (suma obrazow),
+        # wiec z zapasem. Ponizej progu krok jest pomijany co noc i sam rusza,
+        # gdy przybedzie miejsca - bez zmian w .env.
+        MIN_FREE_GB="${DJANGO_BPP_BACKUP_IMAGES_MIN_FREE_GB:-10}"
+        MAX_PCT="${DJANGO_BPP_BACKUP_IMAGES_MAX_USED_PCT:-80}"
+        case "$MIN_FREE_GB" in *[!0-9]*) log "UWAGA: MIN_FREE_GB='$MIN_FREE_GB' - uzywam 10"; MIN_FREE_GB=10 ;; esac
+        case "$MAX_PCT" in *[!0-9]*) log "UWAGA: MAX_USED_PCT='$MAX_PCT' - uzywam 80"; MAX_PCT=80 ;; esac
+        PO_KB=$(( WOLNE_KB - POTRZEBA_KB ))
+        PO_PCT=$(( (CALOSC_KB - PO_KB) * 100 / CALOSC_KB ))
+        TERAZ_GB=$(( WOLNE_KB / 1048576 ))
+        TERAZ_PCT=$(( (CALOSC_KB - WOLNE_KB) * 100 / CALOSC_KB ))
+        if { [ "$MIN_FREE_GB" -gt 0 ] && [ "$PO_KB" -lt $(( MIN_FREE_GB * 1048576 )) ]; } \
+                || { [ "$MAX_PCT" -gt 0 ] && [ "$PO_PCT" -gt "$MAX_PCT" ]; }; then
+            log "pomijam archiwum: po zapisie (~$((POTRZEBA_KB / 1048576)) GB) zostaloby $((PO_KB / 1048576)) GB wolnego, dysk zajety w $PO_PCT% (wymagane: >= $MIN_FREE_GB GB i <= $MAX_PCT%)"
+            prune_local
+            echo "REZERWA wolne=${TERAZ_GB}G zajete=${TERAZ_PCT}%"
+            exit 8
         fi ;;
 esac
 

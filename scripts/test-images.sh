@@ -93,13 +93,10 @@ MOCK
 
 cat > "$BIN/df" <<'MOCK'
 #!/usr/bin/env bash
-if [ -n "${MOCK_DF_FREE_KB:-}" ]; then
-    echo "Filesystem 1024-blocks Used Available Capacity Mounted"
-    echo "/dev/x 100000000 1 $MOCK_DF_FREE_KB 1% /"
-    exit 0
-fi
-for d in /bin/df /usr/bin/df; do [ -x "$d" ] && exec "$d" "$@"; done
-exit 127
+# Zawsze atrapa (domyslnie 100 GB, 90 GB wolne): prawdziwy df maszyny CI
+# moglby zapalic rezerwe (>80% zajete na runnerze) i wywrocic testy.
+echo "Filesystem 1024-blocks Used Available Capacity Mounted"
+echo "/dev/x ${MOCK_DF_SIZE_KB:-104857600} 1 ${MOCK_DF_FREE_KB:-94371840} 1% /"
 MOCK
 chmod +x "$BIN"/*
 
@@ -143,6 +140,9 @@ run_save() {   # argumenty dla save; wynik: SAVE_RC, SAVE_OUT, SAVE_ERR
         BPP_BACKUP_DIR="$BK" BPP_REPO_DIR="${REPO_ENV-$GITREPO}" \
         DJANGO_BPP_BACKUP_IMAGES_KEEP_LAST="${KEEP_ENV:-2}" \
         MOCK_SAVE_FAIL="${MOCK_SAVE_FAIL:-0}" MOCK_DF_FREE_KB="${MOCK_DF_FREE_KB:-}" \
+        MOCK_DF_SIZE_KB="${MOCK_DF_SIZE_KB:-}" \
+        DJANGO_BPP_BACKUP_IMAGES_MIN_FREE_GB="${MIN_FREE_ENV-}" \
+        DJANGO_BPP_BACKUP_IMAGES_MAX_USED_PCT="${MAX_PCT_ENV-}" \
         BPP_IMAGES_COMPRESS=gzip \
         bash "$SAVE" save "$@" 2>"$T/save.err")"
     SAVE_RC=$?
@@ -245,6 +245,33 @@ MOCK_DF_FREE_KB=10 run_save
 assert_eq 6 "$SAVE_RC" "exit 6 przy braku miejsca"
 assert_eq 0 "$(nsets)" "zero zestawow"
 assert_eq 0 "$(grep -c '^docker save' "$M/calls" || true)" "bez docker save"
+
+echo "=== 8b. Rezerwa dysku: zapis pominiety (exit 8), sam rusza, gdy jest miejsce ==="
+GB=1048576
+# 100 GB dysku, 12 GB wolne: po zapisie >10 GB, ale zajete 88% > 80% -> pomin.
+reset_state; rm -rf "$BK"
+MOCK_DF_SIZE_KB=$((100 * GB)) MOCK_DF_FREE_KB=$((12 * GB)) run_save
+assert_eq 8 "$SAVE_RC" "MUTACYJNY: zajete >80% po zapisie -> exit 8"
+assert_eq "REZERWA wolne=12G zajete=88%" "$(printf '%s\n' "$SAVE_OUT" | tail -n 1)" "ostatnia linia: REZERWA z liczbami"
+assert_eq 0 "$(nsets)" "rezerwa (%): zero zestawow"
+assert_eq 0 "$(grep -c '^docker save' "$M/calls" || true)" "rezerwa (%): bez docker save"
+# 20 GB dysku, 9 GB wolne (55%): ponizej 10 GB -> pomin.
+reset_state; rm -rf "$BK"
+MOCK_DF_SIZE_KB=$((20 * GB)) MOCK_DF_FREE_KB=$((9 * GB)) run_save
+assert_eq 8 "$SAVE_RC" "MUTACYJNY: <10 GB wolnego po zapisie -> exit 8"
+# Kontrola: 100 GB, 50 GB wolne -> zapis.
+reset_state; rm -rf "$BK"
+MOCK_DF_SIZE_KB=$((100 * GB)) MOCK_DF_FREE_KB=$((50 * GB)) run_save
+assert_eq 0 "$SAVE_RC" "kontrola: dosc miejsca -> zapis"
+assert_eq 1 "$(nsets)" "kontrola: jeden zestaw"
+# Progi wylaczone (0) -> zapis mimo 88%.
+reset_state; rm -rf "$BK"
+MIN_FREE_ENV=0 MAX_PCT_ENV=0 MOCK_DF_SIZE_KB=$((100 * GB)) MOCK_DF_FREE_KB=$((12 * GB)) run_save
+assert_eq 0 "$SAVE_RC" "progi =0: rezerwa wylaczona"
+# Wlasne progi: 15 GB minimum przy 12 GB wolnego -> pomin, nawet z MAX_PCT=0.
+reset_state; rm -rf "$BK"
+MIN_FREE_ENV=15 MAX_PCT_ENV=0 MOCK_DF_SIZE_KB=$((100 * GB)) MOCK_DF_FREE_KB=$((12 * GB)) run_save
+assert_eq 8 "$SAVE_RC" "MIN_FREE_GB=15 z env -> exit 8"
 
 echo "=== 9. docker save pada -> exit 1, bez polowicznego zestawu i tymczasowych tagow ==="
 reset_state; rm -rf "$BK"
