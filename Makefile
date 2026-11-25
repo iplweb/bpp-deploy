@@ -39,6 +39,7 @@ test:
 	@bash scripts/test-ssl-chain.sh
 	@bash scripts/test-rclone.sh
 	@bash scripts/test-images.sh
+	@bash scripts/test-restore-server.sh
 	@./scripts/test-alloy.sh
 	@bash tests/test_makefile.sh
 	@./scripts/test-nginx-limits.sh
@@ -57,6 +58,21 @@ test:
 restore-config:
 	@FILE="$(FILE)" ONLY_ENV="$(ONLY_ENV)" BPP_CONFIGS_DIR="$(BPP_CONFIGS_DIR)" \
 		bash scripts/restore-config.sh
+
+# --- Odtworzenie CALEGO serwera z kopii zdalnej: dziala w OBU trybach ---
+#
+# Czysta maszyna: Docker + repo, BEZ `make` (FIRST_RUN -> setup -> init-configs
+# wygenerowalby NOWY klucz szyfrowania - dlatego przed `ifdef FIRST_RUN`).
+# Skrypt sam odtwarza konfiguracje PRZED jakimkolwiek wywolaniem make.
+#   make restore-server                       # najnowszy komplet db+media+config
+#   make restore-server DATA=20261124         # konkretna noc
+#   make restore-server RCLONE_CONF=~/rclone.conf BPP_CONFIGS_DIR=/home/bpp/uczelnia
+# Proba na dzialajacym serwerze (shadow stack): make proba-odtworzenia.
+.PHONY: restore-server
+restore-server:
+	@DATA="$(DATA)" RCLONE_CONF="$(RCLONE_CONF)" REMOTE="$(REMOTE)" CRYPT_REMOTE="$(CRYPT_REMOTE)" \
+		OBRAZY="$(OBRAZY)" STAGE_DIR="$(STAGE_DIR)" BPP_CONFIGS_DIR="$(BPP_CONFIGS_DIR)" \
+		bash scripts/restore-server.sh
 
 # --- Wczytanie archiwum obrazow: dziala w OBU trybach ---
 #
@@ -185,6 +201,8 @@ help:
 	@echo "    media-backup         - Create media files backup (tar.gz)"
 	@echo "    images-save          - Archiwum obrazow Dockera + git bundle (FORCE=1, MONITORING=1)"
 	@echo "    images-load          - Wczytaj archiwum obrazow i sprawdz z manifestem (FILE=...)"
+	@echo "    restore-server       - CZYSTA maszyna: caly serwer z kopii zdalnej (DATA=YYYYMMDD, RCLONE_CONF=...)"
+	@echo "    proba-odtworzenia    - Proba odtworzenia z kopii zdalnej w shadow stacku (produkcja nietknieta)"
 	@echo "    restore              - Restore db+media from tar.gz pair (newest by default)"
 	@echo "                           Flags: PICK=1 TIMESTAMP=... DB_ONLY=1 MEDIA_ONLY=1 NO_SAFETY=1 YES=1"
 	@echo "    dbshell              - Django database shell"
@@ -247,6 +265,7 @@ help:
 	@echo "    test-grafana-datasources - Render datasources.yaml bez gettexta (no network)"
 	@echo "    test-rclone          - Uklad zdalnego backupu + retencja: copy-nie-sync (no network)"
 	@echo "    test-images          - Archiwum obrazow: images-save/images-load (mock docker, no network)"
+	@echo "    test-restore-server  - Odtworzenie serwera: wybor kompletu, kolejnosc, crypt, proba (mocki)"
 	@echo "    test-winget-ids      - Czy ID pakietow winget z instrukcji Windows nadal istnieja (siec)"
 	@echo ""
 	@echo "  Host management:"

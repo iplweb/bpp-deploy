@@ -104,6 +104,7 @@ nav:
       - Migracja bazy na stockowy postgres: eksploatacja/migracja-collation-stock-pg.md
       - Backup i rclone: eksploatacja/backup-i-rclone.md
       - Przenosiny serwera: eksploatacja/przenosiny-serwera.md
+      - Odtworzenie serwera po awarii: eksploatacja/odtworzenie-serwera.md
       - Wydanie: eksploatacja/wydanie.md
   - Monitoring i logi:
       - Przegląd: monitoring/przeglad.md

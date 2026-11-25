@@ -1,5 +1,5 @@
 .PHONY: all run refresh up up-quick up-appserver up-webserver stop rmrf restart restart-appserver health check-quic validate-env-quotes fix-env-quotes test-validate-env-quotes test-upgrade test-upgrade-clean autoupdate screen-with-autoupdate test-autoupdate setup-autoupdate-cron remove-autoupdate-cron test-autoupdate-cron git-bez-klucza git-na-klucz test-git-remote \
-       run-with-warning enable-site-down-warning disable-site-down-warning extend-site-down-warning status-site-down-warning test-deploy-with-warning
+       proba-odtworzenia run-with-warning enable-site-down-warning disable-site-down-warning extend-site-down-warning status-site-down-warning test-deploy-with-warning
 
 all: run
 
@@ -249,3 +249,14 @@ test-upgrade: validate-env-quotes
 
 test-upgrade-clean:
 	@bash scripts/test-upgrade.sh --clean
+
+# Proba odtworzenia CALEGO serwera z kopii ZDALNEJ (najnowszy komplet
+# db+media+config + archiwum obrazow) w shadow stacku - ta sama mechanika
+# i blokada co test-upgrade (scripts/lib-shadow.sh). Produkcja, jej .env,
+# wolumeny i tagi obrazow nietkniete; rclone tylko czyta. Osobny target, nie
+# `restore-server PROBA=1`: literowka w zmiennej zamienilaby probe na
+# destrukcyjne odtworzenie na produkcji. Wynik: $BPP_CONFIGS_DIR/logs/odtworzenie-serwera.log.
+# Sprzatniecie po przerwanej probie: make test-upgrade-clean.
+proba-odtworzenia: validate-env-quotes
+	@DATA="$(DATA)" REMOTE="$(REMOTE)" OBRAZY="$(OBRAZY)" STAGE_DIR="$(STAGE_DIR)" \
+		bash scripts/restore-server.sh --proba
