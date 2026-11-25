@@ -3834,6 +3834,21 @@ test_env_perms() {
     rc=0
     out=$(BPP_CONFIGS_DIR="$cfg" bash "$REPO_DIR/scripts/ensure-config-files.sh" 2>&1) || rc=$?
     if [ "$rc" -eq 0 ]; then pass "ensure-config-files konczy sie zerem"; else fail "ensure-config-files exit $rc: $out"; fi
+
+    # System plikow bez trybow POSIX (Windows / Git Bash: chmod to no-op) -
+    # sprawdzamy na zywo, ze pilnowanie jest fail-open: exit 0 powyzej i zadnego
+    # falszywego "ograniczono prawa". Asercji trybow nie da sie tam spelnic.
+    printf 'x\n' > "$cfg/.probe"; chmod 600 "$cfg/.probe"
+    if [ "$(_env_perms_tryb "$cfg/.probe")" != "-rw-------" ]; then
+        if printf '%s\n' "$out" | grep -q 'ograniczono prawa'; then
+            fail "brak trybow POSIX, a skrypt raportuje zmiane praw"
+        else
+            pass "brak trybow POSIX (Windows): bez komunikatu, exit 0"
+        fi
+        skip "asercje trybow 0600 - system plikow bez trybow POSIX"
+        rm -rf "$cfg"; return
+    fi
+    rm -f "$cfg/.probe"
     tryb="$(_env_perms_tryb "$cfg/.env")"
     if [ "$tryb" = "-rw-------" ]; then pass ".env 0664 -> 0600"; else fail ".env ma tryb $tryb (oczekiwano -rw-------)"; fi
     for f in .env.przed-restore-20260101 .env.bak.123; do
