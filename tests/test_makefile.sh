@@ -3821,7 +3821,8 @@ test_env_perms() {
     # Prawdziwy skrypt na tymczasowym katalogu konfiguracyjnym. Tryb czytamy
     # przez `ls -l` (kolumna praw), bo stat nie jest przenosny Linux/macOS.
     local cfg out rc tryb
-    _env_perms_tryb() { ls -ld -- "$1" | cut -c1-10; }
+    # shellcheck disable=SC2012  # ls celowo: stat nie jest przenosny
+    _env_perms_tryb() { ls -ld "$1" | cut -c1-10; }
     cfg=$(mktemp -d)
     printf 'BPP_CONFIGS_DIR=%s\nDJANGO_BPP_DB_PASSWORD=tajne\n' "$cfg" > "$cfg/.env"
     printf 'X=1\n' > "$cfg/.env.przed-restore-20260101"
@@ -3892,6 +3893,7 @@ test_env_perms() {
 
     # Swiezy .env z init-configs: tworzony od razu przez umask 077, nie chmod
     # po fakcie (asercja na zrodle - pelny init-configs jest interaktywny).
+    # shellcheck disable=SC2016  # doslowny tekst ze zrodla, bez rozwijania
     if grep -q '( umask 077; : > "$ENV_FILE" )' "$REPO_DIR/scripts/init-configs.sh"; then
         pass "init-configs zaklada .env z umask 077"
     else

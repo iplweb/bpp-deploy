@@ -25,11 +25,15 @@
 # zwracamy bledu. Fail-open: funkcja ZAWSZE zwraca 0 - prawa do pliku nie
 # moga wywrocic deployu.
 
+# Bez `--` w chmod/ls: BSD chmod na macOS bierze `--` za nazwe pliku (blad
+# "No such file", exit 1 mimo ze plik zmienil). Sciezki zawsze zaczynaja sie
+# od katalogu, wiec myslnik na poczatku nie grozi.
+#
 # Znaki 5-10 z `ls -ld` = prawa grupy i innych ("------" = nic).
 _env_perms_go() {
     # shellcheck disable=SC2012  # ls celowo: stat nie jest przenosny
     # `|| true`: pod `set -euo pipefail` wolajacego blad ls nie moze ubic skryptu.
-    { ls -ld -- "$1" 2>/dev/null | cut -c5-10; } || true
+    { ls -ld "$1" 2>/dev/null | cut -c5-10; } || true
 }
 
 # env_perms_harden KATALOG - zdejmuje prawa grupy/innych z KATALOG/.env
@@ -43,7 +47,7 @@ env_perms_harden() {
         przed="$(_env_perms_go "$f")"
         [ -n "$przed" ] || continue
         [ "$przed" = "------" ] && continue
-        if ! chmod go-rwx -- "$f" 2>/dev/null; then
+        if ! chmod go-rwx "$f" 2>/dev/null; then
             echo "  ! OSTRZEZENIE: nie udalo sie ograniczyc praw do $f (tryb ...${przed}) - plik z sekretami czytelny dla innych kont; popraw recznie: chmod 600 \"$f\"" >&2
             continue
         fi
