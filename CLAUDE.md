@@ -470,7 +470,10 @@ bo grep po źródle nie widzi tego, co naprawdę poleci do rclone. Operator doc:
 
 ### Archiwum obrazów + `git bundle` (`scripts/images-archive.sh`, krok 2c)
 
-Cel: odtworzenie serwera, gdy Docker Hub/GitHub nie działa. Zestaw
+Cel: odtworzenie serwera, gdy Docker Hub/GitHub nie działa. **Domyślnie
+WYŁĄCZONE (opt-in `DJANGO_BPP_BACKUP_IMAGES_ENABLED=1`)** — ~1,5 GB lokalnie
+i zdalnie, a część hostów ma mało dysku; nie odwracaj domyślnej wartości
+(brak/pusta/literówka = wyłączone, §12 `test-rclone.sh`). Zestaw
 `$BACKUP_DIR/obrazy/<YYYYMMDD-HHMMSS>/` (`obrazy.tar.gz` z jednego `docker save`,
 `manifest.txt`, `bpp-deploy.bundle`) powstaje tylko, gdy zmienił się zestaw
 `ref|ID` działających kontenerów; wczytuje go `make images-load` (przed `ifdef

@@ -1274,24 +1274,35 @@ assert_eq "" "$(cat "$RECORD")" "wylaczenie w .env dziala bez make up (env konte
 # a z miesiecznej wysylki sa wykluczone (inaczej 1-1,5 GB duplikatu w kazdym
 # miesiacu i kasowanie jedynego zestawu przez retencje miesieczna); (c) tylko
 # `copy`, nigdy `sync`; (d) rotacja zdalna: N najnowszych, jeden zestaw na
-# cykl, tylko po udanej wysylce; (e) wylacznik w .env dziala bez `make up`.
+# cykl, tylko po udanej wysylce; (e) wylacznik w .env dziala bez `make up`;
+# (f) DOMYSLNIE WYLACZONE - bez zmiennej w .env zero archiwum i zero wysylki.
 echo
 echo "12. archiwum obrazow (krok 2c) i wysylka REMOTE:obrazy/ (krok 4b)"
 
+# Brak zmiennej w .env = wylaczone (opt-in), nawet gdy mount /repo jest.
+MOCK_YM=2026-08 PRE_IMAGE_SETS="20261101-014500" REPO_DIR_ENV="$TEST_ROOT" run_cycle
+assert_eq "0" "$CYCLE_RC" "brak zmiennej: cykl OK"
+assert_contains "$(cat "$CYCLE_LOG")" "obrazy=wylaczone" "MUTACYJNY: brak zmiennej = archiwum wylaczone"
+assert_not_contains "$(cat "$RECORD")" "backup_enc:obrazy/" "MUTACYJNY: brak zmiennej = zero wysylki zestawow"
+
+# Literowka (nie 1/tak/true/yes/on) = tez wylaczone.
+MOCK_YM=2026-08 REPO_DIR_ENV="$TEST_ROOT" IMAGES_FILE="DJANGO_BPP_BACKUP_IMAGES_ENABLED=tk" run_cycle
+assert_contains "$(cat "$CYCLE_LOG")" "obrazy=wylaczone" "literowka: archiwum wylaczone"
+
 # Kontener sprzed `make up` (brak /repo): krok pominiety, cykl OK.
-MOCK_YM=2026-08 run_cycle
+MOCK_YM=2026-08 IMAGES_FILE="DJANGO_BPP_BACKUP_IMAGES_ENABLED=1" run_cycle
 assert_eq "0" "$CYCLE_RC" "brak /repo: cykl konczy sie sukcesem"
 assert_contains "$(cat "$CYCLE_LOG")" "obrazy=BRAK-MOUNTU(make up)" "brak /repo: adnotacja BRAK-MOUNTU"
 assert_contains "$(grep -E '^copy ' "$RECORD" | head -1)" '--exclude /obrazy/**' \
     "MUTACYJNY: wysylka miesieczna wyklucza obrazy/"
 
 # Archiwum pada (atrapa dockera nie umie `docker inspect`) - exit 0, adnotacja.
-MOCK_YM=2026-08 REPO_DIR_ENV="$TEST_ROOT" run_cycle
+MOCK_YM=2026-08 REPO_DIR_ENV="$TEST_ROOT" IMAGES_FILE="DJANGO_BPP_BACKUP_IMAGES_ENABLED=1" run_cycle
 assert_eq "0" "$CYCLE_RC" "MUTACYJNY: blad archiwum obrazow nie zmienia kodu wyjscia"
 assert_contains "$(cat "$CYCLE_LOG")" "obrazy=BLAD(exit=" "blad archiwum: adnotacja BLAD"
 
 # Gotowe zestawy -> copy do REMOTE:obrazy/, rotacja zdalna do 2, jeden na cykl.
-MOCK_YM=2026-08 PRE_IMAGE_SETS="20261101-014500" \
+MOCK_YM=2026-08 PRE_IMAGE_SETS="20261101-014500" IMAGES_FILE="DJANGO_BPP_BACKUP_IMAGES_ENABLED=1" \
     MOCK_LSF_DIRS=$'20261001-014500/\n20261015-014500/\n20261101-014500/\n20261102-014500/\nobce/' \
     run_cycle
 rec="$(cat "$RECORD")"
@@ -1307,7 +1318,7 @@ assert_not_contains "$rec" "purge backup_enc:obrazy/obce" "obce katalogi nietyka
 assert_contains "$(cat "$CYCLE_LOG")" "usunieto-zdalnie=20261001-014500" "adnotacja o usunieciu"
 
 # Wysylka zestawow pada: brak rotacji, exit 0.
-MOCK_YM=2026-08 PRE_IMAGE_SETS="20261101-014500" MOCK_FAIL_COPY_DEST="backup_enc:obrazy/" \
+MOCK_YM=2026-08 PRE_IMAGE_SETS="20261101-014500" MOCK_FAIL_COPY_DEST="backup_enc:obrazy/" IMAGES_FILE="DJANGO_BPP_BACKUP_IMAGES_ENABLED=1" \
     MOCK_LSF_DIRS=$'20261001-014500/\n20261015-014500/\n20261101-014500/' run_cycle
 assert_eq "0" "$CYCLE_RC" "MUTACYJNY: nieudana wysylka obrazow nie zmienia kodu wyjscia"
 assert_not_contains "$(cat "$RECORD")" "purge backup_enc:obrazy/" "nieudana wysylka: zero kasowania"
@@ -1321,7 +1332,7 @@ assert_not_contains "$(cat "$RECORD")" "backup_enc:obrazy/" "wylaczone: zero wys
 assert_contains "$(cat "$CYCLE_LOG")" "obrazy=wylaczone" "wylaczone: adnotacja"
 
 # KEEP_LAST z .env: 3 -> przy 3 zestawach nic do usuniecia.
-MOCK_YM=2026-08 PRE_IMAGE_SETS="20261101-014500" IMAGES_FILE="DJANGO_BPP_BACKUP_IMAGES_KEEP_LAST=3" \
+MOCK_YM=2026-08 PRE_IMAGE_SETS="20261101-014500" IMAGES_FILE=$'DJANGO_BPP_BACKUP_IMAGES_ENABLED=1\nDJANGO_BPP_BACKUP_IMAGES_KEEP_LAST=3' \
     MOCK_LSF_DIRS=$'20261001-014500/\n20261015-014500/\n20261101-014500/' run_cycle
 assert_not_contains "$(cat "$RECORD")" "purge backup_enc:obrazy/" "KEEP_LAST=3 z .env: nic do usuniecia"
 

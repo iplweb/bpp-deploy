@@ -28,8 +28,10 @@
 #                                   zero notyfikacji); brak/pusta/inna = wlaczony
 #   BPP_BACKUP_CYCLE_FORCE        - 1 = omin wylacznik (`make backup-cycle`)
 #   DJANGO_BPP_BACKUP_IMAGES_ENABLED - archiwum obrazow Dockera + git bundle
-#                                   (krok 2c): 0 (tez false/nie/no/off) = pomin;
-#                                   brak/pusta/inna = wlaczone
+#                                   (krok 2c): DOMYSLNIE WYLACZONE; 1 (tez
+#                                   tak/true/yes/on) = wlacz; brak/pusta/inna =
+#                                   pomin (archiwum to do 1,5 GB lokalnie i
+#                                   zdalnie - operator wlacza swiadomie)
 #   DJANGO_BPP_BACKUP_IMAGES_KEEP_LAST - ile zestawow obrazow lokalnie i na
 #                                   zdalnym, default 2
 #   DJANGO_BPP_BACKUP_IMAGES_MONITORING - 1 = archiwum obejmuje tez monitoring
@@ -472,9 +474,11 @@ fi
 # mountu /repo (kontener sprzed `make up`) = krok pominiety z adnotacja - bez
 # tego pierwszy zestaw powstalby bez bundla i nie zostal odtworzony az do
 # nastepnej zmiany obrazow.
+# DOMYSLNIE WYLACZONE (opt-in): zestaw to ~0,7 GB, dwa trzymane lokalnie
+# i zdalnie, a czesc hostow ma malo wolnego dysku. Wlacza tylko jawne 1.
 case "$(config_var_raw DJANGO_BPP_BACKUP_IMAGES_ENABLED | tr '[:upper:]' '[:lower:]')" in
-    0|nie|false|no|off) IMAGES_MSG="wylaczone" ;;
-    *) IMAGES_ON=1 ;;
+    1|tak|true|yes|on) IMAGES_ON=1 ;;
+    *) IMAGES_MSG="wylaczone" ;;
 esac
 IMAGES_KEEP="$(config_var_raw DJANGO_BPP_BACKUP_IMAGES_KEEP_LAST)"
 case "$IMAGES_KEEP" in ''|*[!0-9]*|0) IMAGES_KEEP=2 ;; esac
