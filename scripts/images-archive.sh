@@ -202,13 +202,51 @@ if [ "$FORCE" != 1 ] && [ -n "$OSTATNI" ] \
     exit 0
 fi
 
-# --- 3. Miejsce na dysku: suma rozmiarow obrazow to gorne oszacowanie ---
-POTRZEBA_KB=0
+# --- 3. Miejsce na dysku: unikalne warstwy liczone RAZ, +10% ---
+# Jeden `docker save` wszystkich obrazow zapisuje kazda warstwe raz, a obrazy
+# iplweb/bpp_* dziela niemal wszystkie warstwy. Dawna suma `.Size` obrazow
+# liczyla wspolne warstwy tyle razy, ile obrazow: piec obrazow BPP po ~1 GB
+# dawalo szacunek ~8,6 GiB przy realnych ~4,7 GiB i rezerwa (exit 8) co noc
+# pomijala archiwum na dyskach, na ktorych spokojnie by sie zmiescilo.
+#
+# Rozmiar warstwy bierzemy z `docker history` - to rozmiar PO rozpakowaniu,
+# wiec nadal gorne oszacowanie pliku po kompresji (store containerd zapisuje
+# w `docker save` warstwy skompresowane, klasyczny overlay2 surowe, ktore
+# potem sciska gzip/zstd). Wpisy historii o niezerowym rozmiarze to, czytane
+# od najstarszego, kolejne RootFS.Layers - tak paruje je sam daemon. Gdy ich
+# liczba sie nie zgadza (np. warstwa o zerowym rozmiarze), parowanie jest
+# niepewne i obraz wchodzi CALYM `.Size`, bez deduplikacji - czyli z zapasem,
+# jak dawniej. Zapas 10% na naglowki tar i rozbieznosci miedzy store'ami.
+warstwy_z_rozmiarem() {   # <id> -> linie "diff_id bajty"; !=0, gdy nie da sie sparowac
+    local id="$1" warstwy rozmiary
+    warstwy="$(docker image inspect --format '{{range .RootFS.Layers}}{{.}} {{end}}' "$id")" || return 1
+    rozmiary="$(docker history --no-trunc --human=false --format '{{.Size}}' "$id")" || return 1
+    { printf '%s\n' "$warstwy" | tr ' ' '\n' | awk 'NF { print "W", $1 }'
+      printf '%s\n' "$rozmiary" | awk 'NF { print "R", $1 }'; } | awk '
+        $1 == "W" { w[++nw] = $2; next }
+        $1 == "R" { if ($2 !~ /^[0-9]+$/) zle = 1; else if ($2 + 0 > 0) r[++nr] = $2 }
+        END {
+            if (zle || nw == 0 || nw != nr) exit 1
+            for (i = 1; i <= nw; i++) print w[i], r[nr - i + 1]
+        }'
+}
+PARY_WARSTW=""
+CALE_B=0
 ids="$(printf '%s\n' "$obrazy" | cut -d'|' -f2 | sort -u)"
 for id in $ids; do
-    sz="$(docker image inspect --format '{{.Size}}' "$id")" || die "nie ma obrazu $id"
-    POTRZEBA_KB=$(( POTRZEBA_KB + sz / 1024 + 1 ))
+    if p="$(warstwy_z_rozmiarem "$id")"; then
+        PARY_WARSTW="$PARY_WARSTW$p
+"
+    else
+        sz="$(docker image inspect --format '{{.Size}}' "$id")" || die "nie ma obrazu $id"
+        log "UWAGA: warstwy $id nie paruja sie z historia - licze caly obraz ($((sz / 1048576)) MiB)"
+        CALE_B=$(( CALE_B + sz ))
+    fi
 done
+WARSTWY_B="$(printf '%s' "$PARY_WARSTW" \
+    | awk 'NF == 2 && !($1 in s) { s[$1] = 1; t += $2 } END { printf "%.0f\n", t }')"
+POTRZEBA_KB=$(( (WARSTWY_B + CALE_B) * 11 / 10 / 1024 + 1 ))
+log "szacunek archiwum: do $((POTRZEBA_KB / 1024)) MiB (unikalne warstwy + 10%)"
 DF_LINIA="$(df -Pk "$OBRAZY_DIR" | awk 'NR == 2 { print $2, $4 }')" || DF_LINIA=""
 CALOSC_KB="${DF_LINIA%% *}"
 WOLNE_KB="${DF_LINIA##* }"
@@ -219,8 +257,8 @@ case "$CALOSC_KB$WOLNE_KB" in
             die "za malo miejsca w $OBRAZY_DIR: wolne $((WOLNE_KB / 1024)) MiB, potrzeba do $((POTRZEBA_KB / 1024)) MiB" 6
         fi
         # Rezerwa: archiwum to dodatek do odtworzenia, nie moze zapchac dysku,
-        # na ktorym stoi baza. Liczone od gornego oszacowania (suma obrazow),
-        # wiec z zapasem. Ponizej progu krok jest pomijany co noc i sam rusza,
+        # na ktorym stoi baza. Liczone od gornego oszacowania (unikalne
+        # warstwy przed kompresja + 10%), wiec z zapasem. Ponizej progu krok jest pomijany co noc i sam rusza,
         # gdy przybedzie miejsca - bez zmian w .env.
         MIN_FREE_GB="${DJANGO_BPP_BACKUP_IMAGES_MIN_FREE_GB:-10}"
         MAX_PCT="${DJANGO_BPP_BACKUP_IMAGES_MAX_USED_PCT:-80}"

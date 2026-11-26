@@ -397,7 +397,12 @@ Tripwire'y, każdy nośny:
   `scripts/lib-container.sh`), nigdy po nazwie — compose nazwy generuje
   (`<projekt>-<usługa>-<n>`), a to repo nie ustawia `container_name:`.
 - **`notify_sentry` (GlitchTip, `SENTRY_DSN`) to bliźniak `notify_rollbar` — te same
-  reguły** (sukces zawsze, `|| true`, wysyłka z appservera). Program leży w
+  reguły** (funkcja zawsze zwraca 0, `|| true`, wysyłka z appservera). **Czysty
+  sukces NIE idzie do GlitchTipa** (każde zdarzenie o innej treści zakładało nowe
+  zgłoszenie — co noc na każdym hoście); sukces z uwagami (`uwagi_cyklu`) idzie
+  jako `warning`, błąd jako `error`, oba ze stałym `BPP_SENTRY_FINGERPRINT`
+  (`backup-cycle,<uwagi|fail>,<host>[,<krok>]`). Nowa adnotacja problemu w
+  komunikacie musi trafić do `uwagi_cyklu`, inaczej zniknie z GlitchTipa. Program leży w
   `scripts/sentry-store.py` (tylko stdlib, podawany na stdin `python -`) i jest
   wspólny z `make test-sentry`. **Nie przepisuj go na `sentry-sdk`** — musi działać
   na obrazach appservera sprzed tej biblioteki. Kanały są niezależne: wyłączenie
@@ -477,8 +482,14 @@ bo grep po źródle nie widzi tego, co naprawdę poleci do rclone. Operator doc:
 Cel: odtworzenie serwera, gdy Docker Hub/GitHub nie działa. **Domyślnie
 włączone, ale z rezerwą dysku** (`images-archive.sh` exit 8 → adnotacja
 `ZA-MALO-MIEJSCA(...)`): po zapisie ≥ `DJANGO_BPP_BACKUP_IMAGES_MIN_FREE_GB`
-(10) GB wolnego i ≤ `_MAX_USED_PCT` (80)% zajęte, liczone od sumy rozmiarów
-obrazów (górne oszacowanie). To rezerwa, a nie opt-in, pozwala włączyć archiwum
+(10) GB wolnego i ≤ `_MAX_USED_PCT` (80)% zajęte, liczone od **unikalnych warstw**
+(`RootFS.Layers` sparowane z `docker history`, rozmiar przed kompresją, +10%;
+obraz, którego nie da się sparować, wchodzi całym `.Size`). **Nie wracaj do sumy
+`.Size` obrazów** — archiwum to jeden `docker save`, wspólne warstwy są w nim
+raz, a suma liczyła je per obraz (5× ~1 GB BPP → ~8,6 GiB zamiast ~4,7) i rezerwa
+fałszywie pomijała archiwum. Rotacja lokalna (krok 3) stoi w `backup-cycle.sh`
+**przed** 2c, żeby rezerwa nie widziała nadmiarowego kompletu kopii — nie
+przenoś jej przed krok 1/2 (nieudany backup kasowałby dobre kopie). To rezerwa, a nie opt-in, pozwala włączyć archiwum
 wszędzie: host z małym dyskiem sam pomija krok i sam rusza po powiększeniu —
 **nie zamieniaj jej na wyłącznik w `.env` ani nie licz od rozmiaru po
 kompresji** (pierwszy zestaw nie ma poprzednika). Atrapa `df` w

@@ -17,6 +17,10 @@ Zmienne:
     BPP_SENTRY_ENV      - environment (domyslnie SENTRY_ENVIRONMENT albo "production")
     BPP_SENTRY_LOGGER   - logger/komponent (domyslnie backup-cycle)
     BPP_SENTRY_TS       - znacznik cyklu, trafia do "extra"
+    BPP_SENTRY_FINGERPRINT - opcjonalny klucz grupowania, lista po przecinku
+                          (np. "backup-cycle,fail,<host>,pg_dump"); pusty =
+                          GlitchTip grupuje po tresci (kazda inna tresc =
+                          nowe zgloszenie)
 
 Kod wyjscia: 0 przy wyslaniu albo braku DSN; !=0 przy bledzie sieci/HTTP.
 Wolajacy (backup-cycle.sh) i tak go polyka - notyfikacja nie moze zmienic
@@ -64,6 +68,13 @@ def main():
         "tags": {"component": os.environ.get("BPP_SENTRY_LOGGER", "backup-cycle")},
         "extra": {"timestamp": os.environ.get("BPP_SENTRY_TS", "")},
     }
+    fingerprint = [
+        czesc.strip()
+        for czesc in os.environ.get("BPP_SENTRY_FINGERPRINT", "").split(",")
+        if czesc.strip()
+    ]
+    if fingerprint:
+        event["fingerprint"] = fingerprint
     req = urllib.request.Request(
         url,
         data=json.dumps(event).encode(),

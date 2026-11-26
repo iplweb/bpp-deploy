@@ -27,9 +27,12 @@ do kontenerów, które i tak istnieją i mają właściwe narzędzia:
 2. tar dumpu, mediów i [katalogu konfiguracyjnego](#backup-konfiguracji-env) —
    lokalnie (busybox `tar`; `/backup`, wolumen `media` i `$BPP_CONFIGS_DIR` są
    zamontowane także w orkiestratorze),
-3. [archiwum obrazów Dockera i repozytorium](#archiwum-obrazow) — tylko przy wolnym miejscu na dysku i gdy
-   zmieniły się obrazy działających kontenerów (`docker save` przez socket),
-4. rotacja lokalna (`DJANGO_BPP_BACKUP_KEEP_LAST`),
+3. rotacja lokalna (`DJANGO_BPP_BACKUP_KEEP_LAST`) — tylko po udanym zrzucie
+   bazy i mediów, więc nieudany backup nie kasuje starych kopii,
+4. [archiwum obrazów Dockera i repozytorium](#archiwum-obrazow) — tylko przy wolnym miejscu na dysku i gdy
+   zmieniły się obrazy działających kontenerów (`docker save` przez socket);
+   idzie **po** rotacji, żeby rezerwa dysku liczyła wolne miejsce bez
+   nadmiarowego kompletu kopii,
 5. `rclone copy` + retencja zdalna — w serwisie `rclone` (patrz niżej),
 6. notyfikacja do Rollbara i/lub [GlitchTipa](../monitoring/bledy-aplikacji.md#notyfikacje-nocnego-backupu)
    — `docker exec appserver python` (bez `curl`/`jq`); każdy kanał tylko, gdy skonfigurowany.
@@ -329,9 +332,14 @@ zestawu nie tworzy — wymusza go `make images-save FORCE=1`.
 
 **Rozmiar:** zmierzony dla zestawu bez monitoringu ok. **650–700 MB** (gzip -1;
 tyle samo na klasycznym `overlay2` i na store containerd Dockera 29), więcej przy
-dołączonym monitoringu. Przed zapisem cykl sprawdza wolne miejsce (sumą rozmiarów
-obrazów, czyli z zapasem) — przy braku miejsca pomija krok z adnotacją
-`obrazy=BRAK-MIEJSCA`.
+dołączonym monitoringu. Przed zapisem cykl sprawdza wolne miejsce: liczy
+**unikalne warstwy** wszystkich obrazów (rozmiar przed kompresją, każda wspólna
+warstwa raz, tak jak trafia do archiwum) plus 10% zapasu — czyli nadal z górką.
+Wcześniej sumował rozmiary obrazów, a pięć obrazów BPP dzielących niemal
+wszystkie warstwy liczył pięć razy (szacunek ~8,6 GiB przy realnych ~4,7 GiB),
+przez co rezerwa niepotrzebnie pomijała archiwum. Gdy warstw obrazu nie da się
+sparować z `docker history`, ten obraz wchodzi do szacunku w całości. Przy
+braku miejsca krok jest pomijany z adnotacją `obrazy=BRAK-MIEJSCA`.
 
 **Na zdalnym zestawy leżą w osobnym katalogu `REMOTE:obrazy/`**, nie w katalogu
 miesięcznym:

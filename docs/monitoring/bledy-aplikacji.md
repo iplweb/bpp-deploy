@@ -42,10 +42,21 @@ każdy błąd trafia wtedy do obu systemów. Służy to do okresu przejściowego
 
 ## Notyfikacje nocnego backupu
 
-Cykl backupu (`scripts/backup-cycle.sh`) wysyła wynik (sukces albo błąd z końcówką
-logu) do **każdego** skonfigurowanego kanału: Rollbara i GlitchTipa. Zdarzenie
-GlitchTipa ma `logger`/tag `component` = `backup-cycle`, a jako environment
-identyfikator hosta.
+Cykl backupu (`scripts/backup-cycle.sh`) wysyła wynik do skonfigurowanych
+kanałów. Rollbar dostaje każdy wynik (sukces albo błąd z końcówką logu).
+GlitchTip dostaje tylko to, czym trzeba się zająć:
+
+| Wynik cyklu | GlitchTip | Grupowanie (fingerprint) |
+|---|---|---|
+| sukces bez uwag | **nic** — sukces potwierdza [Healthchecks.io](../eksploatacja/backup-i-rclone.md#monitoring-backupu-healthchecksio) | — |
+| sukces z uwagami (`obrazy=ZA-MALO-MIEJSCA(...)`, `obrazy=BRAK-MIEJSCA`, `config=BLAD(...)`, `wysylka=BLAD`, błąd retencji…) | `warning` | jedno zgłoszenie na host |
+| błąd (`Backup FAIL … step=…`) | `error` | jedno zgłoszenie na host i krok |
+
+Stały fingerprint sprawia, że kolejne noce dopisują się do istniejącego
+zgłoszenia, zamiast zakładać nowe — treść komunikatu (rozmiary, czas trwania,
+końcówka logu) jest za każdym razem inna, więc bez niego GlitchTip zakładał
+nowe zgłoszenie co noc na każdym hoście. Zdarzenie ma `logger`/tag
+`component` = `backup-cycle`, a jako environment identyfikator hosta.
 
 Wysyłka idzie, tak jak w przypadku Rollbara, przez `docker exec appserver python`
 (orkiestrator nie ma `curl`). Program (`scripts/sentry-store.py`) korzysta tylko
