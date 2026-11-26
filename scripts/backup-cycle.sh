@@ -1,7 +1,7 @@
 #!/bin/sh
 #
 # Codzienny cykl backupu: pg_dump -> tar media -> tar konfiguracji -> lokalna
-# rotacja -> rclone copy -> retencja zdalna -> Rollbar/GlitchTip notify + heartbeat
+# rotacja -> archiwum obrazow -> rclone copy -> retencja zdalna -> Rollbar/GlitchTip notify + heartbeat
 # Healthchecks.io. Wywolywane przez Ofelie (label na kontenerze
 # backup-runner) lub recznie: `make backup-cycle`.
 #
@@ -284,8 +284,14 @@ with urllib.request.urlopen(req, timeout=10) as r:
 # curl/jq), DSN czytany z env appservera, program podawany na stdin ze
 # scripts/sentry-store.py (wspolny z `make test-sentry`).
 # KRYTYCZNE (jak notify_rollbar): funkcja konczy sie sukcesem ZAWSZE.
+#
+# $3 - fingerprint (lista po przecinku): STALY klucz grupowania w GlitchTipie.
+# Bez niego GlitchTip grupuje po tresci, a tresc niesie rozmiary, czas
+# i koncowke logu - kazda noc i kazdy host zakladaly NOWE zgloszenie.
+# Z kluczem `backup-cycle,<rodzaj>,<host>[,<krok>]` kolejne zdarzenia
+# dopisuja sie do jednego zgloszenia per host i rodzaj problemu.
 notify_sentry() {
-    _level="$1"; _message="$2"
+    _level="$1"; _message="$2"; _fingerprint="${3:-}"
     if [ -z "${SENTRY_DSN:-}" ]; then
         log "sentry: skip (SENTRY_DSN not set)"
         return 0
@@ -300,6 +306,7 @@ notify_sentry() {
         -e "BPP_SENTRY_TS=$TIMESTAMP" \
         -e "BPP_SENTRY_ENV=${BPP_HOST_ID:-unknown}" \
         -e "BPP_SENTRY_LOGGER=backup-cycle" \
+        -e "BPP_SENTRY_FINGERPRINT=$_fingerprint" \
         "$_app" python - < "$SCRIPT_DIR/sentry-store.py" \
         2>&1 | while IFS= read -r _line; do log "sentry: $_line"; done || true
     return 0
@@ -358,7 +365,7 @@ Log tail:
 $tail_log" || true
     notify_sentry error "Backup FAIL on ${BPP_HOST_ID:-unknown}: step=$step exit=$code
 Log tail:
-$tail_log" || true
+$tail_log" "backup-cycle,fail,${BPP_HOST_ID:-unknown},$step" || true
     notify_healthchecks /fail "step=$step exit=$code
 Log tail:
 $tail_log" || true
@@ -387,7 +394,8 @@ on_exit() {
     BPP_INTENDED_EXIT=1
     log "FAIL: unexpected-error (exit=$rc)" || true
     notify_rollbar error "Backup FAIL on ${BPP_HOST_ID:-unknown}: step=unexpected-error exit=$rc" || true
-    notify_sentry error "Backup FAIL on ${BPP_HOST_ID:-unknown}: step=unexpected-error exit=$rc" || true
+    notify_sentry error "Backup FAIL on ${BPP_HOST_ID:-unknown}: step=unexpected-error exit=$rc" \
+        "backup-cycle,fail,${BPP_HOST_ID:-unknown},unexpected-error" || true
     notify_healthchecks /fail "step=unexpected-error exit=$rc" || true
     exit "$rc"
 }
@@ -461,6 +469,39 @@ else
     fi
 fi
 
+# --- 3. Lokalna rotacja - zachowaj N najnowszych kopii kazdego typu ---
+#
+# Stoi PRZED archiwum obrazow (2c), choc numer ma pozniejszy: rezerwa dysku
+# w images-archive.sh mierzy wolne miejsce, a przed rotacja na dysku lezy
+# o jeden komplet db/media/config za duzo (dzisiejszy + KEEP_LAST starych).
+# Na hostach z ciasnym dyskiem to wlasnie ten komplet przewazal o
+# `obrazy=ZA-MALO-MIEJSCA`. Bezpieczne: tu dochodzimy WYLACZNIE po udanym
+# pg_dump i tar mediow (kazdy ich blad konczy cykl w fail()), a dzisiejsza
+# kopia jest najnowsza, wiec rotacja nigdy nie kasuje jedynej swiezej kopii.
+# Nie przenos rotacji przed krok 1/2 - wtedy nieudany backup kasowalby
+# najstarsza dobra kopie bez nastepczyni.
+prune_type() {
+    local prefix="$1"
+    # Nazwy plikow maja format ${prefix}-YYYYMMDD-HHMMSS.tar.gz, wiec
+    # sort leksykograficzny = sort chronologiczny. find+sort zamiast ls -1t
+    # bo shellcheck (SC2012) preferuje find, a busybox find w alpine nie
+    # ma -printf.
+    find "$BACKUP_DIR" -maxdepth 1 -type f -name "${prefix}-*.tar.gz" 2>/dev/null \
+        | sort -r \
+        | tail -n +$((KEEP_LAST + 1)) \
+        | while IFS= read -r f; do
+            [ -n "$f" ] || continue
+            log "prune: removing $f"
+            # Nieudane prune to ostrzezenie, nie powod by przerwac backup
+            # przed wysylka na zdalny.
+            rm -f "$f" || log "WARN: nie udalo sie usunac $f"
+        done
+}
+log "local rotation: keep last $KEEP_LAST per type"
+prune_type db-backup
+prune_type media-backup
+prune_type config-backup
+
 # --- 2c. Archiwum obrazow Dockera + git bundle repo (praca bez Huba/GitHuba) ---
 #
 # Logika w scripts/images-archive.sh (wspolna z `make images-save`). Nowy
@@ -514,29 +555,6 @@ if [ "$IMAGES_ON" = 1 ]; then
         fi
     fi
 fi
-
-# --- 3. Lokalna rotacja - zachowaj N najnowszych kopii kazdego typu ---
-prune_type() {
-    local prefix="$1"
-    # Nazwy plikow maja format ${prefix}-YYYYMMDD-HHMMSS.tar.gz, wiec
-    # sort leksykograficzny = sort chronologiczny. find+sort zamiast ls -1t
-    # bo shellcheck (SC2012) preferuje find, a busybox find w alpine nie
-    # ma -printf.
-    find "$BACKUP_DIR" -maxdepth 1 -type f -name "${prefix}-*.tar.gz" 2>/dev/null \
-        | sort -r \
-        | tail -n +$((KEEP_LAST + 1)) \
-        | while IFS= read -r f; do
-            [ -n "$f" ] || continue
-            log "prune: removing $f"
-            # Nieudane prune to ostrzezenie, nie powod by przerwac backup
-            # przed wysylka na zdalny.
-            rm -f "$f" || log "WARN: nie udalo sie usunac $f"
-        done
-}
-log "local rotation: keep last $KEEP_LAST per type"
-prune_type db-backup
-prune_type media-backup
-prune_type config-backup
 
 # --- 4. rclone copy do katalogu MIESIECZNEGO ---
 #
@@ -677,12 +695,37 @@ prune_remote_months() {
 prune_remote_months
 
 # --- 6. Sukces - notify ---
+# uwagi_cyklu - adnotacje, przy ktorych cykl skonczyl sie sukcesem, ale cos
+# wymaga uwagi operatora. Pusta = czysty sukces. Lista jawna: nowa adnotacja
+# problemu w kroku 2b/2c/4b/5 musi tu trafic, inaczej zniknie z GlitchTipa.
+uwagi_cyklu() {
+    _u=""
+    case "$CONFIG_MSG" in BRAK-*|BLAD*) _u="$_u config=$CONFIG_MSG" ;; esac
+    case "$IMAGES_MSG" in
+        *BRAK-*|*BLAD*|*ZA-MALO-MIEJSCA*|'?'*) _u="$_u obrazy=$IMAGES_MSG" ;;
+    esac
+    case "$RETENCJA_MSG" in
+        *BLAD*|blad*|pusta*) _u="$_u retencja_zdalna=$RETENCJA_MSG" ;;
+    esac
+    printf '%s' "${_u# }"
+}
 END_TS=$(date +%s)
 DURATION=$(( END_TS - START_TS ))
 MSG="Backup OK on ${BPP_HOST_ID:-unknown}: db=$(fmt_size "$DB_SIZE") media=$(fmt_size "$MEDIA_SIZE") config=$CONFIG_MSG obrazy=$IMAGES_MSG remote=$REMOTE_DIR duration=${DURATION}s keep_last=$KEEP_LAST retencja_zdalna=$RETENCJA_MSG"
 log "$MSG"
 notify_rollbar info "$MSG"
-notify_sentry info "$MSG" || true
+# GlitchTip to tracker PROBLEMOW: kazde zdarzenie to zgloszenie do obejrzenia.
+# Czysty sukces tam nie idzie - "backup przeszedl" potwierdza heartbeat
+# Healthchecks (alarmuje tez, gdy cykl w ogole nie ruszyl) i Rollbar. Idzie
+# natomiast udany cykl Z UWAGAMI (`obrazy=ZA-MALO-MIEJSCA`, `config=BLAD`...)
+# - jako warning ze stalym fingerprintem, czyli jedno zgloszenie na host,
+# a nie nowe co noc. Bledy (fail/on_exit) ida zawsze, jako error.
+UWAGI="$(uwagi_cyklu)"
+if [ -n "$UWAGI" ]; then
+    notify_sentry warning "$MSG" "backup-cycle,uwagi,${BPP_HOST_ID:-unknown}" || true
+elif [ -n "${SENTRY_DSN:-}" ]; then
+    log "sentry: sukces bez uwag - bez zgloszenia (sukces potwierdza Healthchecks)"
+fi
 notify_healthchecks "" "$MSG" || true
 
 BPP_INTENDED_EXIT=1

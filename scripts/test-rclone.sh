@@ -1051,6 +1051,43 @@ assert_contains "$(cat "$RECORD")" "python - <sentry-store>" \
 assert_contains "$(cat "$CYCLE_LOG")" "sentry: http=200" \
     "odpowiedz GlitchTipa trafia do logu cyklu"
 
+# GlitchTip to tracker problemow: czysty sukces NIE zaklada zgloszenia
+# (26.11 kazdy host kazdej nocy dawal nowe "Backup OK on ..."). Cykl z uwagami
+# idzie jako warning, bledy jako error - oba ze STALYM fingerprintem, zeby
+# kolejne noce dopisywaly sie do jednego zgloszenia zamiast zakladac nowe.
+# Domyslny run_cycle ma adnotacje obrazy=BRAK-MOUNTU (brak /repo) - czysty
+# sukces wymaga wylaczonego archiwum obrazow.
+: > "$RECORD"
+MOCK_YM=2026-08 SENTRY_DSN_ENV="https://klucz@glitchtip.example/1" \
+    IMAGES_FILE="DJANGO_BPP_BACKUP_IMAGES_ENABLED=0" run_cycle
+assert_eq "0" "$CYCLE_RC" "czysty sukces z SENTRY_DSN: exit 0"
+assert_not_contains "$(cat "$RECORD")" "<sentry-store>" \
+    "MUTACYJNY: czysty sukces NIE idzie do GlitchTipa (nowe zgloszenie co noc)"
+assert_contains "$(cat "$CYCLE_LOG")" "sentry: sukces bez uwag - bez zgloszenia" \
+    "czysty sukces: log mowi, dlaczego GlitchTip pominiety"
+
+: > "$RECORD"
+STUB_IMG8B="$TEST_ROOT/images-archive-rezerwa-8b.sh"
+printf '#!/bin/sh\necho "REZERWA wolne=13G zajete=78%%"\nexit 8\n' > "$STUB_IMG8B"
+MOCK_YM=2026-08 SENTRY_DSN_ENV="https://klucz@glitchtip.example/1" \
+    REPO_DIR_ENV="$TEST_ROOT" IMAGES_SCRIPT_ENV="$STUB_IMG8B" run_cycle
+rec="$(cat "$RECORD")"
+assert_eq "0" "$CYCLE_RC" "sukces z uwagami: exit 0"
+assert_contains "$rec" "python - <sentry-store>" \
+    "MUTACYJNY: obrazy=ZA-MALO-MIEJSCA dalej trafia do GlitchTipa"
+assert_contains "$rec" "BPP_SENTRY_LEVEL=warning" "sukces z uwagami: poziom warning"
+assert_contains "$rec" "BPP_SENTRY_FINGERPRINT=backup-cycle,uwagi,test.example " \
+    "sukces z uwagami: staly fingerprint per host (bez rozmiarow i czasu)"
+
+: > "$RECORD"
+MOCK_YM=2026-08 SENTRY_DSN_ENV="https://klucz@glitchtip.example/1" \
+    MOCK_FAIL_ON_STEP=pg_dump run_cycle
+rec="$(cat "$RECORD")"
+assert_eq "1" "$CYCLE_RC" "fail z SENTRY_DSN: exit 1"
+assert_contains "$rec" "BPP_SENTRY_LEVEL=error" "fail: poziom error"
+assert_contains "$rec" "BPP_SENTRY_FINGERPRINT=backup-cycle,fail,test.example,pg_dump " \
+    "fail: fingerprint per host i krok (koncowka logu nie rozbija grupy)"
+
 # Padly appserver: kod wyjscia zostaje 1 (pg_dump), nie 42 z atrapy dockera.
 : > "$RECORD"
 MOCK_YM=2026-08 SENTRY_DSN_ENV="https://klucz@glitchtip.example/1" MOCK_FAIL_ON=exec-appserver MOCK_FAIL_ON_STEP=pg_dump run_cycle
@@ -1293,6 +1330,22 @@ printf '#!/bin/sh\necho "REZERWA wolne=13G zajete=78%%"\nexit 8\n' > "$STUB_IMG"
 MOCK_YM=2026-08 REPO_DIR_ENV="$TEST_ROOT" IMAGES_SCRIPT_ENV="$STUB_IMG" run_cycle
 assert_eq "0" "$CYCLE_RC" "MUTACYJNY: rezerwa dysku nie zmienia kodu wyjscia"
 assert_contains "$(cat "$CYCLE_LOG")" "obrazy=ZA-MALO-MIEJSCA(wolne 13G, zajete 78%)" "rezerwa: adnotacja z liczbami"
+
+# Rotacja lokalna (krok 3) PRZED archiwum obrazow (2c): rezerwa dysku ma
+# widziec dysk bez nadmiarowego kompletu kopii. Plus: rotacja nadal tylko po
+# udanym backupie bazy (pg_dump pada -> zero kasowania).
+log_cyklu="$(cat "$CYCLE_LOG")"
+nr_rotacji="$(grep -n 'local rotation:' <<< "$log_cyklu" | cut -d: -f1 | head -1)"
+nr_obrazow="$(grep -n 'archiwum obrazow (krok 2c)' <<< "$log_cyklu" | cut -d: -f1 | head -1)"
+if [ -n "$nr_rotacji" ] && [ -n "$nr_obrazow" ] && [ "$nr_rotacji" -lt "$nr_obrazow" ]; then
+    pass "MUTACYJNY: rotacja lokalna przed archiwum obrazow"
+else
+    fail "MUTACYJNY: rotacja lokalna przed archiwum obrazow (rotacja: '${nr_rotacji}', obrazy: '${nr_obrazow}')"
+fi
+MOCK_YM=2026-08 PRE_CONFIG_BACKUPS=9 MOCK_FAIL_ON_STEP=pg_dump run_cycle
+assert_eq "1" "$CYCLE_RC" "pg_dump pada: exit 1"
+assert_eq "9" "$(find "$CYCLE_WORK/backup" -name 'config-backup-*' | grep -c . || true)" \
+    "MUTACYJNY: nieudany backup bazy -> zero rotacji (stare kopie nietkniete)"
 
 # Kontener sprzed `make up` (brak /repo): krok pominiety, cykl OK.
 MOCK_YM=2026-08 IMAGES_FILE="DJANGO_BPP_BACKUP_IMAGES_ENABLED=1" run_cycle

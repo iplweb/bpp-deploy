@@ -41,7 +41,10 @@ mkdir -p "$BIN" "$M"
 
 # Stan:
 #   $M/containers  cid|usluga|ref|id         (dzialajace kontenery projektu)
-#   $M/images      ref|id|rozmiar|warstwy|repo_digests
+#   $M/images      ref|id|rozmiar|warstwy|repo_digests[|historia]
+#                  historia = rozmiary z `docker history`, od NAJNOWSZEGO
+#                  (0 = wpis bez warstwy, np. ENV); brak pola = pusta historia
+#                  -> skrypt nie sparuje warstw i liczy caly `.Size`.
 cat > "$BIN/docker" <<'MOCK'
 #!/usr/bin/env bash
 echo "docker $*" >> "$M/calls"
@@ -79,6 +82,10 @@ case "$1" in
         [ -n "$line" ] || exit 1
         awk -F'|' -v d="$3" '$1 != d' "$M/images" > "$M/images.n"; mv "$M/images.n" "$M/images"
         echo "$3|$(echo "$line" | cut -d'|' -f2-)" >> "$M/images" ;;
+    history)
+        line="$(img_find "${!#}")"
+        [ -n "$line" ] || { echo "Error: No such image: ${!#}" >&2; exit 1; }
+        echo "$line" | cut -d'|' -f6 | tr ' ' '\n' | grep . || true ;;
     rmi)
         awk -F'|' -v d="$2" '$1 != d' "$M/images" > "$M/images.n"; mv "$M/images.n" "$M/images" ;;
     save)
@@ -272,6 +279,44 @@ assert_eq 0 "$SAVE_RC" "progi =0: rezerwa wylaczona"
 reset_state; rm -rf "$BK"
 MIN_FREE_ENV=15 MAX_PCT_ENV=0 MOCK_DF_SIZE_KB=$((100 * GB)) MOCK_DF_FREE_KB=$((12 * GB)) run_save
 assert_eq 8 "$SAVE_RC" "MIN_FREE_GB=15 z env -> exit 8"
+
+echo "=== 8c. Szacunek miejsca: wspolne warstwy liczone RAZ (jeden docker save) ==="
+# Dwa obrazy BPP po 10 100 MiB dziela warstwe l1 (10 000 MiB). Suma .Size =
+# ~19,7 GiB, unikalne warstwy = 10 201 MiB (+10% = ~10,96 GiB). Przy 29 GiB
+# wolnego stary szacunek zostawialby ~9,3 GiB (< 10 -> pomin), nowy ~18 GiB
+# (zapis). MAX_PCT=0 izoluje prog GB.
+MB=1024
+reset_state; rm -rf "$BK"
+img8c() {   # <historia workerservera>
+    cat <<EOF
+iplweb/bpp_appserver:latest|$A_OLD|$((10100 * MB * MB))|sha256:l1 sha256:l2 |-|0 $((100 * MB * MB)) 0 $((10000 * MB * MB)) 0
+iplweb/bpp_workerserver:latest|$W|$((10100 * MB * MB))|sha256:l1 sha256:l3 |-|$1
+postgres:18.4|$D|$((MB * MB))|sha256:p1 |-|$((MB * MB))
+EOF
+}
+img8c "$((100 * MB * MB)) $((10000 * MB * MB))" > "$M/images"
+grep -v '|netdata|' "$M/containers" > "$M/c.n"; mv "$M/c.n" "$M/containers"
+MAX_PCT_ENV=0 MOCK_DF_SIZE_KB=$((200 * GB)) MOCK_DF_FREE_KB=$((29 * GB)) run_save
+assert_eq 0 "$SAVE_RC" "MUTACYJNY: wspolna warstwa liczona raz -> zapis (suma .Size by pominela)"
+assert_contains "$SAVE_ERR" "szacunek archiwum: do 1122" "szacunek ~10,96 GiB (unikalne warstwy + 10%)"
+# Zapas 10%: 20,5 GiB wolnego. Bez zapasu (10 201 MiB = ~9,96 GiB) zostaloby
+# ~10,5 GiB -> zapis; z zapasem (~10,96 GiB) ~9,5 GiB -> pomin.
+rm -rf "$BK"
+MAX_PCT_ENV=0 MOCK_DF_SIZE_KB=$((20 * GB + GB / 2)) MOCK_DF_FREE_KB=$((20 * GB + GB / 2)) run_save
+assert_eq 8 "$SAVE_RC" "MUTACYJNY: zapas 10% wchodzi do szacunku"
+# Historia nie paruje sie z warstwami (np. warstwa o zerowym rozmiarze) ->
+# caly .Size workerservera, bez deduplikacji: ostrozniej, jak dawniej.
+rm -rf "$BK"
+img8c "$((10000 * MB * MB))" > "$M/images"
+MAX_PCT_ENV=0 MOCK_DF_SIZE_KB=$((200 * GB)) MOCK_DF_FREE_KB=$((29 * GB)) run_save
+assert_eq 8 "$SAVE_RC" "niesparowana historia -> caly .Size (ostrozniej), pomin"
+assert_contains "$SAVE_ERR" "nie paruja sie z historia" "komunikat o niesparowanych warstwach"
+# Obraz dzialajacego kontenera zniknal -> blad jak dawniej.
+rm -rf "$BK"
+img8c "$((100 * MB * MB)) $((10000 * MB * MB))" | grep -v '^postgres' > "$M/images"
+run_save
+assert_eq 1 "$SAVE_RC" "brak obrazu dzialajacego kontenera -> exit 1"
+assert_contains "$SAVE_ERR" "nie ma obrazu $D" "komunikat: nie ma obrazu"
 
 echo "=== 9. docker save pada -> exit 1, bez polowicznego zestawu i tymczasowych tagow ==="
 reset_state; rm -rf "$BK"
