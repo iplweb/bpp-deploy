@@ -17,7 +17,7 @@
 #   DJANGO_BPP_HEALTHCHECKS_URL   - baza adresow pingu (wlasna instancja
 #                                   Healthchecks), default https://hc-ping.com
 #   DJANGO_BPP_RCLONE_REMOTE      - target rclone, default "backup_enc:"
-#   DJANGO_BPP_BACKUP_KEEP_LAST   - ile kopii lokalnie, default 7
+#   DJANGO_BPP_BACKUP_KEEP_LAST   - ile kopii lokalnie, default 3
 #   DJANGO_BPP_RCLONE_KEEP_MONTHS - retencja ZDALNA: ile katalogow
 #                                   miesiecznych zachowac, default 12.
 #                                   Dowolna wartosc niebedaca dodatnia liczba
@@ -189,7 +189,7 @@ MEDIA_TAR="${BACKUP_DIR}/media-backup-${TIMESTAMP}.tar.gz"
 REMOTE="${DJANGO_BPP_RCLONE_REMOTE:-backup_enc:}"
 CURRENT_YM="$(date +%Y-%m)"
 REMOTE_DIR="$(rclone_month_dir "$REMOTE" "$CURRENT_YM")"
-KEEP_LAST="${DJANGO_BPP_BACKUP_KEEP_LAST:-7}"
+KEEP_LAST="${DJANGO_BPP_BACKUP_KEEP_LAST:-3}"
 # `-`, NIE `:-`. Dokumentacja obiecuje, ze pusta wartosc wylacza retencje;
 # przy `:-` pusty string jest traktowany jak brak zmiennej i wpadalby na 12,
 # czyli operator wpisujacy `DJANGO_BPP_RCLONE_KEEP_MONTHS=` w .env dostawalby

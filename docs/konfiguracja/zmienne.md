@@ -132,7 +132,7 @@ Wymuszenie zmiany hasła po podejrzeniu wycieku robi się w BPP poleceniem
 |---|---|---|---|---|---|
 | `DJANGO_BPP_BACKUP_ENABLED` | flaga 1/0 | `1` | nie | nie | Nocny cykl backupu (Ofelia 01:45): 0 = pomijany bez zadnych powiadomien; reczne make backup / backup-cycle dzialaja zawsze |
 | `DJANGO_BPP_HOST_BACKUP_DIR` | sciezka | `backups/` obok katalogu konfiguracyjnego | tak | nie | Katalog backupow na hoscie (sciezka bezwzgledna) |
-| `DJANGO_BPP_BACKUP_KEEP_LAST` | liczba | `7` | nie | nie | Ile ostatnich kopii kazdego typu trzymac lokalnie |
+| `DJANGO_BPP_BACKUP_KEEP_LAST` | liczba | `3` | nie | nie | Ile ostatnich kopii kazdego typu trzymac lokalnie |
 | `DJANGO_BPP_RCLONE_REMOTE` | tekst | `backup_enc:` | nie | nie | Remote rclone dla kopii zdalnych (nazwa z rclone.conf zakonczona dwukropkiem) |
 
 ### Freshdesk

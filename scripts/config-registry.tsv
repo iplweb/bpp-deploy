@@ -33,7 +33,7 @@ DJANGO_BPP_GOOGLE_ANALYTICS_PROPERTY_ID	Google	tekst		tak	tak	Google Analytics P
 DJANGO_BPP_GOOGLE_VERIFICATION_CODE	Google	tekst		tak	tak	Google Search Console verification code (pusta = brak)
 DJANGO_BPP_BACKUP_ENABLED	Backup	flaga	1	nie	nie	Nocny cykl backupu (Ofelia 01:45): 0 = pomijany bez zadnych powiadomien; reczne make backup / backup-cycle dzialaja zawsze
 DJANGO_BPP_HOST_BACKUP_DIR	Backup	sciezka	${BPP_DOMYSLNY_KATALOG_BACKUPOW}	tak	nie	Katalog backupow na hoscie (sciezka bezwzgledna)
-DJANGO_BPP_BACKUP_KEEP_LAST	Backup	liczba	7	nie	nie	Ile ostatnich kopii kazdego typu trzymac lokalnie
+DJANGO_BPP_BACKUP_KEEP_LAST	Backup	liczba	3	nie	nie	Ile ostatnich kopii kazdego typu trzymac lokalnie
 DJANGO_BPP_RCLONE_REMOTE	Backup	tekst	backup_enc:	nie	nie	Remote rclone dla kopii zdalnych (nazwa z rclone.conf zakonczona dwukropkiem)
 DJANGO_BPP_FRESHDESK_WIDGET_ID	Freshdesk	id	205000000433	tak	tak	ID widgetu Freshdesk dla ZALOGOWANYCH (pusta = brak zakladki Pomoc dla zalogowanych)
 DJANGO_BPP_FRESHDESK_WIDGET_ID_ANON	Freshdesk	id		tak	tak	ID widgetu Freshdesk dla ANONIMOW (pusta = anonimowi nie widza zakladki Pomoc)

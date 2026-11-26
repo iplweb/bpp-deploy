@@ -327,7 +327,7 @@ run_cycle() {
             fi
             ;;
     esac
-    # Stare kopie do rotacji (KEEP_LAST=7): PRE_CONFIG_BACKUPS sztuk.
+    # Stare kopie do rotacji (KEEP_LAST=3): PRE_CONFIG_BACKUPS sztuk.
     # Petla while, nie `seq`: BSD seq (macOS) dla `seq 1 0` liczy W DOL (1, 0).
     local i=1
     while [ "$i" -le "${PRE_CONFIG_BACKUPS:-0}" ]; do
@@ -478,8 +478,8 @@ assert_eq "config-backup-$DB_TS.tar.gz" "$(basename "${CFG_NEW:-brak}")" \
 if [ -n "$CFG_NEW" ]; then
     assert_eq "600" "$(perm_of_cfg "$CFG_NEW")" "archiwum konfiguracji ma tryb 600"
 fi
-assert_eq "7" "$(find "$CYCLE_WORK/backup" -maxdepth 1 -name 'config-backup-*.tar.gz' | wc -l | tr -d ' ')" \
-    "MUTACYJNY: rotacja lokalna obejmuje config-backup (KEEP_LAST=7)"
+assert_eq "3" "$(find "$CYCLE_WORK/backup" -maxdepth 1 -name 'config-backup-*.tar.gz' | wc -l | tr -d ' ')" \
+    "MUTACYJNY: rotacja lokalna obejmuje config-backup (KEEP_LAST=3)"
 CFG_LOG="$(cat "$CYCLE_LOG")"
 assert_contains "$CFG_LOG" "config-backup ok" "log potwierdza backup konfiguracji"
 assert_contains "$CFG_LOG" "Backup OK on test.example: db=" "komunikat sukcesu jest"

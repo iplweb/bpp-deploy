@@ -217,12 +217,16 @@ backup_enc:
 Wysyłka to `rclone copy` całego lokalnego katalogu backupów. Ponieważ nazwy
 niosą timestamp, a katalog docelowy jest **stały przez cały miesiąc**, `copy`
 wysyła tylko to, czego na zdalnym jeszcze nie ma — czyli 2 pliki dziennie.
-Jednocześnie co noc „pokazuje" zdalnemu całe lokalne okno 7 kopii, więc dzień,
-w którym rclone padł, uzupełnia się sam następnej nocy.
+Jednocześnie co noc „pokazuje" zdalnemu całe lokalne okno `KEEP_LAST` kopii
+(domyślnie 3), więc dzień, w którym rclone padł, uzupełnia się sam przy
+następnej udanej wysyłce — o ile kopia jeszcze leży lokalnie. Rotacja lokalna
+idzie przed wysyłką, więc przy `KEEP_LAST=3` są **dwie noce zapasu**: kopia,
+której wysyłka padła dwie noce z rzędu, jeszcze dotrze; po trzech — już nie.
+Dlatego nie schodź poniżej 3 bez powodu.
 
 !!! danger "Do katalogu miesięcznego wolno wysyłać wyłącznie `rclone copy`"
     `rclone sync` skasowałby z katalogu miesiąca wszystko, czego nie ma
-    lokalnie — czyli **całe archiwum poza ostatnimi 7 dniami** — i zakończyłby
+    lokalnie — czyli **całe archiwum poza ostatnimi kilkoma dniami** — i zakończyłby
     się sukcesem, bez śladu w logach. Broni tego asercja mutacyjna w
     `make test-rclone`.
 
@@ -286,7 +290,7 @@ Bezpieczniki, każdy celowy:
   kod wyjścia cyklu się nie zmienia. Sprzątanie nie ma prawa zamienić udanego
   backupu w alert.
 
-Retencja **lokalna** (`DJANGO_BPP_BACKUP_KEEP_LAST`, domyślnie 7 kopii) jest od
+Retencja **lokalna** (`DJANGO_BPP_BACKUP_KEEP_LAST`, domyślnie 3 kopie) jest od
 niej niezależna i działa jak dotąd.
 
 ## Archiwum obrazów i repozytorium — praca bez Docker Huba i GitHuba {#archiwum-obrazow}
@@ -496,7 +500,7 @@ archiwizowany **tak samo jak baza**:
   zaraz po zrzucie bazy i mediów, z **tym samym timestampem**;
 - **to samo miejsce** — osobny plik obok zrzutów w `$DJANGO_BPP_HOST_BACKUP_DIR`
   (nie wewnątrz dumpu bazy);
-- **ta sama rotacja** — `DJANGO_BPP_BACKUP_KEEP_LAST` (domyślnie 7) i ta sama
+- **ta sama rotacja** — `DJANGO_BPP_BACKUP_KEEP_LAST` (domyślnie 3) i ta sama
   wysyłka na zdalny (`rclone copy` całego katalogu backupów, katalog miesięczny);
 - **tryb 0600**, właściciel = właściciel katalogu backupów (żeby
   `make restore-config` działał z konta operatora bez `sudo`).
